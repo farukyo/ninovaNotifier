@@ -721,7 +721,7 @@ def check_for_updates():
     # Güncellenmiş kullanıcı tablosunu göster
     console.print()
     show_users_table()
-    console.print("[green]✅ Kontrol tamamlandı - İçindekiler güncellenmiş.")
+    console.print("[green] Kontrol tamamlandı.")
 
     # Son kontrol zamanını güncelle (Live display'de kullanmak için)
     global LAST_CHECK_DISPLAY_TIME
