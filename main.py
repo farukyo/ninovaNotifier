@@ -87,6 +87,228 @@ def show_users_table():
 # Dashboard layout - Future için hazırlanmış, şu an kullanılmıyor
 
 
+def check_user_updates(chat_id: str):
+    """Belirli bir kullanıcının notlarını kontrol eder (Bot /kontrol komutu için)."""
+    users = load_all_users()
+    user_data = users.get(chat_id)
+
+    if not user_data:
+        return {"success": False, "message": "Kullanıcı bilgileri bulunamadı."}
+
+    # Son kontrol zamanını güncelle
+    user_data["last_check"] = datetime.now().isoformat()
+    urls = user_data.get("urls", [])
+
+    if not urls:
+        return {"success": False, "message": "Takip edilen ders bulunamadı."}
+
+    username = user_data.get("username")
+    encrypted_password = user_data.get("password")
+
+    if not username or not encrypted_password:
+        return {"success": False, "message": "Kullanıcı bilgileri eksik."}
+
+    password = decrypt_password(encrypted_password)
+    saved_grades = load_saved_grades()
+    user_saved_grades = saved_grades.get(chat_id, {})
+
+    # Oturum önbelleğini kontrol et
+    if chat_id not in USER_SESSIONS:
+        USER_SESSIONS[chat_id] = requests.Session()
+        USER_SESSIONS[chat_id].headers.update(HEADERS)
+
+    user_session = USER_SESSIONS[chat_id]
+    all_current_grades = {}
+    changes = []
+    telegram_messages = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task(
+            f"[yellow]{username} ({len(urls)} ders) taranıyor...", total=len(urls)
+        )
+        for url in urls:
+            try:
+                grades = get_grades(user_session, url, chat_id, username, password)
+                if grades:
+                    all_current_grades[url] = grades
+            except LoginFailedError:
+                error_msg = "⚠️ <b>Giriş Başarısız!</b>\n\nNinova'ya giriş yapılamıyor (Oturum hatası)."
+                send_telegram_message(chat_id, error_msg, is_error=True)
+                return {"success": False, "message": f"Oturum açma hatası: {error_msg}"}
+
+            progress.update(task, advance=1)
+            time.sleep(0.2)
+
+    # Değişiklikleri kontrol et
+    for url, current_data in all_current_grades.items():
+        course_name = current_data.get("course_name", "Bilinmeyen Ders")
+        current_course_grades = current_data.get("grades", {})
+        current_assignments = current_data.get("assignments", [])
+        current_files = current_data.get("files", [])
+
+        saved_data = user_saved_grades.get(url, {})
+        if not isinstance(saved_data, dict):
+            saved_data = {}
+
+        saved_course_grades = saved_data.get("grades", {})
+        saved_assignments = saved_data.get("assignments", [])
+        saved_files = saved_data.get("files", [])
+
+        e_course = escape_html(course_name)
+        sections_changes = []
+
+        # NOT KONTROLÜ
+        for key, entry in current_course_grades.items():
+            new_val = entry["not"]
+            e_key, e_new_val = escape_html(key), escape_html(new_val)
+
+            if key not in saved_course_grades:
+                not_msg = f"📝 <b>YENİ NOT:</b> {e_key} -> {e_new_val}"
+                details = entry.get("detaylar", {})
+                detail_lines = []
+                if entry.get("agirlik"):
+                    detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
+                if "class_avg" in details:
+                    detail_lines.append(f"Sınıf Ort: {details['class_avg']}")
+                if "std_dev" in details:
+                    detail_lines.append(f"Std. Sapma: {details['std_dev']}")
+                if "student_count" in details:
+                    detail_lines.append(f"Kişi Sayısı: {details['student_count']}")
+                if "rank" in details:
+                    detail_lines.append(f"Sıralama: {details['rank']}")
+                if detail_lines:
+                    not_msg += "\n" + " | ".join(detail_lines)
+                sections_changes.append(not_msg)
+                changes.append(f"YENİ NOT: {key} -> {new_val}")
+            else:
+                old_entry = saved_course_grades[key]
+                old_val = (
+                    old_entry.get("not")
+                    if isinstance(old_entry, dict)
+                    else old_entry
+                ) or "?"
+                if old_val != new_val:
+                    e_old_val = escape_html(old_val)
+                    upd_msg = f"🔄 <b>NOT GÜNCELLENDİ:</b> {e_key}\n{e_old_val} ➡️ {e_new_val}"
+                    details = entry.get("detaylar", {})
+                    detail_lines = []
+                    if entry.get("agirlik"):
+                        detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
+                    if "class_avg" in details:
+                        detail_lines.append(f"Ort: {details['class_avg']}")
+                    if "rank" in details:
+                        detail_lines.append(f"Sıra: {details['rank']}")
+                    if detail_lines:
+                        upd_msg += "\n" + " | ".join(detail_lines)
+                    sections_changes.append(upd_msg)
+                    changes.append(f"NOT GÜNCELLENDİ: {key} ({old_val} -> {new_val})")
+
+        # ÖDEV KONTROLÜ
+        for assign in current_assignments:
+            saved_assign = next(
+                (a for a in saved_assignments if a.get("id") == assign.get("id")),
+                None,
+            )
+            e_assign_name = escape_html(assign["name"])
+
+            if not saved_assign:
+                sections_changes.append(
+                    f"📅 <b>YENİ ÖDEV:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
+                    f"Son Teslim: {assign['end_date']}"
+                )
+                changes.append(f"YENİ ÖDEV: {assign['name']}")
+            else:
+                if assign["end_date"] != saved_assign.get("end_date"):
+                    sections_changes.append(
+                        f"🕒 <b>TESLİM TARİHİ DEĞİŞTİ:</b> {e_assign_name}\n"
+                        f"Yeni Tarih: {assign['end_date']}"
+                    )
+                    changes.append(f"ÖDEV TARİHİ DEĞİŞTİ: {assign['name']}")
+
+        # DOSYA KONTROLÜ
+        saved_file_map = {f.get("url"): f for f in saved_files}
+        for file in current_files:
+            f_url = file["url"]
+            if f_url not in saved_file_map:
+                e_file_name = escape_html(file["name"])
+                icon = get_file_icon(file["name"].split("/")[-1])
+                sections_changes.append(
+                    f"{icon} <b>YENİ DOSYA:</b> <a href='{f_url}'>{e_file_name}</a>"
+                )
+                changes.append(f"YENİ DOSYA: {file['name']}")
+
+        # DUYURU KONTROLÜ
+        current_announcements = current_data.get("announcements", [])
+        saved_announcements = saved_data.get("announcements", [])
+        saved_ann_map = {a.get("id"): a for a in saved_announcements}
+
+        for ann in current_announcements:
+            ann_id = ann.get("id")
+            e_ann_title = escape_html(ann["title"])
+
+            if ann_id not in saved_ann_map:
+                full_content = get_announcement_detail(user_session, ann["url"])
+                ann["content"] = full_content
+                sections_changes.append(
+                    f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
+                )
+                changes.append(f"YENİ DUYURU: {ann['title']}")
+
+        # BİLDİRİM GÖNDERME
+        if sections_changes:
+            msg = f"📢 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
+            if any("NOT" in s for s in sections_changes):
+                perf = predict_course_performance(current_data)
+                if perf and "current_avg" in perf:
+                    msg += f"\n\n📈 <b>Ortalama:</b> <code>{perf['current_avg']:.2f}</code>"
+                    if "predicted_letter" in perf:
+                        msg += (
+                            f" | <b>Tahmin:</b> <code>{perf['predicted_letter']}</code>"
+                        )
+            telegram_messages.append(msg)
+
+        # KAYDETME
+        new_saved_data = {
+            "course_name": course_name,
+            "grades": current_course_grades,
+            "assignments": current_assignments,
+            "files": current_files,
+            "announcements": current_announcements,
+        }
+        user_saved_grades[url] = new_saved_data
+
+    # Verileri kaydet
+    if changes:
+        saved_grades[chat_id] = user_saved_grades
+        save_grades(saved_grades)
+        for t_msg in telegram_messages:
+            send_telegram_message(chat_id, t_msg)
+            time.sleep(1)
+
+    # Kullanıcı verilerini kaydet
+    from core.config import save_all_users
+
+    save_all_users(users)
+
+    # Son kontrol zamanını güncelle
+    global LAST_CHECK_DISPLAY_TIME
+    LAST_CHECK_DISPLAY_TIME = datetime.now().strftime("%H:%M:%S")
+
+    result_msg = f"✅ Kontrol tamamlandı ({len(changes)} değişiklik)"
+    if not changes:
+        result_msg = "✅ Kontrol tamamlandı (değişiklik yok)"
+
+    return {"success": True, "message": result_msg, "changes": len(changes)}
+
+
 def check_for_updates():
     update_last_check_time()
     msg = f"Kontrol Başlatıldı - {len(load_all_users())} kullanıcı"

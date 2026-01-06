@@ -272,13 +272,17 @@ def search_announcements(message):
 
 @bot.message_handler(commands=["kontrol"])
 def manual_check(message):
+    chat_id = str(message.chat.id)
     bot.reply_to(message, "🔄 Kontrol başlatılıyor, lütfen bekleyin...")
-    cb = get_check_callback()
-    if cb:
-        cb()
-        bot.send_message(message.chat.id, "✅ Kontrol tamamlandı.")
+    
+    # check_user_updates fonksiyonunu çağır (sadece bu kullanıcıyı kontrol et)
+    from main import check_user_updates
+    result = check_user_updates(chat_id)
+    
+    if result["success"]:
+        bot.send_message(chat_id, f"✅ {result['message']}")
     else:
-        bot.send_message(message.chat.id, "❌ Kontrol sistemi hazır değil.")
+        bot.send_message(chat_id, f"❌ Kontrol başarısız: {result['message']}")
 
 
 @bot.message_handler(commands=["otoders"])
