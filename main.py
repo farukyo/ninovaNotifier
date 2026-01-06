@@ -12,7 +12,9 @@ from rich.progress import (
     BarColumn,
     TimeRemainingColumn,
 )
+from rich.live import Live
 from rich.panel import Panel
+from rich.table import Table
 
 from core.config import (
     CHECK_INTERVAL,
@@ -45,51 +47,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ninova")
 
+# Son kontrol zamanı (global) - Live display'de kullanılacak
+LAST_CHECK_DISPLAY_TIME = None
 
-def migrate_urls_to_base_format():
-    """Eski URL formatını (Notlar ile biten) yeni base URL formatına dönüştürür."""
-    from core.config import save_all_users
 
+def show_users_table():
+    """Kayıtlı kullanıcıları tablo formatında gösterir."""
     users = load_all_users()
-    changed = False
+    if not users:
+        console.print("[yellow]Henüz kayıtlı kullanıcı yok.[/yellow]")
+        return
+
+    table = Table(
+        title="📋 Kayıtlı Kullanıcılar", show_header=True, header_style="bold magenta"
+    )
+    table.add_column("Chat ID", style="cyan", no_wrap=True)
+    table.add_column("Kullanıcı Adı", style="green")
+    table.add_column("Ders Sayısı", style="yellow", justify="center")
+    table.add_column("Son Aktivite", style="blue")
 
     for chat_id, user_data in users.items():
-        urls = user_data.get("urls", [])
-        new_urls = []
-        for url in urls:
-            base_url = url
-            for suffix in ["/Notlar", "/Duyurular", "/Odevler", "/SinifDosyalari"]:
-                if base_url.endswith(suffix):
-                    base_url = base_url[: -len(suffix)]
-                    changed = True
-                    break
-            if base_url not in new_urls:
-                new_urls.append(base_url)
-        user_data["urls"] = new_urls
+        username = user_data.get("username", "Bilinmiyor")
+        urls_count = len(user_data.get("urls", []))
+        last_check_raw = user_data.get("last_check")
+        if last_check_raw:
+            try:
+                last_check_dt = datetime.fromisoformat(last_check_raw)
+                last_check = last_check_dt.strftime("%d/%m/%Y %H:%M")
+            except ValueError:
+                last_check = last_check_raw
+        else:
+            last_check = "Hiç"
+        table.add_row(str(chat_id), username, str(urls_count), last_check)
 
-    if changed:
-        save_all_users(users)
-        console.print("[green]✓ Kullanıcı URL'leri base formata dönüştürüldü.")
+    console.print(table)
+    console.print(f"\n[dim]Toplam {len(users)} kullanıcı kayıtlı.[/dim]")
 
-    # ninova_data.json'daki eski URL'leri de migrate et
-    saved_grades = load_saved_grades()
-    grades_changed = False
 
-    for chat_id, user_grades in list(saved_grades.items()):
-        new_user_grades = {}
-        for url, data in user_grades.items():
-            base_url = url
-            for suffix in ["/Notlar", "/Duyurular", "/Odevler", "/SinifDosyalari"]:
-                if base_url.endswith(suffix):
-                    base_url = base_url[: -len(suffix)]
-                    grades_changed = True
-                    break
-            new_user_grades[base_url] = data
-        saved_grades[chat_id] = new_user_grades
-
-    if grades_changed:
-        save_grades(saved_grades)
-        console.print("[green]✓ Kayıtlı veriler base URL formatına dönüştürüldü.")
+# Dashboard layout - Future için hazırlanmış, şu an kullanılmıyor
 
 
 def check_for_updates():
@@ -98,10 +93,18 @@ def check_for_updates():
     logger.info(msg)
     console.rule(f"[bold cyan][{time.strftime('%H:%M:%S')}] {msg}")
 
+    # Değişiklikler tablosu
+    changes_table = Table(title="🔄 Bu Kontrol Dönemindeki Değişiklikler")
+    changes_table.add_column("Kullanıcı", style="bold blue", no_wrap=True)
+    changes_table.add_column("Ders", style="bold green")
+    changes_table.add_column("Değişiklik", style="yellow")
+
     users = load_all_users()
     saved_grades = load_saved_grades()
 
     for chat_id, user_data in users.items():
+        # Son kontrol zamanını güncelle
+        user_data["last_check"] = datetime.now().isoformat()
         urls = user_data.get("urls", [])
         if not urls:
             continue
@@ -132,10 +135,13 @@ def check_for_updates():
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
             console=console,
             transient=True,
         ) as progress:
-            task = progress.add_task(f"[yellow]{chat_id} taranıyor...", total=len(urls))
+            task = progress.add_task(
+                f"[yellow]{username} ({len(urls)} ders) taranıyor...", total=len(urls)
+            )
             for url in urls:
                 try:
                     grades = get_grades(user_session, url, chat_id, username, password)
@@ -151,9 +157,6 @@ def check_for_updates():
 
                 progress.update(task, advance=1)
                 time.sleep(0.2)
-
-        if not all_current_grades:
-            continue
 
         user_saved_grades = saved_grades.get(chat_id, {})
         changes = []
@@ -208,6 +211,9 @@ def check_for_updates():
                     changes.append(
                         f"[bold green][{course_name}] YENİ NOT: {key} -> {new_val}"
                     )
+                    changes_table.add_row(
+                        username, course_name, f"📝 Yeni Not: {key} -> {new_val}"
+                    )
                 else:
                     old_entry = saved_course_grades[key]
                     old_val = (
@@ -239,6 +245,11 @@ def check_for_updates():
                         changes.append(
                             f"[bold yellow][{course_name}] GÜNCELLENDİ: {key} ({old_val} -> {new_val})"
                         )
+                        changes_table.add_row(
+                            username,
+                            course_name,
+                            f"🔄 Not Güncellendi: {key} ({old_val} -> {new_val})",
+                        )
 
             # --- 2. ÖDEV KONTROLÜ & HATIRLATMA ---
             for assign in current_assignments:
@@ -257,6 +268,9 @@ def check_for_updates():
                     changes.append(
                         f"[bold green][{course_name}] YENİ ÖDEV: {assign['name']}"
                     )
+                    changes_table.add_row(
+                        username, course_name, f"📄 Yeni Ödev: {assign['name']}"
+                    )
                 else:
                     # Tarih değişti mi?
                     if assign["end_date"] != saved_assign.get("end_date"):
@@ -266,6 +280,11 @@ def check_for_updates():
                         )
                         changes.append(
                             f"[bold yellow][{course_name}] ÖDEV TARİHİ DEĞİŞTİ: {assign['name']}"
+                        )
+                        changes_table.add_row(
+                            username,
+                            course_name,
+                            f"🕒 Ödev Tarihi Değişti: {assign['name']}",
                         )
 
                     # Teslim durumu değişti mi? (Sadece eski veri varsa ve değişmişse)
@@ -338,6 +357,9 @@ def check_for_updates():
                     changes.append(
                         f"[bold green][{course_name}] YENİ DOSYA: {file['name']}"
                     )
+                    changes_table.add_row(
+                        username, course_name, f"📎 Yeni Dosya: {file['name']}"
+                    )
                 else:
                     saved_file = saved_file_map[f_url]
                     # Dosya ismi veya tarihi değişti mi?
@@ -380,6 +402,9 @@ def check_for_updates():
                     )
                     changes.append(
                         f"[bold green][{course_name}] YENİ DUYURU: {ann['title']}"
+                    )
+                    changes_table.add_row(
+                        username, course_name, f"📣 Yeni Duyuru: {ann['title']}"
                     )
                 else:
                     # Güncellenmiş mi kontrol et (İçerik hariç, çünkü current'ta boş)
@@ -458,11 +483,30 @@ def check_for_updates():
 
     console.print("[italic white]Kontrol tamamlandı.")
 
+    # Kullanıcı verilerini kaydet (last_check güncellemeleri için)
+    from core.config import save_all_users
+
+    save_all_users(users)
+    console.print("[dim]Veriler kaydedildi.")
+
+    # Değişiklikler tablosunu göster (eğer değişiklik varsa)
+    if changes_table.rows:
+        console.print()
+        console.print(changes_table)
+    else:
+        console.print("[dim]Bu kontrol döneminde değişiklik yok.[/dim]")
+
+    # Güncellenmiş kullanıcı tablosunu göster
+    console.print()
+    show_users_table()
+    console.print("[green]✅ Kontrol tamamlandı - İçindekiler güncellenmiş.")
+
+    # Son kontrol zamanını güncelle (Live display'de kullanmak için)
+    global LAST_CHECK_DISPLAY_TIME
+    LAST_CHECK_DISPLAY_TIME = datetime.now().strftime("%H:%M:%S")
+
 
 if __name__ == "__main__":
-    # URL migration - eski /Notlar formatını base URL'e dönüştür
-    migrate_urls_to_base_format()
-
     set_check_callback(check_for_updates)
 
     users = load_all_users()
@@ -476,6 +520,10 @@ if __name__ == "__main__":
             border_style="green",
         )
     )
+
+    # Kullanıcı tablosunu göster
+    show_users_table()
+    console.print()  # Boş satır
 
     if bot:
         try:
@@ -497,27 +545,34 @@ if __name__ == "__main__":
         console.print("[bold cyan][Bot] Telegram komut dinleyicisi başlatıldı.")
 
     try:
-        check_for_updates()
         while True:
             current_wait = CHECK_INTERVAL + random.randint(-30, 30)
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TimeRemainingColumn(),
-                console=console,
-                transient=True,
-            ) as progress:
-                task = progress.add_task(
-                    "[blue]Sonraki kontrol bekleniyor...", total=current_wait
-                )
-                while not progress.finished:
-                    progress.update(task, advance=1)
+            # Bekleme sırasında Live display
+            users_count = len(load_all_users())  # Disk I/O'yu 1 kere yap
+            with Live(console=console, refresh_per_second=1) as live:
+                for i in range(current_wait):
+                    if i % 5 == 0:  # Her 5 saniyede güncelle
+                        status = "⏳ Sonraki kontrol bekleniyor...\n"
+                        status += f"📊 Kullanıcı sayısı: {users_count}\n"
+                        status += f"⏰ Kalan süre: {current_wait - i} saniye\n"
+                        # Son kontrol zamanını göster (sabit kıl)
+                        last_check_display = LAST_CHECK_DISPLAY_TIME or "Henüz kontrol yok"
+                        status += f"📅 Son kontrol: {last_check_display}"
+                        live.update(
+                            Panel.fit(
+                                status,
+                                title="🔄 Sistem Durumu",
+                                border_style="blue",
+                            )
+                        )
                     time.sleep(1)
+            # Live kapandıktan sonra kontrol yap
             check_for_updates()
     except KeyboardInterrupt:
         console.print("\n[bold red]Program kullanıcı tarafından durduruldu.")
     except Exception as e:
+        from rich.traceback import Traceback
+
+        console.print(Traceback())
         error_msg = f"Ana döngüde kritik hata: {str(e)}\n{traceback.format_exc()}"
         console.print(f"[bold red]{error_msg}")
