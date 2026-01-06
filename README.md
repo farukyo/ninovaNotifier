@@ -31,7 +31,7 @@
 ## 🚀 Kurulum
 
 ### 1. Gereksinimler
-- Python 3.10+
+- Python 3.14+
 - [uv](https://github.com/astral-sh/uv) (Önerilen hızlı paket yöneticisi)
 
 ### 2. Bağımlılıkları Yükleyin
