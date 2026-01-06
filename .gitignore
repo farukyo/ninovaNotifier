@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info
+.ruff_cache
+*.pyc
+.pytest_cache/
+htmlcov/
+
+# Build & Distribution
+build/
+dist/
+wheels/
+
+# Virtual Environment
+.venv
+venv/
+env/
+
+# Environment & Secrets
+*.env
+*.env.local
+.encryption_key
+
+# Project Data
+ninova_data.json
+users.json
+
+# Logs
+*.log
+app.log
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*~
