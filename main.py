@@ -90,14 +90,16 @@ def show_users_table():
 # Dashboard layout - Future için hazırlanmış, şu an kullanılmıyor
 
 
-def check_user_updates(chat_id: str):
+def check_user_updates(chat_id: str, course_idx: int = None):
     """
     Belirli bir kullanıcının notlarını kontrol eder.
 
-    Bot /kontrol komutu için kullanılır. Sadece belirtilen kullanıcının
-    derslerini tarar, değişiklikleri kontrol eder ve bildirim gönderir.
+    Bot /kontrol komutu veya manuel butonlar için kullanılır. Sadece belirtilen
+    kullanıcının derslerini (veya opsiyonel olarak tek bir dersi) tarar,
+    değişiklikleri kontrol eder ve bildirim gönderir.
 
     :param chat_id: Kontrol edilecek kullanıcının chat ID'si
+    :param course_idx: (Opsiyonel) Sadece bu indeksteki dersi kontrol et
     :return: Başarı durumu ve mesaj içeren dict
     """
     users = load_all_users()
@@ -108,10 +110,18 @@ def check_user_updates(chat_id: str):
 
     # Son kontrol zamanını güncelle
     user_data["last_check"] = datetime.now().isoformat()
-    urls = user_data.get("urls", [])
+    all_urls = user_data.get("urls", [])
 
-    if not urls:
+    if not all_urls:
         return {"success": False, "message": "Takip edilen ders bulunamadı."}
+
+    # Eğer tek bir ders istenmişse filtrele
+    if course_idx is not None:
+        if course_idx < 0 or course_idx >= len(all_urls):
+            return {"success": False, "message": "Geçersiz ders indeksi."}
+        urls_to_scan = [all_urls[course_idx]]
+    else:
+        urls_to_scan = all_urls
 
     username = user_data.get("username")
     encrypted_password = user_data.get("password")
@@ -142,10 +152,13 @@ def check_user_updates(chat_id: str):
         console=console,
         transient=True,
     ) as progress:
-        task = progress.add_task(
-            f"[yellow]{username} ({len(urls)} ders) taranıyor...", total=len(urls)
+        scan_msg = (
+            f"[yellow]{username} ({len(urls_to_scan)} ders) taranıyor..."
+            if course_idx is None
+            else f"[yellow]{username} (Tek ders) taranıyor..."
         )
-        for url in urls:
+        task = progress.add_task(scan_msg, total=len(urls_to_scan))
+        for url in urls_to_scan:
             try:
                 grades = get_grades(user_session, url, chat_id, username, password)
                 if grades:
