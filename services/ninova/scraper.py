@@ -1,7 +1,9 @@
 import re
 import logging
+import time
 from bs4 import BeautifulSoup
 from common.config import console
+from common.utils import sanitize_html_for_telegram
 from .auth import LoginFailedError, login_to_ninova
 
 logger = logging.getLogger("ninova")
@@ -126,17 +128,14 @@ def get_announcement_detail(session, url):
                         junk.decompose()
 
                     # Normalize anchor hrefs to absolute URLs and preserve anchors
+                    # Normalize relative links
                     for a in content_div.find_all("a", href=True):
                         href = a.get("href", "")
                         if href.startswith("/"):
                             a["href"] = f"https://ninova.itu.edu.tr{href}"
 
-                    # Build HTML fragment from content_div while keeping basic formatting
-                    # Replace <strong>/<em> with <b>/<i> for Telegram HTML compatibility
-                    html = "".join(str(child) for child in content_div.contents)
-                    html = html.replace("<strong>", "<b>").replace("</strong>", "</b>")
-                    html = html.replace("<em>", "<i>").replace("</em>", "</i>")
-                    return html.strip()
+                    # Use shared sanitizer
+                    return sanitize_html_for_telegram(str(content_div))
 
             # Eski format için yedek
             content_div = soup.find(
@@ -145,7 +144,7 @@ def get_announcement_detail(session, url):
             if content_div:
                 for junk in content_div.find_all(["script", "style"]):
                     junk.decompose()
-                return content_div.get_text("\n", strip=True)
+                return sanitize_html_for_telegram(str(content_div))
     except Exception as e:
         console.print(f"[bold red]Duyuru detayı çekme hatası: {e}")
     return ""
@@ -556,18 +555,26 @@ def get_user_courses(session):
     </div>
     """
     try:
-        # Önce Kampus, sonra Kampus1 dene
-        resp = session.get("https://ninova.itu.edu.tr/Kampus", timeout=15)
+        # Önce Kampus, sonra Kampus1 dene. Cache engellemek için t ekle.
+        t_param = int(time.time())
+        resp = session.get(f"https://ninova.itu.edu.tr/Kampus?t={t_param}", timeout=15)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         tree_div = soup.find("div", {"class": "menuErisimAgaci"})
         if not tree_div:
             # Kampus1'i dene
-            resp = session.get("https://ninova.itu.edu.tr/Kampus1", timeout=15)
+            resp = session.get(
+                f"https://ninova.itu.edu.tr/Kampus1?t={t_param}", timeout=15
+            )
             soup = BeautifulSoup(resp.text, "html.parser")
             tree_div = soup.find("div", {"class": "menuErisimAgaci"})
 
         if not tree_div:
+            # Belki login sayfası geri geldi?
+            if "Login.aspx" in resp.url or "Giriş" in resp.text:
+                logger.error(
+                    "Ders listesi çekilirken oturumun kapalı olduğu fark edildi."
+                )
             return []
 
         courses = []
