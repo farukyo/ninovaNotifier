@@ -2,6 +2,7 @@ import json
 import os
 import re
 import requests
+from bs4 import BeautifulSoup, NavigableString, Tag
 from common.config import (
     TELEGRAM_TOKEN,
     DATA_FILE,
@@ -108,9 +109,115 @@ def escape_html(text):
     :param text: Kaçırılacak metin
     :return: Güvenli HTML metni
     """
-    if not isinstance(text, str):
-        return str(text)
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def sanitize_html_for_telegram(html_content):
+    """
+    Parses HTML content and returns a Telegram-safe version.
+    Supports <b>, <i>, <a>, <code>, <pre>.
+    Converts <p>, <div>, <br> and lists to appropriate spacing/bullet points.
+
+    :param html_content: Raw HTML string
+    :return: Telegram-safe HTML string
+    """
+    if not html_content:
+        return ""
+
+    try:
+        # If it seems like plain text (no tags), just escape and return
+        if "<" not in html_content and ">" not in html_content:
+            return escape_html(html_content)
+
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        def process_node(node):
+            if isinstance(node, NavigableString):
+                # Only escape text that isn't inside a tag we're processing
+                return escape_html(str(node))
+
+            if isinstance(node, Tag):
+                name = node.name.lower()
+
+                # Inline formatting tags Telegram supports
+                if name in ("b", "strong"):
+                    inner = "".join(process_node(c) for c in node.contents)
+                    return f"<b>{inner}</b>"
+                if name in ("i", "em"):
+                    inner = "".join(process_node(c) for c in node.contents)
+                    return f"<i>{inner}</i>"
+                if name in ("u", "ins"):
+                    inner = "".join(process_node(c) for c in node.contents)
+                    return f"<u>{inner}</u>"
+                if name in ("s", "strike", "del"):
+                    inner = "".join(process_node(c) for c in node.contents)
+                    return f"<s>{inner}</s>"
+                if name == "code":
+                    inner = "".join(process_node(c) for c in node.contents)
+                    return f"<code>{inner}</code>"
+                if name == "pre":
+                    inner = "".join(process_node(c) for c in node.contents)
+                    return f"<pre>{inner}</pre>"
+
+                # Links
+                if name == "a":
+                    href = node.get("href", "")
+                    # Ensure href is properly escaped/safe
+                    href = href.replace('"', "%22")
+                    if not href:
+                        return "".join(process_node(c) for c in node.contents)
+                    inner = "".join(process_node(c) for c in node.contents)
+                    if not inner:
+                        inner = href
+                    return f'<a href="{href}">{inner}</a>'
+
+                # Block elements -> spacing
+                if name == "br":
+                    return "\n"
+                if name in (
+                    "p",
+                    "div",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "h4",
+                    "h5",
+                    "h6",
+                    "section",
+                    "article",
+                ):
+                    inner = "".join(process_node(c) for c in node.contents).strip()
+                    return f"{inner}\n\n" if inner else ""
+
+                # Lists
+                if name in ("ul", "ol"):
+                    items = []
+                    for li in node.find_all("li", recursive=False):
+                        li_text = "".join(process_node(c) for c in li.contents).strip()
+                        if li_text:
+                            items.append(f"• {li_text}")
+                    return "\n".join(items) + "\n\n" if items else ""
+
+                if name == "li":
+                    inner = "".join(process_node(c) for c in node.contents).strip()
+                    return f"• {inner}\n" if inner else ""
+
+                # Ignore other tags but keep their contents
+                return "".join(process_node(c) for c in node.contents)
+
+            return ""
+
+        result = "".join(process_node(c) for c in soup.contents).strip()
+        # Clean up excessive whitespace/newlines
+        result = re.sub(r"\n{3,}", "\n\n", result)
+        return result
+    except Exception as e:
+        console.print(f"[yellow]HTML Sanitization Error: {e}[/yellow]")
+        # Fallback: simple text extract
+        try:
+            return escape_html(BeautifulSoup(html_content, "html.parser").get_text())
+        except Exception:
+            return escape_html(str(html_content))
 
 
 def get_file_icon(filename):
