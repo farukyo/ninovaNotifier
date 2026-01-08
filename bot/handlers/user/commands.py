@@ -5,7 +5,6 @@ from datetime import datetime
 import bot.instance as bc  # LAST_CHECK_TIME için gerekli (isim çakışmasını önlemek için 'as bc')
 from bot.instance import (
     bot_instance as bot,
-    get_check_callback,
     START_TIME,
 )
 from bot.keyboards import build_main_keyboard, build_manual_menu, build_cancel_keyboard
