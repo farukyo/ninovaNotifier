@@ -417,7 +417,7 @@ def kontrol_command_handler(message):
         if result.get("success"):
             bot.send_message(
                 chat_id,
-                "✅ <b>Kontrol Tamamlandı.</b>\nHerhangi bir değişiklik varsa yukarıda belirtilmiştir.",
+                "✅ <b>Kontrol Tamamlandı.</b>\nNot, ödev, dosya ve duyuru bilgileriniz güncellendi.",
                 parse_mode="HTML",
             )
         else:

@@ -652,7 +652,7 @@ def handle_kontrol(call):
             if result.get("success"):
                 bot.send_message(
                     chat_id,
-                    "✅ Kontrol tamamlandı. Herhangi bir değişiklik varsa yukarıda listelenmiştir.",
+                    "✅ Kontrol tamamlandı. Not, ödev, dosya ve duyuru bilgileriniz güncellendi.",
                 )
             else:
                 bot.send_message(
