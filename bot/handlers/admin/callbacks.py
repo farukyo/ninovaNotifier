@@ -134,6 +134,7 @@ def handle_admin_callbacks(call):
 
         updated = 0
         failed = 0
+        total_new_courses = 0
 
         for target_chat_id, user_data in users.items():
             username = user_data.get("username")
@@ -160,21 +161,51 @@ def handle_admin_callbacks(call):
                     failed += 1
                     continue
 
-                # Eski dersleri temizle ve yenilerini ekle
-                new_urls = [course["url"] for course in courses]
-                update_user_data(target_chat_id, "urls", new_urls)
+                # Mevcut verileri kontrol et
+                all_grades = load_saved_grades()
+                user_grades = all_grades.get(target_chat_id, {})
+                current_urls = set(user_data.get("urls", []))
+
+                # Yeni ve mevcut dersleri ayır
+                already_added = []
+                newly_added = []
+                new_urls_list = list(current_urls)
+
+                for course in courses:
+                    course_url = course.get("url")
+                    course_name = course.get("name", "Bilinmeyen Ders")
+
+                    if not course_url:
+                        continue
+
+                    if course_url in user_grades:
+                        already_added.append(course_name)
+                    elif course_url in current_urls:
+                        newly_added.append({"name": course_name, "url": course_url})
+                    else:
+                        newly_added.append({"name": course_name, "url": course_url})
+                        new_urls_list.append(course_url)
+
+                # URL'leri güncelle
+                update_user_data(target_chat_id, "urls", new_urls_list)
+                total_new_courses += len(newly_added)
 
                 # Kullanıcıya bildir
-                course_list = "\n".join([f"📚 {c['name']}" for c in courses[:10]])
-                if len(courses) > 10:
-                    course_list += f"\n... ve {len(courses) - 10} daha"
+                response = "📊 <b>Ders Tarama Sonucu</b>\n\n"
 
-                bot.send_message(
-                    target_chat_id,
-                    f"✅ <b>Ders Listesi Güncellendi</b>\n\n{course_list}\n\n<b>Toplam: {len(courses)} ders</b>",
-                    parse_mode="HTML",
-                )
+                if already_added:
+                    response += f"✅ <b>Zaten Ekli:</b> {len(already_added)} ders\n"
 
+                if newly_added:
+                    response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
+                    for c in newly_added[:5]:
+                        response += f"  ➕ {c['name']}\n"
+                    if len(newly_added) > 5:
+                        response += f"  ... ve {len(newly_added) - 5} daha\n"
+                else:
+                    response += "ℹ️ Yeni ders bulunamadı.\n"
+
+                bot.send_message(target_chat_id, response, parse_mode="HTML")
                 updated += 1
 
             except Exception:
@@ -185,19 +216,23 @@ def handle_admin_callbacks(call):
         summary = (
             f"✅ <b>Force Otoders Tamamlandı</b>\n\n"
             f"✔️ Başarılı: {updated} kullanıcı\n"
-            f"❌ Başarısız: {failed} kullanıcı\n\n"
+            f"❌ Başarısız: {failed} kullanıcı\n"
+            f"📚 Yeni eklenen ders: {total_new_courses}\n\n"
             f"🔄 Kontrol başlatılıyor..."
         )
 
         bot.send_message(chat_id, summary, parse_mode="HTML")
 
-        # Kontrol başlat
+        # Kontrol başlat - tüm kullanıcılar için ders bilgilerini çek
         cb = get_check_callback()
         if cb:
             try:
                 cb()
-            except Exception:
-                pass
+                bot.send_message(chat_id, "✅ Kontrol tamamlandı.", parse_mode="HTML")
+            except Exception as e:
+                bot.send_message(
+                    chat_id, f"⚠️ Kontrol hatası: {str(e)}", parse_mode="HTML"
+                )
 
     elif action == "logs":
         show_logs(chat_id)

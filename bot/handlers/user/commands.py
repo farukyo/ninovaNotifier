@@ -20,11 +20,18 @@ from services.ninova import login_to_ninova, get_user_courses
 
 
 def _is_cancel_text(text: str) -> bool:
+    """Check if the message text indicates a cancel action.
+
+    Returns True for:
+    - The cancel button label '⛔ İptal'
+    - Typed 'iptal' or 'cancel'
+    - Any text containing these words
+    """
     if not text:
         return False
     t = text.strip().lower()
     # Accept typed 'iptal' or the button label containing 'iptal' (e.g. '⛔ İptal')
-    return "iptal" in t or "cancel" in t
+    return "iptal" in t or "cancel" in t or "⛔" in text
 
 
 @bot.message_handler(commands=["start", "help"])
@@ -51,6 +58,19 @@ def send_welcome(message):
     )
     bot.reply_to(
         message, help_text, parse_mode="HTML", reply_markup=build_main_keyboard()
+    )
+
+
+@bot.message_handler(func=lambda message: message.text == "⛔ İptal")
+def handle_cancel_button(message):
+    """Handle cancel button press - clears any pending input and returns to menu."""
+    chat_id = message.chat.id
+    # Clear any registered next step handlers for this chat
+    bot.clear_step_handler_by_chat_id(chat_id)
+    bot.send_message(
+        chat_id,
+        "❌ İşlem iptal edildi.",
+        reply_markup=build_main_keyboard(),
     )
 
 
@@ -225,7 +245,9 @@ def user_otoders_command(message):
     Kullanıcı düzeyinde otomatik ders keşfi.
 
     Bu komut sadece çağıran kullanıcının Ninova hesabına bağlanır,
-    ders listesini çeker ve sadece o kullanıcının `urls` alanını günceller.
+    ders listesini çeker ve yeni dersleri ekler.
+    - Zaten ekliyse "x dersi zaten ekli" mesajı gösterir
+    - Yeni ders bulunursa ekler ve /kontrol başlatır
     """
     chat_id = str(message.chat.id)
     users = load_all_users()
@@ -248,7 +270,7 @@ def user_otoders_command(message):
         )
         return
 
-    bot.reply_to(message, "🔄 Ders listesi güncelleniyor, lütfen bekleyin...")
+    bot.reply_to(message, "🔄 Ninova'ya bağlanılıyor ve aktif dersler taranıyor...")
 
     def run_update():
         try:
@@ -268,39 +290,76 @@ def user_otoders_command(message):
             # Dersleri çek
             courses = get_user_courses(session)
             if not courses:
-                bot.send_message(chat_id, "❌ Ders bulunamadı veya çekilemedi.")
+                bot.send_message(chat_id, "❌ Aktif ders bulunamadı veya çekilemedi.")
                 return
 
-            # Eski URL'leri al (karşılaştırma için)
-            old_urls = set(user_data.get("urls", []))
-            new_urls = [c.get("url") for c in courses if c.get("url")]
+            # Mevcut verileri yükle
+            all_grades = load_saved_grades()
+            user_grades = all_grades.get(chat_id, {})
+            current_urls = set(user_data.get("urls", []))
 
-            # Yeni eklenen dersleri bul
-            added_courses = [c for c in courses if c.get("url") not in old_urls]
+            # Sonuç mesajları
+            already_added = []
+            newly_added = []
+            new_urls_list = list(current_urls)
 
-            # URL'leri kaydet
-            update_user_data(chat_id, "urls", new_urls)
+            for course in courses:
+                course_url = course.get("url")
+                course_name = course.get("name", "Bilinmeyen Ders")
+
+                if not course_url:
+                    continue
+
+                # Ders zaten data JSON'da mı?
+                if course_url in user_grades:
+                    already_added.append(course_name)
+                elif course_url in current_urls:
+                    # URL'de var ama data'da yok - kontrol edilmeli
+                    newly_added.append({"name": course_name, "url": course_url})
+                else:
+                    # Tamamen yeni ders
+                    newly_added.append({"name": course_name, "url": course_url})
+                    new_urls_list.append(course_url)
+
+            # URL'leri güncelle
+            update_user_data(chat_id, "urls", new_urls_list)
 
             # Kullanıcıya özet bildir
-            if added_courses:
-                added_text = "✨ <b>Yeni Bulunan Dersler:</b>\n"
-                added_text += "\n".join([f"➕ {c.get('name')}" for c in added_courses])
-                added_text += "\n\n"
+            response = "📊 <b>Ders Tarama Sonucu</b>\n\n"
+
+            if already_added:
+                response += "✅ <b>Zaten Ekli Dersler:</b>\n"
+                for name in already_added:
+                    response += f"  • {name}\n"
+                response += "\n"
+
+            if newly_added:
+                response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
+                for c in newly_added:
+                    response += f"  ➕ {c['name']}\n"
+                response += "\n🔄 Yeni dersler için kontrol başlatılıyor...\n"
             else:
-                added_text = "ℹ️ Yeni bir ders bulunamadı.\n\n"
+                response += "ℹ️ Yeni eklenecek ders bulunamadı.\n"
 
-            course_list = "📚 <b>Mevcut Ders Listeniz:</b>\n"
-            course_list += "\n".join(
-                [f"• {c.get('name', 'Ders')}" for c in courses[:20]]
-            )
-            if len(courses) > 20:
-                course_list += f"\n... ve {len(courses) - 20} daha"
+            bot.send_message(chat_id, response, parse_mode="HTML")
 
-            bot.send_message(
-                chat_id,
-                f"✅ <b>Ders Listesi Güncellendi</b>\n\n{added_text}{course_list}\n\n<b>Toplam: {len(courses)} ders</b>",
-                parse_mode="HTML",
-            )
+            # Yeni dersler varsa kontrol başlat
+            if newly_added:
+                from main import check_user_updates
+
+                result = check_user_updates(chat_id)
+                if result.get("success"):
+                    bot.send_message(
+                        chat_id,
+                        "✅ <b>Kontrol tamamlandı!</b>\nYeni derslerinizin not, ödev, dosya ve duyuru bilgileri alındı.",
+                        parse_mode="HTML",
+                    )
+                else:
+                    bot.send_message(
+                        chat_id,
+                        f"⚠️ Kontrol sırasında hata: {result.get('message', 'Bilinmeyen hata')}",
+                        parse_mode="HTML",
+                    )
 
         except Exception as e:
             bot.send_message(chat_id, f"❌ Hata oluştu: {str(e)}")
@@ -493,6 +552,8 @@ def manual_check(message):
 def auto_add_courses(message):
     """
     Ninova'ya bağlanarak kullanıcının tüm derslerini otomatik olarak bulur ve ekler.
+    - Zaten data JSON'da olan dersler için "zaten ekli" gösterir
+    - Yeni dersler için ekler ve kontrol başlatır
     """
     chat_id = str(message.chat.id)
     users = load_all_users()
@@ -503,69 +564,105 @@ def auto_add_courses(message):
     if not username or not password:
         bot.reply_to(
             message,
-            "❌ Kullanıcı adı veya şifre eksik! Lütfen önce /username ve /password ile ayarlarınızı yapın.",
+            "❌ Kullanıcı adı veya şifre eksik! Lütfen önce 👤 Kullanıcı Adı ve 🔐 Şifre butonları ile ayarlarınızı yapın.",
         )
         return
 
     bot.reply_to(message, "⏳ Ninova'ya giriş yapılıyor ve dersleriniz taranıyor...")
 
-    if chat_id not in USER_SESSIONS:
-        USER_SESSIONS[chat_id] = requests.Session()
-        USER_SESSIONS[chat_id].headers.update(HEADERS)
+    def run_auto_add():
+        try:
+            if chat_id not in USER_SESSIONS:
+                USER_SESSIONS[chat_id] = requests.Session()
+                USER_SESSIONS[chat_id].headers.update(HEADERS)
 
-    session = USER_SESSIONS[chat_id]
-    if login_to_ninova(session, chat_id, username, password):
-        courses = get_user_courses(session)
-        if not courses:
-            bot.send_message(
-                message.chat.id, "❌ Hiç aktif ders bulunamadı veya bir hata oluştu."
-            )
-            return
+            session = USER_SESSIONS[chat_id]
+            if login_to_ninova(session, chat_id, username, password):
+                courses = get_user_courses(session)
+                if not courses:
+                    bot.send_message(
+                        chat_id, "❌ Hiç aktif ders bulunamadı veya bir hata oluştu."
+                    )
+                    return
 
-        current_urls = user_info.get("urls", [])
-        added_count = 0
-        new_urls = list(current_urls)
-        response = "✅ <b>Dersleriniz Bulundu:</b>\n\n"
-        for course in courses:
-            name, url = course["name"], course["url"]
-            if url not in new_urls:
-                new_urls.append(url)
-                added_count += 1
-                response += f"➕ <b>{name}</b>\n<code>{url}</code>\n\n"
+                # Mevcut verileri kontrol et
+                all_grades = load_saved_grades()
+                user_grades = all_grades.get(chat_id, {})
+                current_urls = set(user_info.get("urls", []))
+
+                already_in_data = []
+                newly_added = []
+                new_urls_list = list(current_urls)
+
+                for course in courses:
+                    name, url = course["name"], course["url"]
+
+                    # Data JSON'da var mı?
+                    if url in user_grades:
+                        already_in_data.append(name)
+                    elif url in current_urls:
+                        # URL'de var ama data'da yok - yeni gibi işle
+                        newly_added.append({"name": name, "url": url})
+                    else:
+                        # Tamamen yeni
+                        newly_added.append({"name": name, "url": url})
+                        new_urls_list.append(url)
+
+                # URL'leri güncelle
+                if new_urls_list != list(current_urls):
+                    update_user_data(chat_id, "urls", new_urls_list)
+
+                # Sonuç mesajı
+                response = "📊 <b>Ders Tarama Sonucu</b>\n\n"
+
+                if already_in_data:
+                    response += "✅ <b>Zaten Ekli Dersler:</b>\n"
+                    for name in already_in_data:
+                        response += f"  • {name}\n"
+                    response += "\n"
+
+                if newly_added:
+                    response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
+                    for c in newly_added:
+                        response += f"  ➕ {c['name']}\n"
+                    response += "\n🔄 Yeni dersler için kontrol başlatılıyor...\n"
+                else:
+                    response += "ℹ️ Yeni eklenecek ders bulunamadı.\n"
+
+                if len(response) > 4000:
+                    for x in range(0, len(response), 4000):
+                        bot.send_message(
+                            chat_id, response[x : x + 4000], parse_mode="HTML"
+                        )
+                else:
+                    bot.send_message(chat_id, response, parse_mode="HTML")
+
+                # Yeni dersler varsa kontrol başlat
+                if newly_added:
+                    from main import check_user_updates
+
+                    result = check_user_updates(chat_id)
+                    if result.get("success"):
+                        bot.send_message(
+                            chat_id,
+                            "✅ <b>Kontrol tamamlandı!</b>\nYeni derslerinizin not, ödev, dosya ve duyuru bilgileri alındı.",
+                            parse_mode="HTML",
+                        )
+                    else:
+                        bot.send_message(
+                            chat_id,
+                            f"⚠️ Kontrol sırasında hata: {result.get('message', 'Bilinmeyen hata')}",
+                            parse_mode="HTML",
+                        )
             else:
-                response += f"🔹 <b>{name}</b> (Zaten listede)\n\n"
-
-        if added_count > 0:
-            update_user_data(chat_id, "urls", new_urls)
-            response += f"🎉 <b>{added_count}</b> yeni ders başarıyla eklendi!\n\n🔄 Yeni dersler için kontrol başlatılıyor..."
-        else:
-            response += "ℹ️ Yeni eklenecek ders bulunamadı."
-
-        if len(response) > 4000:
-            for x in range(0, len(response), 4000):
                 bot.send_message(
-                    message.chat.id, response[x : x + 4000], parse_mode="HTML"
+                    chat_id,
+                    "❌ Giriş başarısız! Lütfen kullanıcı adı ve şifrenizi kontrol edin.",
                 )
-        else:
-            bot.send_message(message.chat.id, response, parse_mode="HTML")
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Hata oluştu: {str(e)}")
 
-        cb = get_check_callback()
-        if added_count > 0 and cb:
-            try:
-                cb()
-                bot.send_message(
-                    message.chat.id, "✅ Yeni dersler için kontrol tamamlandı."
-                )
-            except Exception:
-                bot.send_message(
-                    message.chat.id,
-                    "⚠️ Kontrol başlatılırken bir hata oluştu. /kontrol ile tekrar deneyin.",
-                )
-    else:
-        bot.send_message(
-            message.chat.id,
-            "❌ Giriş başarısız! Lütfen kullanıcı adı ve şifrenizi kontrol edin.",
-        )
+    threading.Thread(target=run_auto_add, daemon=True).start()
 
 
 def add_course(message):

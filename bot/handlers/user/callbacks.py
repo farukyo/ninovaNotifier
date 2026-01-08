@@ -17,6 +17,14 @@ from common.utils import (
 from services.ninova import download_file
 
 
+def _is_cancel_text(text: str) -> bool:
+    """Check if the message text indicates a cancel action."""
+    if not text:
+        return False
+    t = text.strip().lower()
+    return "iptal" in t or "cancel" in t or "⛔" in text
+
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("crs_"))
 def handle_course_selection(call):
     """
@@ -406,9 +414,11 @@ def handle_course_delete_any(call):
         chat_id = str(call.message.chat.id)
         idx = int(call.data.split("_")[2])
         users = load_all_users()
-        urls = users.get(chat_id, {}).get("urls", [])
+        user_data = users.get(chat_id, {})
+        urls = user_data.get("urls", [])
         if idx < len(urls):
-            del urls[idx]
+            # Listeyi doğrudan users dict'i üzerinden güncelle
+            del users[chat_id]["urls"][idx]
             save_all_users(users)
             bot.edit_message_text(
                 chat_id=chat_id,
@@ -548,10 +558,18 @@ def process_manual_add(message):
     Manuel ders ekleme işlemini tamamlar.
     """
     # Allow cancellation via button or typed text
-    if not message.text or "iptal" in message.text.strip().lower():
+    if _is_cancel_text(message.text):
         bot.send_message(
             message.chat.id,
             "❌ Ders ekleme iptal edildi.",
+            reply_markup=build_main_keyboard(),
+        )
+        return
+
+    if not message.text:
+        bot.send_message(
+            message.chat.id,
+            "❌ Geçerli bir değer girmediniz.",
             reply_markup=build_main_keyboard(),
         )
         return

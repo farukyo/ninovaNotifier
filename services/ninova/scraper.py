@@ -1,6 +1,5 @@
 import re
 import logging
-import time
 from bs4 import BeautifulSoup
 from common.config import console
 from common.utils import sanitize_html_for_telegram
@@ -542,12 +541,11 @@ def get_user_courses(session):
     HTML yapısı (menuErisimAgaci div):
     <div class="menuErisimAgaci">
         <ul>
-            <li><span>2024-25 Güz</span>
-                <ul>
-                    <li><span>BLG102E</span>
-                        <ul>
-                            <li><a href="/Sinif/35122.110739">C.1</a></li>
-                        </ul>
+            <li>
+                <span><strong>BLG 212E</strong></span>
+                <ul style="margin-left: 10px;">
+                    <li>
+                        <a href="/Sinif/2123.110928"><span>Microprocessor Systems</span></a>
                     </li>
                 </ul>
             </li>
@@ -555,19 +553,14 @@ def get_user_courses(session):
     </div>
     """
     try:
-        # Önce Kampus, sonra Kampus1 dene. Cache engellemek için t ekle.
-        t_param = int(time.time())
-        resp = session.get(f"https://ninova.itu.edu.tr/Kampus?t={t_param}", timeout=15)
+        # Kampus sayfasına git (Kampus1'e redirect oluyor)
+        # NOT: timestamp eklemeyin, 404 veriyor!
+        resp = session.get(
+            "https://ninova.itu.edu.tr/Kampus", timeout=15, allow_redirects=True
+        )
         soup = BeautifulSoup(resp.text, "html.parser")
 
         tree_div = soup.find("div", {"class": "menuErisimAgaci"})
-        if not tree_div:
-            # Kampus1'i dene
-            resp = session.get(
-                f"https://ninova.itu.edu.tr/Kampus1?t={t_param}", timeout=15
-            )
-            soup = BeautifulSoup(resp.text, "html.parser")
-            tree_div = soup.find("div", {"class": "menuErisimAgaci"})
 
         if not tree_div:
             # Belki login sayfası geri geldi?
@@ -599,25 +592,33 @@ def get_user_courses(session):
                     clean_url = clean_url[: -len(suffix)]
                     break
 
-            # Ders adı ve kodunu al
-            section_name = a.get_text(strip=True)  # C.1, C.2 gibi sınıf adı
+            # Sınıf adını al (link içindeki text)
+            section_name = a.get_text(strip=True)
             course_code = ""
             course_name = section_name
 
             # Üst <li> elementlerinden ders kodunu bul
+            # Yapı: <li> (ders) -> <ul> -> <li> (sınıf) -> <a>
             parent_li = a.find_parent("li")
             if parent_li:
-                # Bir üst <li>'yi bul (ders kodu)
-                grandparent_li = parent_li.find_parent("li")
-                if grandparent_li:
-                    code_span = grandparent_li.find("span", recursive=False)
-                    if code_span:
-                        course_code = code_span.get_text(strip=True)
-                        # Bir üst <li>'den dönem bilgisi (opsiyonel)
-                        semester_li = grandparent_li.find_parent("li")
-                        if semester_li:
-                            # Dönem bilgisini adı dahil etmiyoruz, sadece kod ve sınıf
-                            pass
+                # Bir üst <ul>'yi bul, sonra onun parent <li>'si ders kodunu içerir
+                parent_ul = parent_li.find_parent("ul")
+                if parent_ul:
+                    grandparent_li = parent_ul.find_parent("li")
+                    if grandparent_li:
+                        # Ders kodu <strong> içinde olabilir
+                        strong_tag = grandparent_li.find("strong", recursive=False)
+                        if strong_tag:
+                            course_code = strong_tag.get_text(strip=True)
+                        else:
+                            # Veya <span> içinde <strong> olabilir
+                            span_tag = grandparent_li.find("span", recursive=False)
+                            if span_tag:
+                                inner_strong = span_tag.find("strong")
+                                if inner_strong:
+                                    course_code = inner_strong.get_text(strip=True)
+                                else:
+                                    course_code = span_tag.get_text(strip=True)
 
             # Final course name
             if course_code:
