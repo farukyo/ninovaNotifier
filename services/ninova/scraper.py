@@ -124,7 +124,19 @@ def get_announcement_detail(session, url):
                 if content_div:
                     for junk in content_div.find_all(["script", "style"]):
                         junk.decompose()
-                    return content_div.get_text("\n", strip=True)
+
+                    # Normalize anchor hrefs to absolute URLs and preserve anchors
+                    for a in content_div.find_all("a", href=True):
+                        href = a.get("href", "")
+                        if href.startswith("/"):
+                            a["href"] = f"https://ninova.itu.edu.tr{href}"
+
+                    # Build HTML fragment from content_div while keeping basic formatting
+                    # Replace <strong>/<em> with <b>/<i> for Telegram HTML compatibility
+                    html = "".join(str(child) for child in content_div.contents)
+                    html = html.replace("<strong>", "<b>").replace("</strong>", "</b>")
+                    html = html.replace("<em>", "<i>").replace("</em>", "</i>")
+                    return html.strip()
 
             # Eski format için yedek
             content_div = soup.find(

@@ -670,7 +670,7 @@ def check_for_updates():
                     sections_changes.append(
                         f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{e_ann_title}</a>\n"
                         f"👤 {e_ann_author} | 📅 {ann['date']}\n\n"
-                        f"{escape_html(full_content)}"
+                        f"{full_content}"
                     )
                     changes.append(
                         f"[bold green][{course_name}] YENİ DUYURU: {ann['title']}"
@@ -694,7 +694,7 @@ def check_for_updates():
                         sections_changes.append(
                             f"🔄 <b>DUYURU GÜNCELLENDİ:</b> <a href='{ann['url']}'>{e_ann_title}</a>\n"
                             f"👤 {e_ann_author} | 📅 {ann['date']}\n\n"
-                            f"{escape_html(full_content)}"
+                            f"{full_content}"
                         )
                         changes.append(
                             f"[bold yellow][{course_name}] DUYURU GÜNCELLENDİ: {ann['title']}"

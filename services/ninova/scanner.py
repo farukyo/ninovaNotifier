@@ -194,7 +194,7 @@ def check_for_updates():
                     full_content = get_announcement_detail(user_session, ann["url"])
                     ann["content"] = full_content
                     sections_changes.append(
-                        f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{escape_html(ann['title'])}</a>\n👤 {escape_html(ann['author'])} | 📅 {ann['date']}\n\n{escape_html(full_content)}"
+                        f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{escape_html(ann['title'])}</a>\n👤 {escape_html(ann['author'])} | 📅 {ann['date']}\n\n{full_content}"
                     )
                 else:
                     ann["content"] = saved_ann_map[ann_id].get("content", "")
