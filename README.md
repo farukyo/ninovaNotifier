@@ -1,57 +1,85 @@
-# 🎓 Ninova Not & Akademik Takip Botu
+# 🎓 Ninova Grade & Academic Tracking Bot
 
-İTÜ Ninova üzerindeki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyalarınızı anlık olarak takip eden, güncellemelerde Telegram üzerinden bildirim gönderen gelişmiş bir akademik asistan botudur.
-
----
-
-## ✨ Özellikler
-
-- 👥 **Çoklu Kullanıcı Desteği:** Tek bir bot üzerinden birden fazla kişi kendi akademik verilerini bağımsız takip edebilir.
-- 🔔 **Akıllı Bildirimler:**
-  - Yeni not girişi veya mevcut not güncellemeleri.
-  - Yeni eklenen dosyalar veya mevcut dosyalardaki değişiklikler.
-  - Ödev teslim tarihi değişiklikleri veya teslim durumu (submitted) güncellemeleri.
-  - **Yeni Duyuru Bildirimi:** Sınıfa eklenen duyurular, dış menü metinlerinden arındırılmış temiz bir formatla anında iletilir.
-- 📊 **Gelişmiş Analiz:**
-  - Ağırlıklı ortalama hesabı ve sınıf ortalaması kıyaslaması.
-  - İTÜ T-Skoru sistemine dayalı **Harf Notu Tahmini**.
-- 📂 **Dosya Yönetimi:**
-  - Recursive (iç içe) klasör yapısını destekler.
-  - Dosyaları indirmeden önce önizleme ikonuyla (📕, 📦, 🐍 vb.) listeler.
-  - Telegram üzerinden tek tıkla dosya indirme imkanı.
-  - Türkçe karakterli dosya isimleri için otomatik düzeltme desteği.
-- 🕒 **Ödev Hatırlatıcı:** Yaklaşan ödevler için son **24 saat** ve **3 saat** kala otomatik hatırlatma bildirimleri.
-- 🤖 **Kapsamlı Telegram Arayüzü:**
-  - `/otoders`: Tüm dersleri Ninova'dan otomatik bulur ve ekler.
-  - `/dersler`: İnteraktif butonlar ile ders detaylarına (Not/Ödev/Dosya) hızlı erişim.
-- 🛡️ **Stabilite:** Telegram "409 Conflict" hataları ve Ninova oturum düşmelerine karşı otomatik kurtarma mekanizmaları. Oturumlar kullanıcı bazlı önbelleğe alınarak gereksiz giriş trafiği önlenir.
+An academic assistant bot that monitors your grades, assignments, announcements, and course files on ITU Ninova in real-time and sends notifications via Telegram.
 
 ---
 
-## 🚀 Kurulum
+## ✨ Key Features
 
-### 1. Gereksinimler
+### 👥 User Management
 
-- Python 3.14+
-- [uv](https://github.com/astral-sh/uv) (Önerilen hızlı paket yöneticisi)
+- **Multi-User Support:** Multiple users can track their own academic data independently through a single bot instance.
+- **Secure Authentication:** Your Ninova credentials are encrypted with AES-256 before being stored locally.
+- **Session Management:** Caches user-based sessions to prevent unnecessary login traffic and avoid "too many requests" issues.
 
-### 2. Bağımlılıkları Yükleyin
+### 🔔 Smart Notification System
+
+- **Instant Notifications:** Sends immediate alerts for new grades, announcements, assignments, or file updates.
+- **Assignment Reminders:** Automatically sends "Last Call" notifications **24 hours** and **3 hours** before assignment deadlines.
+
+### 📂 File and Content Access
+
+- **Advanced File Explorer:** Supports complex and nested folder structures.
+- **Direct Downloads:** Allows users to download course materials directly through Telegram.
+- **Smart Search:** Enables keyword-based search within saved announcements.
+
+### 🤖 Automation and Interface
+
+- **Auto Course Discovery:** Automatically finds and adds all your courses from Ninova using the `otoders` command.
+- **Interactive Menus:** Provides quick navigation with user-friendly Reply and Inline keyboards.
+- **Rich Terminal UI:** Displays live statistics and progress bars for admins via a `rich`-powered dashboard.
+
+---
+
+## 🛠 Technical Stack
+
+The project is built with a modular structure using modern Python practices:
+
+- **Language:** Python 3.14+
+- **Bot Framework:** `pytelegrambotapi` (Async-ready usage)
+- **Scraping Engine:** `requests` & `BeautifulSoup4`
+- **Security:** `cryptography` (Fernet)
+- **UI/UX:** `rich` (Terminal Dashboard)
+- **Package Manager:** `uv`
+
+### Project Structure
+
+```text
+├── main.py              # Application entry point and Dashboard
+├── bot/                 # Telegram bot logic
+│   ├── handlers/        # Command and callback handlers
+│   └── keyboards.py     # Keyboard interfaces
+├── services/            # Core services
+│   └── ninova/          # Ninova scraping and auth logic
+├── common/              # Common configs and utilities
+├── data/                # Data storage (JSON based)
+└── logs/                # System logs
+```
+
+---
+
+## 🚀 Setup and Execution
+
+### 1. Prerequisites
+
+You must have Python 3.14+ and [uv](https://github.com/astral-sh/uv) installed on your system.
+
+### 2. Install Dependencies
 
 ```bash
 uv sync
 ```
 
-### 3. Yapılandırma
+### 3. Configuration
 
-Bir `.env` dosyası oluşturun ve bot token'ınızı ekleyin:
+Duplicate the `.env.example` file as `.env` and fill in the required information:
 
-```env
-TELEGRAM_TOKEN=your_bot_token_here
-```
+- `TELEGRAM_TOKEN`: Your API token from BotFather.
+- `ADMIN_ID`: Your Telegram Chat ID for administrative tasks.
 
-### 4. Çalıştırma
+### 4. Run the Bot
 
-Sistemi başlatmak için:
+To start the system:
 
 ```bash
 uv run main.py
@@ -59,96 +87,6 @@ uv run main.py
 
 ---
 
-## 🤖 Kullanıcı Rehberi
+## 📄 License
 
-Botu başlattıktan sonra Telegram üzerinden `/start` göndererek şu adımları izleyin:
-
-1. 🔑 `/username`: Ninova kullanıcı adınızı girin.
-2. 🔒 `/password`: Ninova şifrenizi girin.
-3. 🪄 `/otoders`: Tüm derslerinizi otomatik olarak tarayıp takip listesine ekleyin.
-4. 📖 `/dersler`: İnteraktif menü üzerinden tüm işlemlerinizi halledin.
-
-### Temel Komutlar
-
-| Komut | Açıklama |
-|---|---|
-| `/menu` | Ana menüyü gösterir. |
-| `/dersler` | İnteraktif ders yönetim menüsünü açar. |
-| `/otoders` | Tüm dersleri Ninova'dan otomatik çeker ve ekler. |
-| `/ekle` | Yeni bir dersi manuel olarak ekler. |
-| `/sil` | Takip edilen bir dersi listeden kaldırır. |
-| `/liste` | Takip ettiğiniz ders linklerini gösterir. |
-| `/notlar` | Tüm derslerin güncel notlarını özetler. |
-| `/odevler` | Yaklaşan ödevleri listeler. |
-| `/search <kelime>` | Duyurularda kelime arar. |
-| `/kontrol` | Hemen bir güncelleme kontrolü başlatır. |
-| `/durum` | Botun çalışma süresi ve takip istatistiklerini gösterir. |
-| `/username` | Ninova kullanıcı adını ayarlar. |
-| `/password` | Ninova şifresini ayarlar. |
-| `/ayril` | Tüm verilerinizi sistemden kalıcı olarak siler (Onaylı). |
-
----
-
-## 👑 Yönetici (Admin) Rehberi
-
-Sistem yöneticisi için özel interaktif `/admin` paneli mevcuttur.
-
-### Yönetim Komutları (Sadece Admin)
-
-| Komut | Açıklama |
-|---|---|
-| `/admin` | Tüm yönetim araçlarını içeren interaktif buton panelini açar. |
-| `/duyuru` | Tüm kayıtlı kullanıcılara toplu mesaj gönderir. |
-| `/msg` | Kullanıcı listesinden birini seçerek doğrudan özel mesaj gönderir. |
-| `/restart` | Botu uzaktan yeniden başlatır (Update sonrası kodu tazelemek için). |
-| `/stats` | Veritabanı dosya boyutlarını ve aktif oturum sayılarını gösterir. |
-| `/backup` | `users.json` ve `ninova_data.json` yedeğini Telegram'dan gönderir. |
-| `/detay` | Tüm kullanıcıların ID ve Ninova kullanıcı adlarını listeler. |
-| `/optout` | Seçilen bir kullanıcıyı ve verilerini sistemden zorla siler. |
-| `/logs` | Sistemdeki son log kayıtlarını (hata/işlem) listeler. |
-| `/force_check` | Tüm kullanıcılar için tarama döngüsünü hemen tetikler. |
-| `/force_otoders` | Tüm kullanıcıların ders listesini Ninova'dan kuvvetle yeniden çeker ve günceller. |
-
----
-
-## 📁 Proje Yapı Taşları
-
-```
-ninovaNotifier/
-├── main.py                   # Ana uygulama başlangıç noktası
-├── bot/                      # Telegram bot modülü
-│   ├── instance.py           # Bot instance + runtime state
-│   ├── keyboards.py          # Klavye yapıları
-│   ├── utils.py              # Bot yardımcı fonksiyonları
-│   └── handlers/             # Komut ve callback handler'ları
-│       ├── user/             # Kullanıcı akışları
-│       │   ├── commands.py
-│       │   └── callbacks.py
-│       └── admin/            # Admin panel ve işlemleri
-│           ├── commands.py
-│           ├── callbacks.py
-│           ├── services.py
-│           ├── helpers.py
-│           └── course_management.py
-├── common/                   # Ortak config + yardımcılar
-│   ├── config.py
-│   ├── utils.py
-│   └── grading.py
-├── services/                 # Entegrasyon/servis katmanı
-│   └── ninova/               # Ninova scraping modülü
-│       ├── auth.py           # Giriş ve oturum yönetimi
-│       ├── scraper.py        # Veri çekme fonksiyonları
-│       ├── file_utils.py     # Dosya indirme
-│       └── scanner.py        # Periyodik tarama motoru
-├── data/                     # Yerel veri dosyaları
-│   ├── users.json
-│   └── ninova_data.json
-└── logs/                     # Log çıktıları
-    └── app.log
-```
-
----
-
-## ⚖️ Lisans
-
-Bu proje sadece eğitim amaçlıdır. Ninova sisteminin kullanım koşullarına uyulması kullanıcının sorumluluğundadır.
+This project is developed for educational purposes. Responsibility for usage lies with the end-user.
