@@ -60,7 +60,9 @@ def admin_panel(message):
         types.InlineKeyboardButton("🔄 Force Check", callback_data="adm_force"),
         types.InlineKeyboardButton("📚 Force Otoders", callback_data="adm_forceoto"),
         types.InlineKeyboardButton("🚪 Kullanıcı Sil", callback_data="adm_optout"),
-        types.InlineKeyboardButton("📚 User Ders Yönetimi", callback_data="adm_manage_courses"),
+        types.InlineKeyboardButton(
+            "📚 User Ders Yönetimi", callback_data="adm_manage_courses"
+        ),
         types.InlineKeyboardButton("📂 Loglar", callback_data="adm_logs"),
         types.InlineKeyboardButton("💾 Backup", callback_data="adm_backup"),
         types.InlineKeyboardButton("🔄 Restart", callback_data="adm_restart"),
