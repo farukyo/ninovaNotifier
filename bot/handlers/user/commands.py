@@ -1,4 +1,5 @@
 import requests
+import threading
 from telebot import types
 from datetime import datetime
 import bot.instance as bc  # LAST_CHECK_TIME için gerekli (isim çakışmasını önlemek için 'as bc')
@@ -203,12 +204,170 @@ def interactive_menu(message):
             types.InlineKeyboardButton(f"📚 {course_name}", callback_data=f"crs_{i}")
         )
 
+    # Add general control button
+    markup.add(
+        types.InlineKeyboardButton(
+            "🔄 Tümünü Kontrol Et", callback_data="global_kontrol"
+        )
+    )
+
     bot.send_message(
         message.chat.id,
         "📖 <b>Takip Ettiğiniz Dersler:</b>\nDetay görmek için bir ders seçin:",
         reply_markup=markup,
         parse_mode="HTML",
     )
+
+
+@bot.message_handler(commands=["otoders"])
+def user_otoders_command(message):
+    """
+    Kullanıcı düzeyinde otomatik ders keşfi.
+
+    Bu komut sadece çağıran kullanıcının Ninova hesabına bağlanır,
+    ders listesini çeker ve sadece o kullanıcının `urls` alanını günceller.
+    """
+    chat_id = str(message.chat.id)
+    users = load_all_users()
+    user_data = users.get(chat_id)
+
+    if not user_data:
+        bot.reply_to(
+            message,
+            "⚠️ Kullanıcı bilgileri bulunamadı. Lütfen önce kullanıcı adınızı ve şifrenizi ayarlayın.",
+        )
+        return
+
+    username = user_data.get("username")
+    password = decrypt_password(user_data.get("password", ""))
+
+    if not username or not password:
+        bot.reply_to(
+            message,
+            "⚠️ Lütfen önce kullanıcı adınızı ve şifrenizi ayarlayın.",
+        )
+        return
+
+    bot.reply_to(message, "🔄 Ders listesi güncelleniyor, lütfen bekleyin...")
+
+    def run_update():
+        try:
+            # Yeni oturum oluştur / güncelle
+            USER_SESSIONS[chat_id] = requests.Session()
+            USER_SESSIONS[chat_id].headers.update(HEADERS)
+            session = USER_SESSIONS[chat_id]
+
+            # Giriş yap
+            if not login_to_ninova(session, chat_id, username, password):
+                bot.send_message(
+                    chat_id,
+                    "❌ Ninova'ya giriş yapılamadı. Bilgilerinizi kontrol edin.",
+                )
+                return
+
+            # Dersleri çek
+            courses = get_user_courses(session)
+            if not courses:
+                bot.send_message(chat_id, "❌ Ders bulunamadı veya çekilemedi.")
+                return
+
+            # Eski URL'leri al (karşılaştırma için)
+            old_urls = set(user_data.get("urls", []))
+            new_urls = [c.get("url") for c in courses if c.get("url")]
+
+            # Yeni eklenen dersleri bul
+            added_courses = [c for c in courses if c.get("url") not in old_urls]
+
+            # URL'leri kaydet
+            update_user_data(chat_id, "urls", new_urls)
+
+            # Kullanıcıya özet bildir
+            if added_courses:
+                added_text = "✨ <b>Yeni Bulunan Dersler:</b>\n"
+                added_text += "\n".join([f"➕ {c.get('name')}" for c in added_courses])
+                added_text += "\n\n"
+            else:
+                added_text = "ℹ️ Yeni bir ders bulunamadı.\n\n"
+
+            course_list = "📚 <b>Mevcut Ders Listeniz:</b>\n"
+            course_list += "\n".join(
+                [f"• {c.get('name', 'Ders')}" for c in courses[:20]]
+            )
+            if len(courses) > 20:
+                course_list += f"\n... ve {len(courses) - 20} daha"
+
+            bot.send_message(
+                chat_id,
+                f"✅ <b>Ders Listesi Güncellendi</b>\n\n{added_text}{course_list}\n\n<b>Toplam: {len(courses)} ders</b>",
+                parse_mode="HTML",
+            )
+
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Hata oluştu: {str(e)}")
+
+    threading.Thread(target=run_update, daemon=True).start()
+
+
+@bot.message_handler(commands=["kontrol"])
+def kontrol_command_handler(message):
+    """
+    Manuel kontrol komudu.
+    /kontrol -> Tüm dersleri kontrol eder.
+    /kontrol ders -> Ders listesini ve kontrol butonlarını gösterir.
+    /kontrol force -> (Admin) Tüm kullanıcıları kontrol eder.
+    """
+    chat_id = str(message.chat.id)
+    text = message.text.split()
+
+    # 1. /kontrol force (Admin only)
+    if len(text) > 1 and text[1].lower() == "force":
+        from bot.handlers.admin.helpers import is_admin
+
+        if is_admin(message):
+            from bot.instance import get_check_callback
+
+            cb = get_check_callback()
+            if cb:
+                bot.reply_to(
+                    message,
+                    "🚀 <b>Sistem Geneli Kontrol:</b> Tüm kullanıcılar için tarama başlatıldı...",
+                    parse_mode="HTML",
+                )
+                threading.Thread(target=cb, daemon=True).start()
+            else:
+                bot.reply_to(message, "❌ Kontrol fonksiyonu bulunamadı.")
+        else:
+            bot.reply_to(message, "⛔ Bu işlem için yetkiniz bulunmuyor.")
+        return
+
+    # 2. /kontrol ders -> Ders menüsünü aç
+    if len(text) > 1 and text[1].lower() == "ders":
+        interactive_menu(message)
+        return
+
+    # 3. /kontrol (Düz) -> Kullanıcının tüm derslerini kontrol et
+    bot.reply_to(
+        message,
+        "🔄 <b>Kontrol Başlatıldı:</b> Tüm dersleriniz taranıyor, lütfen bekleyin...",
+        parse_mode="HTML",
+    )
+
+    def run_user_check():
+        from main import check_user_updates
+
+        result = check_user_updates(chat_id)
+        if result.get("success"):
+            bot.send_message(
+                chat_id,
+                "✅ <b>Kontrol Tamamlandı.</b>\nHerhangi bir değişiklik varsa yukarıda belirtilmiştir.",
+                parse_mode="HTML",
+            )
+        else:
+            bot.send_message(
+                chat_id, f"❌ <b>Hata:</b> {result.get('message')}", parse_mode="HTML"
+            )
+
+    threading.Thread(target=run_user_check, daemon=True).start()
 
 
 @bot.message_handler(func=lambda message: message.text == "🔍 Ara")
