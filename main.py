@@ -17,7 +17,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
-from core.config import (
+from common.config import (
     CHECK_INTERVAL,
     console,
     load_all_users,
@@ -25,7 +25,7 @@ from core.config import (
     USER_SESSIONS,
     LOGS_DIR,
 )
-from core.utils import (
+from common.utils import (
     load_saved_grades,
     save_grades,
     send_telegram_message,
@@ -34,8 +34,7 @@ from core.utils import (
     get_file_icon,
     decrypt_password,
 )
-from ninova import get_grades, get_announcement_detail, LoginFailedError
-from core.logic import predict_course_performance
+from services.ninova import get_grades, get_announcement_detail, LoginFailedError
 from bot import bot, set_check_callback, update_last_check_time
 
 # Logging yapılandırması - Sadece dosyaya
@@ -51,7 +50,12 @@ LAST_CHECK_DISPLAY_TIME = None
 
 
 def show_users_table():
-    """Kayıtlı kullanıcıları tablo formatında gösterir."""
+    """
+    Kayıtlı kullanıcıları tablo formatında gösterir.
+
+    Her kullanıcı için chat ID, kullanıcı adı, ders sayısı ve
+    son aktivite zamanı gösterilir.
+    """
     users = load_all_users()
     if not users:
         console.print("[yellow]Henüz kayıtlı kullanıcı yok.[/yellow]")
@@ -87,7 +91,15 @@ def show_users_table():
 
 
 def check_user_updates(chat_id: str):
-    """Belirli bir kullanıcının notlarını kontrol eder (Bot /kontrol komutu için)."""
+    """
+    Belirli bir kullanıcının notlarını kontrol eder.
+
+    Bot /kontrol komutu için kullanılır. Sadece belirtilen kullanıcının
+    derslerini tarar, değişiklikleri kontrol eder ve bildirim gönderir.
+
+    :param chat_id: Kontrol edilecek kullanıcının chat ID'si
+    :return: Başarı durumu ve mesaj içeren dict
+    """
     users = load_all_users()
     user_data = users.get(chat_id)
 
@@ -261,17 +273,44 @@ def check_user_updates(chat_id: str):
                 )
                 changes.append(f"YENİ DUYURU: {ann['title']}")
 
+        # SİLİNMİŞ VERİLERİ KONTROL ET
+
+        # SİLİNMİŞ NOTLAR
+        current_grade_keys = set(current_course_grades.keys())
+        for saved_key in saved_course_grades:
+            if saved_key not in current_grade_keys:
+                e_saved_key = escape_html(saved_key)
+                sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
+                changes.append(f"NOT SİLİNDİ: {saved_key}")
+
+        # SİLİNMİŞ ÖDEVLER
+        current_assign_ids = {a.get("id") for a in current_assignments}
+        for saved_assign in saved_assignments:
+            if saved_assign.get("id") not in current_assign_ids:
+                e_assign_name = escape_html(saved_assign.get("name", "Bilinmeyen Ödev"))
+                sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_assign_name}")
+                changes.append(f"ÖDEV SİLİNDİ: {saved_assign.get('name')}")
+
+        # SİLİNMİŞ DOSYALAR
+        current_file_urls = {f.get("url") for f in current_files}
+        for saved_file in saved_files:
+            if saved_file.get("url") not in current_file_urls:
+                e_file_name = escape_html(saved_file.get("name", "Bilinmeyen Dosya"))
+                icon = get_file_icon(saved_file.get("name", "").split("/")[-1])
+                sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_file_name}")
+                changes.append(f"DOSYA SİLİNDİ: {saved_file.get('name')}")
+
+        # SİLİNMİŞ DUYURULAR
+        current_ann_ids = {a.get("id") for a in current_announcements}
+        for s_ann_id, s_ann in saved_ann_map.items():
+            if s_ann_id not in current_ann_ids:
+                e_ann_title = escape_html(s_ann.get("title", "Bilinmeyen Duyuru"))
+                sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_ann_title}")
+                changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
+
         # BİLDİRİM GÖNDERME
         if sections_changes:
             msg = f"📢 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
-            if any("NOT" in s for s in sections_changes):
-                perf = predict_course_performance(current_data)
-                if perf and "current_avg" in perf:
-                    msg += f"\n\n📈 <b>Ortalama:</b> <code>{perf['current_avg']:.2f}</code>"
-                    if "predicted_letter" in perf:
-                        msg += (
-                            f" | <b>Tahmin:</b> <code>{perf['predicted_letter']}</code>"
-                        )
             telegram_messages.append(msg)
 
         # KAYDETME
@@ -293,7 +332,7 @@ def check_user_updates(chat_id: str):
             time.sleep(1)
 
     # Kullanıcı verilerini kaydet
-    from core.config import save_all_users
+    from common.config import save_all_users
 
     save_all_users(users)
 
@@ -309,6 +348,18 @@ def check_user_updates(chat_id: str):
 
 
 def check_for_updates():
+    """
+    Tüm kullanıcılar için ders verilerini tarar ve güncellemeleri kontrol eder.
+
+    Ana kontrol döngüsünde periyodik olarak çalışır. Her kullanıcı için:
+    - Notları kontrol eder
+    - Ödev durumlarını kontrol eder
+    - Dosya güncellemelerini kontrol eder
+    - Duyuruları kontrol eder
+    - Ödev hatırlatmaları gönderir
+
+    Yeni veya güncellenmiş içerik varsa Telegram bildirim gönderir.
+    """
     update_last_check_time()
     msg = f"Kontrol Başlatıldı - {len(load_all_users())} kullanıcı"
     logger.info(msg)
@@ -661,17 +712,48 @@ def check_for_updates():
                         f"[bold red][{course_name}] DUYURU SİLİNDİ: {s_ann.get('title')}"
                     )
 
+            # --- SİLİNMİŞ VERİLERİ KONTROL ET ---
+
+            # SİLİNMİŞ NOTLAR
+            current_grade_keys = set(current_course_grades.keys())
+            for saved_key in saved_course_grades:
+                if saved_key not in current_grade_keys:
+                    e_saved_key = escape_html(saved_key)
+                    sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
+                    changes.append(
+                        f"[bold red][{course_name}] NOT SİLİNDİ: {saved_key}"
+                    )
+
+            # SİLİNMİŞ ÖDEVLER
+            current_assign_ids = {a.get("id") for a in current_assignments}
+            for saved_assign in saved_assignments:
+                if saved_assign.get("id") not in current_assign_ids:
+                    e_assign_name = escape_html(
+                        saved_assign.get("name", "Bilinmeyen Ödev")
+                    )
+                    sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_assign_name}")
+                    changes.append(
+                        f"[bold red][{course_name}] ÖDEV SİLİNDİ: {saved_assign.get('name')}"
+                    )
+
+            # SİLİNMİŞ DOSYALAR
+            current_file_urls = {f.get("url") for f in current_files}
+            for saved_file in saved_files:
+                if saved_file.get("url") not in current_file_urls:
+                    e_file_name = escape_html(
+                        saved_file.get("name", "Bilinmeyen Dosya")
+                    )
+                    icon = get_file_icon(saved_file.get("name", "").split("/")[-1])
+                    sections_changes.append(
+                        f"{icon} <b>DOSYA SİLİNDİ:</b> {e_file_name}"
+                    )
+                    changes.append(
+                        f"[bold red][{course_name}] DOSYA SİLİNDİ: {saved_file.get('name')}"
+                    )
+
             # --- BİLDİRİM GÖNDERME ---
             if sections_changes:
                 msg = f"📢 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
-                # Not Performans Özeti (Sadece not değişikliği varsa ekleyelim)
-                if any("NOT" in s for s in sections_changes):
-                    perf = predict_course_performance(current_data)
-                    if perf and "current_avg" in perf:
-                        msg += f"\n\n📈 <b>Ortalama:</b> <code>{perf['current_avg']:.2f}</code>"
-                        if "predicted_letter" in perf:
-                            msg += f" | <b>Tahmin:</b> <code>{perf['predicted_letter']}</code>"
-
                 telegram_messages.append(msg)
 
             # --- KAYDETME ---
@@ -705,7 +787,7 @@ def check_for_updates():
     console.print("[italic white]Kontrol tamamlandı.")
 
     # Kullanıcı verilerini kaydet (last_check güncellemeleri için)
-    from core.config import save_all_users
+    from common.config import save_all_users
 
     save_all_users(users)
     console.print("[dim]Veriler kaydedildi.")

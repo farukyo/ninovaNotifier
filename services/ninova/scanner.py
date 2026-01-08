@@ -4,8 +4,8 @@ import requests
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.panel import Panel
 
-from core.config import console, load_all_users, HEADERS, USER_SESSIONS
-from core.utils import (
+from common.config import console, load_all_users, HEADERS, USER_SESSIONS
+from common.utils import (
     load_saved_grades,
     save_grades,
     send_telegram_message,
@@ -13,18 +13,21 @@ from core.utils import (
     get_file_icon,
     decrypt_password,
 )
-from ninova.scraper import (
+from .scraper import (
     get_grades,
     get_announcement_detail,
 )
-from ninova.auth import LoginFailedError, login_to_ninova
-from core.logic import predict_course_performance
+from .auth import LoginFailedError, login_to_ninova
 from bot import update_last_check_time
 
 logger = logging.getLogger("ninova")
 
 
 def check_for_updates():
+    """
+    Tüm kullanıcılar için ders verilerini tarar ve güncellemeleri kontrol eder.
+    Yeni not, duyuru veya dosya varsa bildirim gönderir.
+    """
     update_last_check_time()
     msg = f"Kontrol Başlatıldı - {len(load_all_users())} kullanıcı"
     logger.info(msg)
@@ -198,10 +201,6 @@ def check_for_updates():
 
             if sections_changes:
                 msg = f"📢 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
-                if any("NOT" in s for s in sections_changes):
-                    perf = predict_course_performance(current_data)
-                    if perf and "current_avg" in perf:
-                        msg += f"\n\n📈 <b>Ortalama:</b> <code>{perf['current_avg']:.2f}</code>"
                 telegram_messages.append(msg)
 
             user_saved_grades[url] = {

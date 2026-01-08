@@ -2,7 +2,7 @@ import json
 import os
 import re
 import requests
-from core.config import (
+from common.config import (
     TELEGRAM_TOKEN,
     DATA_FILE,
     console,
@@ -52,7 +52,12 @@ def parse_turkish_date(date_str):
 
 
 def encrypt_password(password):
-    """Şifreyi encrypt eder."""
+    """
+    Şifreyi Fernet algoritması ile şifreler.
+
+    :param password: Düz metin şifre
+    :return: Şifrelenen şifre (string) veya boş string
+    """
     if not password:
         return ""
     encrypted = cipher_suite.encrypt(password.encode())
@@ -60,7 +65,12 @@ def encrypt_password(password):
 
 
 def decrypt_password(encrypted_password):
-    """Şifreyi decrypt eder."""
+    """
+    Şifrelenen şifreyi çözer.
+
+    :param encrypted_password: Şifrelenen şifre string'i
+    :return: Düz metin şifre veya hata durumunda orijinal değer
+    """
     if not encrypted_password:
         return ""
     try:
@@ -71,7 +81,14 @@ def decrypt_password(encrypted_password):
 
 
 def update_user_data(chat_id, key, value):
-    """Kullanıcı verisini günceller. password ise şifreler."""
+    """
+    Kullanıcı verisini günceller. Password alanı için otomatik şifreleme yapar.
+
+    :param chat_id: Kullanıcının Telegram chat ID'si
+    :param key: Güncellenecek alan adı (username, password, urls vb.)
+    :param value: Yeni değer
+    :return: Güncellenmiş kullanıcı verisi
+    """
     users = load_all_users()
     chat_id = str(chat_id)
     if chat_id not in users:
@@ -85,14 +102,24 @@ def update_user_data(chat_id, key, value):
 
 
 def escape_html(text):
-    """HTML özel karakterlerini kaçırır."""
+    """
+    HTML özel karakterlerini kaçırarak güvenli hale getirir.
+
+    :param text: Kaçırılacak metin
+    :return: Güvenli HTML metni
+    """
     if not isinstance(text, str):
         return str(text)
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def get_file_icon(filename):
-    """Dosya uzantısına göre ikon döner."""
+    """
+    Dosya uzantısına göre uygun emoji ikonunu döndürür.
+
+    :param filename: Dosya adı (uzantı ile)
+    :return: Dosya tipi için uygun emoji (varsayılan: 📄)
+    """
 
     # Tüm desteklenen uzantı/tip -> emoji eşleşmeleri
     icons = {
@@ -206,7 +233,14 @@ def get_file_icon(filename):
 
 
 def send_telegram_message(chat_id, message, is_error=False):
-    """Telegram botu üzerinden belirli bir kullanıcıya mesaj gönderir. Uzun mesajları parçalara ayırır."""
+    """
+    Telegram botu üzerinden belirli bir kullanıcıya mesaj gönderir.
+    Uzun mesajları otomatik olarak parçalara ayırır.
+
+    :param chat_id: Telegram chat ID
+    :param message: Gönderilecek mesaj metni (HTML formatında olabilir)
+    :param is_error: Hata mesajı ise True, ön ek olarak uyarı ekler
+    """
     if not TELEGRAM_TOKEN or not chat_id:
         return
 
@@ -267,7 +301,13 @@ def send_telegram_message(chat_id, message, is_error=False):
 
 
 def send_telegram_document(chat_id, filepath, caption=""):
-    """Telegram üzerinden dosya gönderir ve sonra dosyayı siler."""
+    """
+    Telegram üzerinden dosya gönderir ve gönderim sonrası dosyayı siler.
+
+    :param chat_id: Telegram chat ID
+    :param filepath: Gönderilecek dosyanın yolu
+    :param caption: Dosya ile birlikte gönderilecek açıklama metni
+    """
     if not TELEGRAM_TOKEN or not chat_id or not os.path.exists(filepath):
         return
 
@@ -296,7 +336,11 @@ def send_telegram_document(chat_id, filepath, caption=""):
 
 
 def load_saved_grades():
-    """Kaydedilmiş notları dosyadan okur."""
+    """
+    Kaydedilmiş notları ninova_data.json dosyasından okur.
+
+    :return: Not verileri sözlüğü (chat_id: grades) veya boş dict
+    """
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -307,6 +351,10 @@ def load_saved_grades():
 
 
 def save_grades(grades):
-    """Notları dosyaya kaydeder."""
+    """
+    Notları ninova_data.json dosyasına kaydeder.
+
+    :param grades: Kaydedilecek not verileri sözlüğü
+    """
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(grades, f, ensure_ascii=False, indent=4)

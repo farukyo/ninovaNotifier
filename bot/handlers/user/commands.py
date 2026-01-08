@@ -1,53 +1,73 @@
 import requests
 from telebot import types
 from datetime import datetime
-import bot.core as bc  # LAST_CHECK_TIME için gerekli (isim çakışmasını önlemek için 'as bc')
-from bot.core import (
+import bot.instance as bc  # LAST_CHECK_TIME için gerekli (isim çakışmasını önlemek için 'as bc')
+from bot.instance import (
     bot_instance as bot,
     get_check_callback,
     START_TIME,
 )
-from bot.keyboards import build_main_keyboard
-from core.config import load_all_users, HEADERS, USER_SESSIONS
-from core.utils import (
+from bot.keyboards import build_main_keyboard, build_manual_menu, build_cancel_keyboard
+from common.config import load_all_users, HEADERS, USER_SESSIONS
+from common.utils import (
     load_saved_grades,
     update_user_data,
     escape_html,
     decrypt_password,
 )
-from core.logic import predict_course_performance
-from ninova import login_to_ninova, get_user_courses
+from services.ninova import login_to_ninova, get_user_courses
+
+
+def _is_cancel_text(text: str) -> bool:
+    if not text:
+        return False
+    t = text.strip().lower()
+    # Accept typed 'iptal' or the button label containing 'iptal' (e.g. '⛔ İptal')
+    return "iptal" in t or "cancel" in t
 
 
 @bot.message_handler(commands=["start", "help"])
 def send_welcome(message):
+    """
+    Kullanıcıya karşılama mesajını ve yardım metnini gönderir.
+    Kullanıcıyı veritabanında başlatır.
+    """
     update_user_data(message.chat.id, "chat_id", str(message.chat.id))
     help_text = (
-        "👋 <b>Ninova Not Takipçisi Botuna Hoş Geldiniz!</b>\n\n"
-        "Notlarınızı takip edebilmek için lütfen aşağıdaki adımları sırasıyla uygulayın:\n\n"
-        "1️⃣ <b>Kullanıcı Adı:</b> /username komutu ile Ninova kullanıcı adınızı girin.\n"
-        "2️⃣ <b>Şifre:</b> /password komutu ile Ninova şifrenizi girin.\n"
-        "3️⃣ <b>Ders Ekleme:</b> /otoders ile tüm dersleri otomatik ekleyin veya /ekle ile manuel ekleyin.\n\n"
-        "🔍 <b>Diğer Komutlar:</b>\n"
-        "/notlar - Kayıtlı tüm notları ve ortalamaları listeler\n"
-        "/odevler - Yaklaşan ödevleri ve teslim durumlarını gösterir\n"
-        "/dersler - İnteraktif ders menüsü (Dosya/Ödev/Not)\n"
-        "/search &lt;kelime&gt; - Duyurularda kelime arama yapar\n"
-        "/otoders - Tüm dersleri Ninova'dan otomatik çeker ve ekler\n"
-        "/liste - Takip ettiğiniz ders linklerini gösterir\n"
-        "/sil - Takip edilen bir dersi listeden kaldırır\n"
-        "/kontrol - Notları şimdi manuel olarak kontrol eder\n"
-        "/durum - Sistemin çalışma ve takip durumunu gösterir\n"
-        "/ayril - Sistemden kaydınızı ve verilerinizi siler\n\n"
-        "⚠️ <i>Not: Bilgileriniz güvenli bir şekilde sadece Ninova girişi için kullanılır.</i>"
+        "👋 <b>Ninova Not Takipçisi'ne Hoş Geldiniz!</b>\n\n"
+        "Notlarınızı takip edebilmek için öncelikle Ninova hesabınızı ekleyin:\n\n"
+        "1️⃣ <b>Kullanıcı Adı:</b> '👤 Kullanıcı Adı' butonu ile kullanıcı adınızı ayarlayın.\n"
+        "2️⃣ <b>Şifre:</b> '🔐 Şifre' butonu ile şifrenizi gönderin (mesaj otomatik silinir).\n"
+        "3️⃣ <b>Ders Ekleme:</b> 🤖 'Oto Ders' ile tüm dersleri ekleyin veya 📝 'Manuel Ders' ile tek tek ekleyin.\n\n"
+        "🔎 <b>Hızlı Menü:</b>\n"
+        "• 📊 Notlar — Kayıtlı notlarınızı gösterir\n"
+        "• 📅 Ödevler — Ödev ve teslim durumları\n"
+        "• 📖 Dersler — Ders detay menüsü\n"
+        "• 🔍 Ara — Duyurularda arama yapar\n"
+        "• 📋 Durum — Bot ve hesap durumunuz\n"
+        "• 🚪 Ayrıl — Tüm verilerinizi siler\n\n"
+        "ℹ️ <i>Yardım için klavyedeki '❓ Yardım' butonuna basabilirsiniz.</i>"
     )
     bot.reply_to(
         message, help_text, parse_mode="HTML", reply_markup=build_main_keyboard()
     )
 
 
+@bot.message_handler(func=lambda message: message.text == "❓ Yardım")
+def send_help_button(message):
+    """Yardım butonuna basıldığında `send_welcome` davranışını tekrarlar."""
+    send_welcome(message)
+
+
 @bot.message_handler(commands=["menu"])
 def show_menu(message):
+    """
+    Kullanıcıya ana menü klavyesini gösterir.
+
+    Tüm mevcut komutları içeren ReplyKeyboard oluşturur.
+
+    :param message: Kullanıcıdan gelen /menu komutu
+    """
     bot.send_message(
         message.chat.id,
         "📋 Komut menüsü açıldı. Bir komut seçin veya yazmaya başlayın.",
@@ -55,8 +75,12 @@ def show_menu(message):
     )
 
 
-@bot.message_handler(commands=["notlar"])
+@bot.message_handler(func=lambda message: message.text == "📊 Notlar")
 def list_grades(message):
+    """
+    Kullanıcının kayıtlı notlarını listeler.
+    Notlar, ağırlıklar, sınıf ortalaması ve performans tahmini içerir.
+    """
     chat_id = str(message.chat.id)
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
@@ -107,22 +131,6 @@ def list_grades(message):
 
                 response += "\n"
 
-            perf = predict_course_performance(data)
-            if perf and "current_avg" in perf:
-                weight_info = (
-                    f" (%{perf['total_weight_entered']:.0f})"
-                    if perf.get("total_weight_entered", 0) > 0
-                    else ""
-                )
-                response += f"📈 <b>Ortalama:</b> <code>{perf['current_avg']:.2f}</code>{weight_info}\n"
-                if perf.get("class_avg") is not None:
-                    response += (
-                        f"👥 <b>Sınıf Ort:</b> <code>{perf['class_avg']:.2f}</code>\n"
-                    )
-                if "predicted_letter" in perf:
-                    response += (
-                        f"🎯 <b>Tahmin:</b> <code>{perf['predicted_letter']}</code>\n"
-                    )
         response += "\n"
 
     if len(response) > 4000:
@@ -132,8 +140,11 @@ def list_grades(message):
         bot.send_message(message.chat.id, response, parse_mode="HTML")
 
 
-@bot.message_handler(commands=["odevler"])
+@bot.message_handler(func=lambda message: message.text == "📅 Ödevler")
 def list_assignments(message):
+    """
+    Kullanıcının ödevlerini ve teslim durumlarını listeler.
+    """
     chat_id = str(message.chat.id)
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
@@ -165,8 +176,16 @@ def list_assignments(message):
         bot.send_message(message.chat.id, response, parse_mode="HTML")
 
 
-@bot.message_handler(commands=["ders", "dersler"])
+@bot.message_handler(func=lambda message: message.text == "📖 Dersler")
 def interactive_menu(message):
+    """
+    Etkileşimli ders menüsünü başlatır.
+
+    Kullanıcı ders seçip detaylara (not, ödev, dosya, duyuru) erişebilir.
+    Her ders için buton oluşturulur.
+
+    :param message: Kullanıcıdan gelen /ders veya /dersler komutu
+    """
     chat_id = str(message.chat.id)
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
@@ -192,28 +211,51 @@ def interactive_menu(message):
     )
 
 
-@bot.message_handler(commands=["search"])
+@bot.message_handler(func=lambda message: message.text == "🔍 Ara")
 def search_announcements(message):
+    """
+    Ders duyurularında kelime bazlı arama yapar.
+    Önce arama kelimesini sorar.
+    """
+    prompt = bot.send_message(
+        message.chat.id,
+        "🔍 <b>Arama</b>\n\nHangi metni aramak istiyorsunuz? Lütfen kelimeyi yazın:",
+        parse_mode="HTML",
+        reply_markup=build_cancel_keyboard(),
+    )
+    bot.register_next_step_handler(prompt, process_search_term)
+
+
+def process_search_term(message):
+    """
+    Kullanıcının arama kelimesini işler ve arama yapar.
+    """
     chat_id = str(message.chat.id)
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.reply_to(
-            message,
-            "❌ Lütfen aramak istediğiniz kelimeyi belirtin.\n\nKullanım: <code>/search kelime</code>",
-            parse_mode="HTML",
+    # Allow user to cancel the waiting input via button or typed text
+    if _is_cancel_text(message.text):
+        bot.send_message(
+            chat_id, "❌ Arama iptal edildi.", reply_markup=build_main_keyboard()
         )
         return
 
-    search_term = parts[1].strip().lower()
+    search_term = message.text.strip().lower()
+
+    if not search_term:
+        bot.send_message(
+            chat_id,
+            "❌ Geçerli bir arama kelimesi girmediniz. Tekrar deneyin.",
+        )
+        return
+
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
 
     if not user_grades:
-        bot.reply_to(message, "Henüz kayıtlı ders bulunamadı.")
+        bot.send_message(chat_id, "Henüz kayıtlı ders bulunamadı.")
         return
 
     bot.send_message(
-        message.chat.id,
+        chat_id,
         f"🔍 <b>'{escape_html(search_term)}'</b> için arama yapılıyor...",
         parse_mode="HTML",
     )
@@ -238,7 +280,7 @@ def search_announcements(message):
 
     if not results:
         bot.send_message(
-            message.chat.id,
+            chat_id,
             f"😔 '<b>{escape_html(search_term)}</b>' için sonuç bulunamadı.",
             parse_mode="HTML",
         )
@@ -258,7 +300,7 @@ def search_announcements(message):
         response += "\n"
         if len(response) > 3500:
             bot.send_message(
-                message.chat.id,
+                chat_id,
                 response,
                 parse_mode="HTML",
                 disable_web_page_preview=True,
@@ -266,27 +308,33 @@ def search_announcements(message):
             response = ""
     if response:
         bot.send_message(
-            message.chat.id, response, parse_mode="HTML", disable_web_page_preview=True
+            chat_id, response, parse_mode="HTML", disable_web_page_preview=True
         )
 
 
-@bot.message_handler(commands=["kontrol"])
 def manual_check(message):
+    """
+    Kullanıcı talebiyle manuel not kontrolü başlatır.
+    """
     chat_id = str(message.chat.id)
     bot.reply_to(message, "🔄 Kontrol başlatılıyor, lütfen bekleyin...")
-    
+
     # check_user_updates fonksiyonunu çağır (sadece bu kullanıcıyı kontrol et)
     from main import check_user_updates
+
     result = check_user_updates(chat_id)
-    
+
     if result["success"]:
         bot.send_message(chat_id, f"✅ {result['message']}")
     else:
         bot.send_message(chat_id, f"❌ Kontrol başarısız: {result['message']}")
 
 
-@bot.message_handler(commands=["otoders"])
+@bot.message_handler(func=lambda message: message.text == "🤖 Oto Ders")
 def auto_add_courses(message):
+    """
+    Ninova'ya bağlanarak kullanıcının tüm derslerini otomatik olarak bulur ve ekler.
+    """
     chat_id = str(message.chat.id)
     users = load_all_users()
     user_info = users.get(chat_id, {})
@@ -361,8 +409,11 @@ def auto_add_courses(message):
         )
 
 
-@bot.message_handler(commands=["ekle"])
 def add_course(message):
+    """Manuel olarak Ninova ders linki ekler.
+
+    Kullanım: /ekle <url>
+    """
     args = message.text.split()
     if len(args) < 2 or "ninova.itu.edu.tr" not in args[1]:
         bot.reply_to(
@@ -381,100 +432,194 @@ def add_course(message):
 
     chat_id = str(message.chat.id)
     users = load_all_users()
-    user_urls = users.get(chat_id, {}).get("urls", [])
+    user_data = users.get(chat_id, {})
+    urls = user_data.get("urls", [])
 
-    if url in user_urls:
-        bot.reply_to(message, "⚠️ Bu ders zaten listenizde.")
-        return
-
-    user_urls.append(url)
-    update_user_data(chat_id, "urls", user_urls)
-    bot.reply_to(message, "✅ Ders başarıyla eklendi. İlk kontrol yapılıyor...")
-
-    cb = get_check_callback()
-    if cb:
-        try:
-            cb()
-        except Exception:
-            pass
-
-
-@bot.message_handler(commands=["sil"])
-def delete_course(message):
-    chat_id = str(message.chat.id)
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
-
-    if not user_grades:
-        bot.reply_to(message, "Henüz takip ettiğiniz ders yok.")
-        return
-
-    markup = types.InlineKeyboardMarkup()
-    for i, (url, data) in enumerate(user_grades.items()):
-        course_name = data.get("course_name", "Bilinmeyen Ders")
-        markup.add(
-            types.InlineKeyboardButton(f"❌ {course_name}", callback_data=f"del_{i}")
-        )
-
-    bot.send_message(
-        message.chat.id, "🗑️ Silmek istediğiniz dersi seçin:", reply_markup=markup
-    )
-
-
-@bot.message_handler(commands=["liste"])
-def list_urls(message):
-    chat_id = str(message.chat.id)
-    users = load_all_users()
-    urls = users.get(chat_id, {}).get("urls", [])
-
-    if not urls:
-        bot.reply_to(message, "Takip ettiğiniz ders bulunamadı.")
-        return
-
-    response = "📋 <b>Takip Ettiğiniz Ders Linkleri:</b>\n\n"
-    for url in urls:
-        response += f"🔗 {url}\n"
-    bot.reply_to(message, response, parse_mode="HTML", disable_web_page_preview=True)
-
-
-@bot.message_handler(commands=["username"])
-def set_username(message):
-    parts = message.text.split()
-    if len(parts) < 2:
+    if url in urls:
         bot.reply_to(
             message,
-            "❌ Lütfen kullanıcı adınızı belirtin.\nÖrn: <code>/username mehmet21</code>",
-            parse_mode="HTML",
+            "⚠️ Bu ders zaten takip ediliyor.",
         )
         return
-    update_user_data(message.chat.id, "username", parts[1])
+
+    urls.append(url)
+    update_user_data(chat_id, "urls", urls)
     bot.reply_to(
         message,
-        f"✅ Kullanıcı adı kaydedildi: <code>{parts[1]}</code>",
+        f"✅ Ders başarıyla eklendi!\n<code>{url}</code>",
         parse_mode="HTML",
     )
 
 
-@bot.message_handler(commands=["password"])
-def set_password(message):
-    parts = message.text.split()
-    if len(parts) < 2:
-        bot.reply_to(
-            message,
-            "❌ Lütfen şifrenizi belirtin.\nÖrn: <code>/password sifre123</code>",
-            parse_mode="HTML",
-        )
+def list_courses(message):
+    """
+    Kullanıcının takip ettiği dersleri listeler.
+    """
+    chat_id = str(message.chat.id)
+    users = load_all_users()
+    user_data = users.get(chat_id, {})
+    urls = user_data.get("urls", [])
+    all_grades = load_saved_grades()
+    user_grades = all_grades.get(chat_id, {})
+
+    if not urls:
+        bot.reply_to(message, "❌ Takip ettiğiniz ders bulunamadı.")
         return
-    update_user_data(message.chat.id, "password", parts[1])
-    bot.delete_message(message.chat.id, message.message_id)
+
+    response = "📋 <b>Takip Ettiğiniz Dersler:</b>\n\n"
+    for i, url in enumerate(urls, 1):
+        course_name = user_grades.get(url, {}).get("course_name", f"Ders {i}")
+        response += f"{i}. <b>{course_name}</b>\n<code>{url}</code>\n\n"
+
+    if len(response) > 4000:
+        for x in range(0, len(response), 4000):
+            bot.send_message(message.chat.id, response[x : x + 4000], parse_mode="HTML")
+    else:
+        bot.send_message(message.chat.id, response, parse_mode="HTML")
+
+
+def delete_course(message):
+    """
+    Kullanıcıdan bir ders seçerek silme menüsünü gösterir.
+    """
+    chat_id = str(message.chat.id)
+    users = load_all_users()
+    user_data = users.get(chat_id, {})
+    urls = user_data.get("urls", [])
+    all_grades = load_saved_grades()
+    user_grades = all_grades.get(chat_id, {})
+
+    if not urls:
+        bot.reply_to(message, "❌ Silinecek ders bulunamadı.")
+        return
+
+    markup = types.InlineKeyboardMarkup()
+    for i, url in enumerate(urls):
+        course_name = user_grades.get(url, {}).get("course_name", f"Ders {i + 1}")
+        display_text = (
+            course_name if len(course_name) <= 40 else course_name[:37] + "..."
+        )
+        markup.add(
+            types.InlineKeyboardButton(
+                f"🗑️ {display_text}", callback_data=f"del_req_{i}"
+            )
+        )
+
+    markup.add(types.InlineKeyboardButton("↩️ İptal", callback_data="del_no"))
+
     bot.send_message(
-        message.chat.id,
-        "✅ Şifreniz güvenli bir şekilde kaydedildi ve güvenlik için mesajınız silindi.",
+        chat_id,
+        "🗑️ <b>Ders Silme</b>\n\nSilmek istediğiniz dersi seçin:",
+        reply_markup=markup,
+        parse_mode="HTML",
     )
 
 
-@bot.message_handler(commands=["durum"])
+@bot.message_handler(func=lambda message: message.text == "📝 Manuel Ders")
+def manual_course_menu(message):
+    """
+    Manuel ders yönetimi menüsünü gösterir: Ekle, Sil, Liste
+    """
+    markup = build_manual_menu()
+    bot.send_message(
+        message.chat.id,
+        "📝 <b>Manuel Ders Yönetimi</b>\n\nİstediğiniz işlemi seçin:",
+        reply_markup=markup,
+        parse_mode="HTML",
+    )
+    # Menü gösterimi yapıldı; ekleme/sil/listeleme işlemleri
+    # callback_data ile callback query'lerde işlenecektir.
+
+
+@bot.message_handler(func=lambda message: message.text == "👤 Kullanıcı Adı")
+def set_username(message):
+    """
+    Kullanıcıdan yeni bir mesaj olarak kullanıcı adını ister.
+    """
+    prompt = bot.send_message(
+        message.chat.id,
+        "✏️ Lütfen kullanıcı adınızı yazın:",
+        reply_markup=build_cancel_keyboard(),
+    )
+    bot.register_next_step_handler(prompt, process_username)
+
+
+def process_username(message):
+    chat_id = message.chat.id
+    if _is_cancel_text(message.text):
+        bot.send_message(
+            chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard()
+        )
+        return
+
+    username = message.text.strip()
+    if not username:
+        bot.send_message(chat_id, "❌ Geçerli bir kullanıcı adı girmediniz.")
+        return
+
+    update_user_data(chat_id, "username", username)
+    bot.send_message(
+        chat_id,
+        f"✅ Kullanıcı adı kaydedildi: <code>{username}</code>",
+        parse_mode="HTML",
+        reply_markup=build_main_keyboard(),
+    )
+
+
+@bot.message_handler(func=lambda message: message.text == "🔐 Şifre")
+def set_password(message):
+    """
+    Kullanıcıdan yeni bir mesaj olarak şifreyi ister.
+    """
+    prompt = bot.send_message(
+        message.chat.id,
+        "🔒 Lütfen şifrenizi yazın (gönderdiğiniz mesaj otomatik silinecek):",
+        reply_markup=build_cancel_keyboard(),
+    )
+    bot.register_next_step_handler(prompt, process_password)
+
+
+def process_password(message):
+    chat_id = message.chat.id
+    # Allow cancel via button
+    if _is_cancel_text(message.text):
+        bot.send_message(
+            chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard()
+        )
+        return
+
+    password = message.text.strip()
+    if not password:
+        bot.send_message(chat_id, "❌ Geçerli bir şifre girmediniz.")
+        return
+
+    update_user_data(chat_id, "password", password)
+    try:
+        bot.delete_message(chat_id, message.message_id)
+    except Exception:
+        pass
+
+    bot.send_message(
+        chat_id,
+        "✅ Şifreniz güvenli bir şekilde kaydedildi.",
+        reply_markup=build_main_keyboard(),
+    )
+
+
+@bot.message_handler(func=lambda message: message.text == "📋 Durum")
 def show_status(message):
+    """
+    Sistemin ve kullanıcının durumunu gösterir.
+
+    Gösterilen bilgiler:
+    - Bot uptime (ne kadar süredir çalışıyor)
+    - Son kontrol zamanı
+    - Toplam kullanıcı sayısı
+    - Toplam takip edilen ders sayısı
+    - Kullanıcının hesap bilgileri (kullanıcı adı, şifre durumu, ders sayısı)
+
+    :param message: Kullanıcıdan gelen /durum komutu
+    """
     chat_id = str(message.chat.id)
     users = load_all_users()
     user_info = users.get(chat_id, {})
@@ -509,8 +654,16 @@ def show_status(message):
     bot.reply_to(message, status, parse_mode="HTML")
 
 
-@bot.message_handler(commands=["ayril"])
+@bot.message_handler(func=lambda message: message.text == "🚪 Ayrıl")
 def leave_system(message):
+    """
+    Kullanıcının sistemden ayrılması için onay ister.
+
+    Onaylanması durumunda kullanıcının tüm verileri (kullanıcı bilgileri,
+    notlar, dersler) kalıcı olarak silinir.
+
+    :param message: Kullanıcıdan gelen /ayril komutu
+    """
     markup = types.InlineKeyboardMarkup()
     markup.add(
         types.InlineKeyboardButton(

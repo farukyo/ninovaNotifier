@@ -1,19 +1,39 @@
 import urllib.parse
 from telebot import types
-from bot.core import bot_instance as bot
-from core.utils import load_saved_grades, get_file_icon, escape_html
+from bot.instance import bot_instance as bot
+from common.utils import load_saved_grades, get_file_icon, escape_html
 
 
 def encode_path(path_segments):
+    """
+    Dosya yolu segmentlerini URL uyumlu hale getirir ve birleştirir.
+
+    :param path_segments: Klasör isimleri listesi (['dersler', 'notlar'])
+    :return: URL-encoded string (dersler%2Fnotlar)
+    """
     return urllib.parse.quote("/".join(path_segments))
 
 
 def decode_path(path_str):
+    """
+    URL-encoded dosya yolunu tekrar segment listesine çevirir.
+
+    :param path_str: URL-encoded string
+    :return: Klasör isimleri listesi
+    """
     return [p for p in urllib.parse.unquote(path_str).split("/") if p]
 
 
 def show_file_browser(chat_id, message_id, course_idx, path_str=""):
-    """Render folder-aware file browser for a course."""
+    """
+    Ders için klasör tabanlı dosya tarayıcısını gösterir.
+    Klasörler ve dosyalar arasında gezinmeyi sağlar.
+
+    :param chat_id: Kullanıcının chat ID'si
+    :param message_id: Güncellenecek mesajın ID'si
+    :param course_idx: Dersin indeks numarası
+    :param path_str: Mevcut klasör yolu (URL-encoded)
+    """
     path_segments = decode_path(path_str) if path_str else []
 
     all_grades = load_saved_grades()

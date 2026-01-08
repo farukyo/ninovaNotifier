@@ -1,10 +1,22 @@
 import os
-from core.config import console
-from ninova.auth import login_to_ninova
+from common.config import console
+from .auth import login_to_ninova
 
 
 def download_file(session, url, filename, chat_id=None, username=None, password=None):
-    """Dosyayı indirir."""
+    """
+    Ninova'dan dosya indirir ve yerel diske kaydeder.
+
+    Oturum süresi dolmuşsa otomatik olarak yeniden giriş yapar.
+
+    :param session: requests.Session nesnesi
+    :param url: İndirilecek dosyanın URL'i
+    :param filename: Kaydedilecek dosya adı
+    :param chat_id: Kullanıcı chat ID (yeniden giriş için)
+    :param username: Ninova kullanıcı adı (yeniden giriş için)
+    :param password: Ninova şifresi (yeniden giriş için)
+    :return: İndirilen dosyanın yolu veya None
+    """
     try:
         response = session.get(url, stream=True, timeout=30, allow_redirects=False)
         if response.status_code == 302:

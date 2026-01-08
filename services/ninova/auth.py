@@ -1,8 +1,8 @@
 import logging
 from bs4 import BeautifulSoup
 from plyer import notification
-from core.config import console
-from core.utils import send_telegram_message
+from common.config import console
+from common.utils import send_telegram_message
 
 logger = logging.getLogger("ninova")
 
@@ -12,7 +12,19 @@ class LoginFailedError(Exception):
 
 
 def login_to_ninova(session, chat_id, username, password, quiet=False):
-    """Belirli bir kullanıcı için Ninova'ya giriş yapar."""
+    """
+    Belirli bir kullanıcı için Ninova'ya giriş yapar.
+
+    Oturum zaten aktifse tekrar giriş yapmaz. Başarısız giriş durumunda
+    kullanıcıya bildirim gönderir.
+
+    :param session: requests.Session nesnesi
+    :param chat_id: Kullanıcının Telegram chat ID'si
+    :param username: Ninova kullanıcı adı
+    :param password: Ninova şifresi
+    :param quiet: True ise sessiz mod (bildirim gönderme)
+    :return: Başarılıysa True, değilse False
+    """
     if not username or not password:
         console.print(f"[bold red]Hata ({chat_id}): Kullanıcı adı veya şifre eksik!")
         return False

@@ -1,6 +1,6 @@
 # Ninova modülü
-from ninova.auth import LoginFailedError, login_to_ninova
-from ninova.scraper import (
+from .auth import LoginFailedError, login_to_ninova
+from .scraper import (
     get_announcements,
     get_announcement_detail,
     get_assignments,
@@ -10,8 +10,8 @@ from ninova.scraper import (
     get_class_files,
     get_all_files,
 )
-from ninova.file_utils import download_file
-from ninova.scanner import check_for_updates
+from .file_utils import download_file
+from .scanner import check_for_updates
 
 __all__ = [
     "LoginFailedError",

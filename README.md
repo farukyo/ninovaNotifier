@@ -7,23 +7,23 @@
 ## ✨ Özellikler
 
 - 👥 **Çoklu Kullanıcı Desteği:** Tek bir bot üzerinden birden fazla kişi kendi akademik verilerini bağımsız takip edebilir.
-- 🔔 **Akıllı Bildirimler:** 
-    - Yeni not girişi veya mevcut not güncellemeleri.
-    - Yeni eklenen dosyalar veya mevcut dosyalardaki değişiklikler.
-    - Ödev teslim tarihi değişiklikleri veya teslim durumu (submitted) güncellemeleri.
-    - **Yeni Duyuru Bildirimi:** Sınıfa eklenen duyurular, dış menü metinlerinden arındırılmış temiz bir formatla anında iletilir.
-- 📊 **Gelişmiş Analiz:** 
-    - Ağırlıklı ortalama hesabı ve sınıf ortalaması kıyaslaması.
-    - İTÜ T-Skoru sistemine dayalı **Harf Notu Tahmini**.
-- 📂 **Dosya Yönetimi:** 
-    - Recursive (iç içe) klasör yapısını destekler.
-    - Dosyaları indirmeden önce önizleme ikonuyla (📕, 📦, 🐍 vb.) listeler.
-    - Telegram üzerinden tek tıkla dosya indirme imkanı.
-    - Türkçe karakterli dosya isimleri için otomatik düzeltme desteği.
+- 🔔 **Akıllı Bildirimler:**
+  - Yeni not girişi veya mevcut not güncellemeleri.
+  - Yeni eklenen dosyalar veya mevcut dosyalardaki değişiklikler.
+  - Ödev teslim tarihi değişiklikleri veya teslim durumu (submitted) güncellemeleri.
+  - **Yeni Duyuru Bildirimi:** Sınıfa eklenen duyurular, dış menü metinlerinden arındırılmış temiz bir formatla anında iletilir.
+- 📊 **Gelişmiş Analiz:**
+  - Ağırlıklı ortalama hesabı ve sınıf ortalaması kıyaslaması.
+  - İTÜ T-Skoru sistemine dayalı **Harf Notu Tahmini**.
+- 📂 **Dosya Yönetimi:**
+  - Recursive (iç içe) klasör yapısını destekler.
+  - Dosyaları indirmeden önce önizleme ikonuyla (📕, 📦, 🐍 vb.) listeler.
+  - Telegram üzerinden tek tıkla dosya indirme imkanı.
+  - Türkçe karakterli dosya isimleri için otomatik düzeltme desteği.
 - 🕒 **Ödev Hatırlatıcı:** Yaklaşan ödevler için son **24 saat** ve **3 saat** kala otomatik hatırlatma bildirimleri.
-- 🤖 **Kapsamlı Telegram Arayüzü:** 
-    - `/otoders`: Tüm dersleri Ninova'dan otomatik bulur ve ekler.
-    - `/dersler`: İnteraktif butonlar ile ders detaylarına (Not/Ödev/Dosya) hızlı erişim.
+- 🤖 **Kapsamlı Telegram Arayüzü:**
+  - `/otoders`: Tüm dersleri Ninova'dan otomatik bulur ve ekler.
+  - `/dersler`: İnteraktif butonlar ile ders detaylarına (Not/Ödev/Dosya) hızlı erişim.
 - 🛡️ **Stabilite:** Telegram "409 Conflict" hataları ve Ninova oturum düşmelerine karşı otomatik kurtarma mekanizmaları. Oturumlar kullanıcı bazlı önbelleğe alınarak gereksiz giriş trafiği önlenir.
 
 ---
@@ -31,22 +31,28 @@
 ## 🚀 Kurulum
 
 ### 1. Gereksinimler
+
 - Python 3.14+
 - [uv](https://github.com/astral-sh/uv) (Önerilen hızlı paket yöneticisi)
 
 ### 2. Bağımlılıkları Yükleyin
+
 ```bash
 uv sync
 ```
 
 ### 3. Yapılandırma
+
 Bir `.env` dosyası oluşturun ve bot token'ınızı ekleyin:
+
 ```env
 TELEGRAM_TOKEN=your_bot_token_here
 ```
 
 ### 4. Çalıştırma
+
 Sistemi başlatmak için:
+
 ```bash
 uv run main.py
 ```
@@ -63,6 +69,7 @@ Botu başlattıktan sonra Telegram üzerinden `/start` göndererek şu adımlar�
 4. 📖 `/dersler`: İnteraktif menü üzerinden tüm işlemlerinizi halledin.
 
 ### Temel Komutlar
+
 | Komut | Açıklama |
 |---|---|
 | `/menu` | Ana menüyü gösterir. |
@@ -87,6 +94,7 @@ Botu başlattıktan sonra Telegram üzerinden `/start` göndererek şu adımlar�
 Sistem yöneticisi için özel interaktif `/admin` paneli mevcuttur.
 
 ### Yönetim Komutları (Sadece Admin)
+
 | Komut | Açıklama |
 |---|---|
 | `/admin` | Tüm yönetim araçlarını içeren interaktif buton panelini açar. |
@@ -107,29 +115,40 @@ Sistem yöneticisi için özel interaktif `/admin` paneli mevcuttur.
 
 ```
 ninovaNotifier/
-├── main.py              # Ana uygulama başlangıç noktası
-├── core/                # Çekirdek modüller
-│   ├── config.py        # Sistem ayarları ve global değişkenler
-│   ├── utils.py         # Yardımcı fonksiyonlar
-│   └── logic.py         # Akademik analiz ve not tahmini
-├── bot/                 # Telegram bot modülü
-│   ├── core.py          # Bot başlatma ve temel ayarlar
-│   ├── keyboards.py     # Klavye yapıları
-│   ├── utils.py         # Bot yardımcı fonksiyonları
-│   └── handlers/        # Komut ve callback handler'ları
-│       ├── commands.py  # Kullanıcı komutları
-│       ├── callbacks.py # Buton callback'leri
-│       └── admin.py     # Admin komutları ve paneli
-├── ninova/              # Ninova scraping modülü
-│   ├── auth.py          # Giriş ve oturum yönetimi
-│   ├── scraper.py       # Veri çekme fonksiyonları
-│   ├── file_utils.py    # Dosya indirme
-│   └── scanner.py       # Periyodik tarama motoru
-├── users.json           # Kullanıcı veritabanı
-└── ninova_data.json     # Not/ödev/dosya veritabanı
+├── main.py                   # Ana uygulama başlangıç noktası
+├── bot/                      # Telegram bot modülü
+│   ├── instance.py           # Bot instance + runtime state
+│   ├── keyboards.py          # Klavye yapıları
+│   ├── utils.py              # Bot yardımcı fonksiyonları
+│   └── handlers/             # Komut ve callback handler'ları
+│       ├── user/             # Kullanıcı akışları
+│       │   ├── commands.py
+│       │   └── callbacks.py
+│       └── admin/            # Admin panel ve işlemleri
+│           ├── commands.py
+│           ├── callbacks.py
+│           ├── services.py
+│           ├── helpers.py
+│           └── course_management.py
+├── common/                   # Ortak config + yardımcılar
+│   ├── config.py
+│   ├── utils.py
+│   └── grading.py
+├── services/                 # Entegrasyon/servis katmanı
+│   └── ninova/               # Ninova scraping modülü
+│       ├── auth.py           # Giriş ve oturum yönetimi
+│       ├── scraper.py        # Veri çekme fonksiyonları
+│       ├── file_utils.py     # Dosya indirme
+│       └── scanner.py        # Periyodik tarama motoru
+├── data/                     # Yerel veri dosyaları
+│   ├── users.json
+│   └── ninova_data.json
+└── logs/                     # Log çıktıları
+    └── app.log
 ```
 
 ---
 
 ## ⚖️ Lisans
+
 Bu proje sadece eğitim amaçlıdır. Ninova sisteminin kullanım koşullarına uyulması kullanıcının sorumluluğundadır.

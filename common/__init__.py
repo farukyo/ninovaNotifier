@@ -2,7 +2,7 @@
 Core modülü - Sistem yapılandırması ve yardımcı fonksiyonlar.
 """
 
-from core.config import (
+from common.config import (
     console,
     USERS_FILE,
     DATA_FILE,
@@ -16,7 +16,7 @@ from core.config import (
     USER_SESSIONS,
 )
 
-from core.utils import (
+from common.utils import (
     parse_turkish_date,
     encrypt_password,
     decrypt_password,
@@ -27,11 +27,6 @@ from core.utils import (
     send_telegram_document,
     load_saved_grades,
     save_grades,
-)
-
-from core.logic import (
-    calculate_letter_grade,
-    predict_course_performance,
 )
 
 __all__ = [
@@ -58,7 +53,4 @@ __all__ = [
     "send_telegram_document",
     "load_saved_grades",
     "save_grades",
-    # Logic
-    "calculate_letter_grade",
-    "predict_course_performance",
 ]

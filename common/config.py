@@ -36,6 +36,11 @@ cipher_suite = Fernet(ENCRYPTION_KEY)
 
 
 def load_all_users():
+    """
+    Tüm kullanıcı verilerini users.json dosyasından yükler.
+
+    :return: Kullanıcı sözlüğü (chat_id: user_data) veya boş dict
+    """
     if os.path.exists(USERS_FILE):
         try:
             with open(USERS_FILE, "r", encoding="utf-8") as f:
@@ -46,6 +51,11 @@ def load_all_users():
 
 
 def save_all_users(users):
+    """
+    Tüm kullanıcı verilerini users.json dosyasına kaydeder.
+
+    :param users: Kaydedilecek kullanıcı sözlüğü
+    """
     with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump(users, f, indent=4, ensure_ascii=False)
 

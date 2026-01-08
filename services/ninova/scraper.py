@@ -1,14 +1,24 @@
 import re
 import logging
 from bs4 import BeautifulSoup
-from core.config import console
-from ninova.auth import LoginFailedError, login_to_ninova
+from common.config import console
+from .auth import LoginFailedError, login_to_ninova
 
 logger = logging.getLogger("ninova")
 
 
 def get_announcements(session, base_url):
-    """Sınıf duyurularını çeker.
+    """
+    Sınıf duyurularını çeker.
+
+    Ninova'nın HTML yapısından duyuruları parse eder:
+    - Başlık ve link
+    - Tarih ve yazar
+    - İçerik önizlemesi
+
+    :param session: requests.Session nesnesi
+    :param base_url: Ders ana sayfa URL'i
+    :return: Duyuru listesi (dict), boş liste hata durumunda
 
     HTML yapısı:
     <div class="duyuruGoruntule">
@@ -88,7 +98,14 @@ def get_announcements(session, base_url):
 
 
 def get_announcement_detail(session, url):
-    """Duyuru içeriğini detay sayfasından çeker.
+    """
+    Duyuru içeriğini detay sayfasından çeker.
+
+    Duyurunun tam içeriğini almak için duyuru detay sayfasını parse eder.
+
+    :param session: requests.Session nesnesi
+    :param url: Duyuru detay sayfasının URL'i
+    :return: Duyuru içeriği (string), boş string hata durumunda
 
     HTML yapısı:
     <div class="duyuruGoruntule">
@@ -123,7 +140,14 @@ def get_announcement_detail(session, url):
 
 
 def get_assignment_detail(session, url):
-    """Ödev detay sayfasından tarih ve teslim bilgilerini çeker.
+    """
+    Ödev detay sayfasından tarih ve teslim bilgilerini çeker.
+
+    Ödevin başlangıç tarihi, bitiş tarihi ve teslim durumunu parse eder.
+
+    :param session: requests.Session nesnesi
+    :param url: Ödev detay sayfasının URL'i
+    :return: Ödev detayları dict'i (start_date, end_date, is_submitted) veya None
 
     HTML yapısı:
     - Tarihler: <span class="title_field">Teslim Bitişi</span><span class="data_field">26 Aralık 2025 23:59</span>

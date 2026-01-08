@@ -1,21 +1,27 @@
 import requests
 from telebot import types
-from bot.core import bot_instance as bot
+from bot.instance import bot_instance as bot
 from bot.utils import show_file_browser
-from core.config import load_all_users, save_all_users, HEADERS, USER_SESSIONS
-from core.utils import (
+from bot.keyboards import build_manual_menu, build_cancel_keyboard, build_main_keyboard
+from common.config import load_all_users, save_all_users, HEADERS, USER_SESSIONS
+from common.utils import (
     load_saved_grades,
     save_grades,
+    update_user_data,
     send_telegram_document,
     get_file_icon,
     escape_html,
     decrypt_password,
 )
-from ninova import download_file
+from services.ninova import download_file
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("crs_"))
 def handle_course_selection(call):
+    """
+    Kullanıcı bir ders seçtiğinde çalışır.
+    Ders detay menüsünü (Not, Ödev, Dosya, Duyuru) gösterir.
+    """
     chat_id = str(call.message.chat.id)
     course_idx = int(call.data.split("_")[1])
 
@@ -57,6 +63,9 @@ def handle_course_selection(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("ann_"))
 def handle_announcement_detail(call):
+    """
+    Seçilen duyurunun detayını gösterir.
+    """
     parts = call.data.split("_")
     course_idx = int(parts[1])
     ann_idx = int(parts[2])
@@ -106,6 +115,10 @@ def handle_announcement_detail(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("det_"))
 def handle_course_detail(call):
+    """
+    Ders detay menüsünden bir seçenek (Not, Ödev vb.) seçildiğinde,
+    ilgili içeriği listeler.
+    """
     chat_id = str(call.message.chat.id)
     parts = call.data.split("_")
     course_idx, detail_type = int(parts[1]), parts[2]
@@ -195,6 +208,13 @@ def handle_course_detail(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def handle_main_menu(call):
+    """
+    Ana menüye/ders listesine geri döner.
+
+    Kullanıcı detay sayfalarından ana ders listesine dönmek için kullanılır.
+
+    :param call: CallbackQuery nesnesi
+    """
     chat_id = str(call.message.chat.id)
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
@@ -217,6 +237,14 @@ def handle_main_menu(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
 def handle_file_download(call):
+    """
+    Dosya indirme işlemini başlatır ve dosyayı Telegram üzerinden gönderir.
+
+    Ninova'dan dosyayı indirir ve kullanıcıya Telegram üzerinden gönderir.
+    Oturum süresi dolmuşsa otomatik olarak yeniden giriş yapar.
+
+    :param call: CallbackQuery nesnesi (dl_<course_idx>_<file_idx> formatında)
+    """
     chat_id = str(call.message.chat.id)
     parts = call.data.split("_")
     url_idx, file_idx = int(parts[1]), int(parts[2])
@@ -275,7 +303,28 @@ def handle_file_download(call):
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dir_"))
+def handle_directory_navigation(call):
+    """
+    Dosya tarayıcısında klasörler arası gezinmeyi sağlar.
+
+    Kullanıcı klasör seçtiğinde o klasörün içeriğini gösterir.
+
+    :param call: CallbackQuery nesnesi (dir_<course_idx>_<path> formatında)
+    """
+    # Kalan kodun devamı olması gerekirdi ancak dosya kesik görünüyor.
+    # Muhtemelen show_file_browser çağırılacak.
+
+    parts = call.data.split("_", 2)
+    course_idx = int(parts[1])
+    path_str = parts[2] if len(parts) > 2 else ""
+
+    show_file_browser(
+        str(call.message.chat.id), call.message.message_id, course_idx, path_str
+    )
+
+
 def handle_folder_navigation(call):
+    """Handle folder navigation in the inline file browser."""
     parts = call.data.split("_", 2)
     course_idx = int(parts[1])
     path_str = parts[2] if len(parts) > 2 else ""
@@ -285,8 +334,9 @@ def handle_folder_navigation(call):
     )
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "lv_yes")
+@bot.callback_query_handler(func=lambda call: call.data == "leave_confirm")
 def handle_leave_confirm(call):
+    """Confirm leaving: delete user data, cached grades, and close session."""
     chat_id = str(call.message.chat.id)
     users = load_all_users()
     if chat_id in users:
@@ -309,8 +359,9 @@ def handle_leave_confirm(call):
     )
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "lv_no")
+@bot.callback_query_handler(func=lambda call: call.data == "leave_cancel")
 def handle_leave_cancel(call):
+    """Cancel leaving flow and keep user data intact."""
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
@@ -320,6 +371,7 @@ def handle_leave_cancel(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("del_"))
 def handle_course_delete_any(call):
+    """Handle course deletion flows (request/confirm/cancel) via callbacks."""
     # This might need refinement based on startswith logic overlaps
     if call.data.startswith("del_req_"):
         idx = int(call.data.split("_")[2])
@@ -353,3 +405,178 @@ def handle_course_delete_any(call):
             message_id=call.message.message_id,
             text="Silme işlemi iptal edildi.",
         )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "manual_add")
+def handle_manual_add(call):
+    """
+    Manuel ders ekleme işlemi başlatır.
+    """
+    chat_id = str(call.message.chat.id)
+    # Edit the inline message for context, then send a new message with a cancel keyboard
+    bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=call.message.message_id,
+        text="➕ <b>Ders Ekleme</b>\n\nLütfen Ninova ders linkini gönderin:\n<code>https://ninova.itu.edu.tr/Sinif/123.456</code>",
+        parse_mode="HTML",
+    )
+    prompt = bot.send_message(
+        chat_id,
+        "Lütfen ders linkini yazın veya 'İptal' tuşuna basın.",
+        reply_markup=build_cancel_keyboard(),
+    )
+    bot.register_next_step_handler(prompt, process_manual_add)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "manual_delete")
+def handle_manual_delete(call):
+    """
+    Manuel ders silme menüsünü gösterir.
+    """
+    chat_id = str(call.message.chat.id)
+    users = load_all_users()
+    user_data = users.get(chat_id, {})
+    urls = user_data.get("urls", [])
+    from common.utils import load_saved_grades
+
+    all_grades = load_saved_grades()
+    user_grades = all_grades.get(chat_id, {})
+
+    if not urls:
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="❌ Takip ettiğiniz ders bulunamadı.",
+        )
+        return
+
+    markup = types.InlineKeyboardMarkup()
+    for i, url in enumerate(urls):
+        course_name = user_grades.get(url, {}).get("course_name", f"Ders {i + 1}")
+        display_text = (
+            course_name if len(course_name) <= 40 else course_name[:37] + "..."
+        )
+        markup.add(
+            types.InlineKeyboardButton(
+                f"🗑️ {display_text}", callback_data=f"del_req_{i}"
+            )
+        )
+
+    markup.add(types.InlineKeyboardButton("↩️ Geri", callback_data="manual_back"))
+
+    bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=call.message.message_id,
+        text="🗑️ <b>Ders Silme</b>\n\nSilmek istediğiniz dersi seçin:",
+        reply_markup=markup,
+        parse_mode="HTML",
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "manual_list")
+def handle_manual_list(call):
+    """
+    Takip edilen dersleri listeler.
+    """
+    chat_id = str(call.message.chat.id)
+    users = load_all_users()
+    user_data = users.get(chat_id, {})
+    urls = user_data.get("urls", [])
+    from common.utils import load_saved_grades
+
+    all_grades = load_saved_grades()
+    user_grades = all_grades.get(chat_id, {})
+
+    if not urls:
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="❌ Takip ettiğiniz ders bulunamadı.",
+        )
+        return
+
+    response = "📋 <b>Takip Ettiğiniz Dersler:</b>\n\n"
+    for i, url in enumerate(urls, 1):
+        course_name = user_grades.get(url, {}).get("course_name", f"Ders {i}")
+        response += f"{i}. <b>{course_name}</b>\n<code>{url}</code>\n\n"
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("↩️ Geri", callback_data="manual_back"))
+
+    bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=call.message.message_id,
+        text=response,
+        reply_markup=markup,
+        parse_mode="HTML",
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "manual_back")
+def handle_manual_back(call):
+    """
+    Manuel ders menüsüne geri döner.
+    """
+    markup = build_manual_menu()
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="📝 <b>Manuel Ders Yönetimi</b>\n\nİstediğiniz işlemi seçin:",
+        reply_markup=markup,
+        parse_mode="HTML",
+    )
+
+
+def process_manual_add(message):
+    """
+    Manuel ders ekleme işlemini tamamlar.
+    """
+    # Allow cancellation via button or typed text
+    if not message.text or "iptal" in message.text.strip().lower():
+        bot.send_message(
+            message.chat.id,
+            "❌ Ders ekleme iptal edildi.",
+            reply_markup=build_main_keyboard(),
+        )
+        return
+
+    args = message.text.split()
+    if len(args) < 1 or "ninova.itu.edu.tr" not in args[0]:
+        bot.send_message(
+            message.chat.id,
+            "❌ Lütfen geçerli bir Ninova ders linki girin.\nÖrn: <code>https://ninova.itu.edu.tr/Sinif/123.456</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    url = args[0].split("?")[0].strip()
+    # Alt sayfa varsa temizle, base URL olarak sakla
+    for suffix in ["/Notlar", "/Duyurular", "/Odevler", "/SinifDosyalari"]:
+        if url.endswith(suffix):
+            url = url[: -len(suffix)]
+            break
+
+    chat_id = str(message.chat.id)
+    users = load_all_users()
+    user_data = users.get(chat_id, {})
+    urls = user_data.get("urls", [])
+
+    if url in urls:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Bu ders zaten takip ediliyor.",
+        )
+        return
+
+    urls.append(url)
+    update_user_data(chat_id, "urls", urls)
+    bot.send_message(
+        message.chat.id,
+        f"✅ Ders başarıyla eklendi!\n<code>{url}</code>",
+        parse_mode="HTML",
+    )
+
+
+# Admin callback handlers - admin/callbacks.py'de tanımlı
+# @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
+# def handle_admin_callbacks(call):
