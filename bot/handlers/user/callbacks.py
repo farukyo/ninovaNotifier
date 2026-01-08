@@ -12,6 +12,7 @@ from common.utils import (
     get_file_icon,
     escape_html,
     decrypt_password,
+    sanitize_html_for_telegram,
 )
 from services.ninova import download_file
 
@@ -49,6 +50,11 @@ def handle_course_selection(call):
         types.InlineKeyboardButton(
             "📣 Duyurular", callback_data=f"det_{course_idx}_duyuru"
         ),
+    )
+    markup.add(
+        types.InlineKeyboardButton(
+            "🔄 Kontrol Et", callback_data=f"kontrol_{course_idx}"
+        )
     )
     markup.add(types.InlineKeyboardButton("↩️ Ana Menü", callback_data="main_menu"))
 
@@ -94,13 +100,15 @@ def handle_announcement_detail(call):
         types.InlineKeyboardButton("🔙 Geri", callback_data=f"det_{course_idx}_duyuru")
     )
 
-    content = ann.get("content", "İçerik yüklenemedi.")[:3000]
+    # Sanitize content before sending to Telegram
+    raw_content = ann.get("content", "İçerik yüklenemedi.")
+    content = sanitize_html_for_telegram(raw_content)[:3000]
 
     text = (
         f"📣 <b>{escape_html(ann['title'])}</b>\n"
-        f"👤 {ann['author']} | 📅 {ann['date']}\n"
+        f"👤 {escape_html(ann.get('author', ''))} | 📅 {ann.get('date', '')}\n"
         f"🔗 <a href='{ann['url']}'>Ninova'da Oku</a>\n\n"
-        f"{escape_html(content)}"
+        f"{content}"
     )
 
     bot.edit_message_text(
@@ -226,6 +234,14 @@ def handle_main_menu(call):
                 callback_data=f"crs_{i}",
             )
         )
+
+    # Add general control button
+    markup.add(
+        types.InlineKeyboardButton(
+            "🔄 Tümünü Kontrol Et", callback_data="global_kontrol"
+        )
+    )
+
     bot.edit_message_text(
         chat_id=chat_id,
         message_id=call.message.message_id,
@@ -575,6 +591,153 @@ def process_manual_add(message):
         f"✅ Ders başarıyla eklendi!\n<code>{url}</code>",
         parse_mode="HTML",
     )
+
+
+@bot.callback_query_handler(
+    func=lambda call: call.data == "global_kontrol" or call.data.startswith("kontrol_")
+)
+def handle_kontrol(call):
+    """
+    Kullanıcının derslerini manuel olarak kontrol eder.
+    """
+    chat_id = str(call.message.chat.id)
+    course_idx = None
+    if call.data.startswith("kontrol_"):
+        try:
+            course_idx = int(call.data.split("_")[1])
+        except (IndexError, ValueError):
+            pass
+
+    bot.answer_callback_query(call.id, "Kontrol başlatıldı, lütfen bekleyin...")
+
+    # Edit message to show status
+    try:
+        text = "🔄 <b>Manuel Kontrol Yapılıyor...</b>\nYeni bir not, ödev veya duyuru olup olmadığı kontrol ediliyor. Bu işlem birkaç saniye sürebilir."
+        if course_idx is not None:
+            text = "🔄 <b>Bu Ders Kontrol Ediliyor...</b>\nDers verileri Ninova'dan tazeleniyor."
+
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=text,
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    def run_check():
+        try:
+            from main import check_user_updates
+
+            result = check_user_updates(chat_id, course_idx=course_idx)
+
+            if result.get("success"):
+                bot.send_message(
+                    chat_id,
+                    "✅ Kontrol tamamlandı. Herhangi bir değişiklik varsa yukarıda listelenmiştir.",
+                )
+            else:
+                bot.send_message(
+                    chat_id,
+                    f"❌ Kontrol sırasında bir hata oluştu: {result.get('message', 'Bilinmeyen hata')}",
+                )
+
+            # Re-show the appropriate menu
+            if course_idx is not None:
+                # Go back to course detail
+                all_grades = load_saved_grades()
+                user_grades = all_grades.get(chat_id, {})
+                urls = list(user_grades.keys())
+
+                if course_idx < len(urls):
+                    url = urls[course_idx]
+                    data = user_grades[url]
+                    course_name = data.get("course_name", "Bilinmeyen Ders")
+
+                    markup = types.InlineKeyboardMarkup(row_width=2)
+                    markup.add(
+                        types.InlineKeyboardButton(
+                            "📊 Notlar", callback_data=f"det_{course_idx}_not"
+                        ),
+                        types.InlineKeyboardButton(
+                            "📅 Ödevler", callback_data=f"det_{course_idx}_odev"
+                        ),
+                        types.InlineKeyboardButton(
+                            "📁 Dosyalar", callback_data=f"det_{course_idx}_dosya"
+                        ),
+                        types.InlineKeyboardButton(
+                            "📣 Duyurular", callback_data=f"det_{course_idx}_duyuru"
+                        ),
+                    )
+                    markup.add(
+                        types.InlineKeyboardButton(
+                            "🔄 Tekrar Kontrol Et",
+                            callback_data=f"kontrol_{course_idx}",
+                        )
+                    )
+                    markup.add(
+                        types.InlineKeyboardButton(
+                            "↩️ Ana Menü", callback_data="main_menu"
+                        )
+                    )
+
+                    try:
+                        bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=call.message.message_id,
+                            text=f"🎓 <b>{course_name}</b> (Güncellendi)\nLütfen bir kategori seçin:",
+                            reply_markup=markup,
+                            parse_mode="HTML",
+                        )
+                    except Exception:
+                        # Fallback to sending a new message if editing fails
+                        bot.send_message(
+                            chat_id,
+                            f"🎓 <b>{course_name}</b> (Güncellendi)\nLütfen bir kategori seçin:",
+                            reply_markup=markup,
+                            parse_mode="HTML",
+                        )
+                return
+
+            # Global refresh - Show main menu
+            all_grades = load_saved_grades()
+            user_grades = all_grades.get(chat_id, {})
+            markup = types.InlineKeyboardMarkup()
+            for i, (url, data) in enumerate(user_grades.items()):
+                markup.add(
+                    types.InlineKeyboardButton(
+                        f"📚 {data.get('course_name', 'Bilinmeyen Ders')}",
+                        callback_data=f"crs_{i}",
+                    )
+                )
+            markup.add(
+                types.InlineKeyboardButton(
+                    "🔄 Tümünü Kontrol Et", callback_data="global_kontrol"
+                )
+            )
+
+            try:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    text="📖 <b>Takip Ettiğiniz Dersler:</b>\nDetay görmek için bir ders seçin:",
+                    reply_markup=markup,
+                    parse_mode="HTML",
+                )
+            except Exception:
+                # Fallback to sending a new message if editing fails
+                bot.send_message(
+                    chat_id,
+                    "📖 <b>Takip Ettiğiniz Dersler:</b>\nDetay görmek için bir ders seçin:",
+                    reply_markup=markup,
+                    parse_mode="HTML",
+                )
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Kritik hata: {str(e)}")
+
+    import threading
+
+    threading.Thread(target=run_check, daemon=True).start()
 
 
 # Admin callback handlers - admin/callbacks.py'de tanımlı
