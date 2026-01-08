@@ -1,6 +1,6 @@
 # 🎓 Ninova Grade & Academic Tracking Bot
 
-[EN](readme_en.md)  [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html) [English Version](readme_en.md)  
 
 ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyalarınızı gerçek zamanlı izleyen ve Telegram üzerinden bildirim gönderen bir akademik asistan bottur.
 
