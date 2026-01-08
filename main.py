@@ -5,6 +5,7 @@ import traceback
 import requests
 import logging
 from datetime import datetime
+import os
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -38,8 +39,6 @@ from core.logic import predict_course_performance
 from bot import bot, set_check_callback, update_last_check_time
 
 # Logging yapılandırması - Sadece dosyaya
-import os
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -191,13 +190,13 @@ def check_user_updates(chat_id: str):
             else:
                 old_entry = saved_course_grades[key]
                 old_val = (
-                    old_entry.get("not")
-                    if isinstance(old_entry, dict)
-                    else old_entry
+                    old_entry.get("not") if isinstance(old_entry, dict) else old_entry
                 ) or "?"
                 if old_val != new_val:
                     e_old_val = escape_html(old_val)
-                    upd_msg = f"🔄 <b>NOT GÜNCELLENDİ:</b> {e_key}\n{e_old_val} ➡️ {e_new_val}"
+                    upd_msg = (
+                        f"🔄 <b>NOT GÜNCELLENDİ:</b> {e_key}\n{e_old_val} ➡️ {e_new_val}"
+                    )
                     details = entry.get("detaylar", {})
                     detail_lines = []
                     if entry.get("agirlik"):
@@ -778,7 +777,9 @@ if __name__ == "__main__":
                         status += f"📊 Kullanıcı sayısı: {users_count}\n"
                         status += f"⏰ Kalan süre: {current_wait - i} saniye\n"
                         # Son kontrol zamanını göster (sabit kıl)
-                        last_check_display = LAST_CHECK_DISPLAY_TIME or "Henüz kontrol yok"
+                        last_check_display = (
+                            LAST_CHECK_DISPLAY_TIME or "Henüz kontrol yok"
+                        )
                         status += f"📅 Son kontrol: {last_check_display}"
                         live.update(
                             Panel.fit(
