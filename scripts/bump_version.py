@@ -24,16 +24,18 @@ def bump_version():
     prefix, version_str, suffix = match.groups()
     major, minor, patch = map(int, version_str.split('.'))
     
-    # Mantık: major > feat (minor) > fix (patch)
-    if "major:" in commit_msg:
+    # Mantık: Sadece ilk satırın (başlığın) başına bakılır
+    first_line = commit_msg.split('\n')[0].strip() if commit_msg else ""
+    
+    if first_line.startswith("major:"):
         major += 1
         minor = 0
         patch = 0
-    elif "feat:" in commit_msg:
+    elif first_line.startswith("feat:"):
         minor += 1
         patch = 0
     else:
-        # fix: varsa veya hiçbir şey yoksa patch artırılır
+        # fix: ile başlıyorsa veya hiçbir anahtar kelime yoksa patch artırılır
         patch += 1
 
     new_version = f"{major}.{minor}.{patch}"
