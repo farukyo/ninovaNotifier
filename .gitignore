@@ -27,10 +27,13 @@ env/
 # Project Data
 ninova_data.json
 users.json
+file_cache.json
+data/
 
 # Logs
 *.log
 app.log
+logs/
 
 # IDE & Editors
 .vscode/
