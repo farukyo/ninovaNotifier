@@ -5,10 +5,13 @@ from .auth import login_to_ninova
 
 import io
 
-def download_file(session, url, filename, chat_id=None, username=None, password=None, to_buffer=False):
+
+def download_file(
+    session, url, filename, chat_id=None, username=None, password=None, to_buffer=False
+):
     """
     Ninova'dan dosya indirir.
-    
+
     :param session: requests.Session nesnesi
     :param url: İndirilecek dosyanın URL'i
     :param filename: Dosya adı (varsayılan)
@@ -35,9 +38,11 @@ def download_file(session, url, filename, chat_id=None, username=None, password=
                     filename = cd.split('filename="')[1].split('"')[0]
                 else:
                     filename = cd.split("filename=")[1].split(";")[0].strip()
-            
+
             # Clean filename
-            filename = "".join([c for c in filename if c.isalnum() or c in "._- "]).strip()
+            filename = "".join(
+                [c for c in filename if c.isalnum() or c in "._- "]
+            ).strip()
 
             if to_buffer:
                 buffer = io.BytesIO()
@@ -51,7 +56,7 @@ def download_file(session, url, filename, chat_id=None, username=None, password=
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
                 return filepath
-                
+
     except Exception as e:
         console.print(f"[bold red]Dosya indirme hatası: {e}")
     return None

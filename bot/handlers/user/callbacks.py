@@ -15,6 +15,7 @@ from common.utils import (
     sanitize_html_for_telegram,
 )
 from services.ninova import download_file
+from common.cache import get_cached_file_id, set_cached_file_id
 
 
 def _is_cancel_text(text: str) -> bool:
@@ -259,8 +260,6 @@ def handle_main_menu(call):
     )
 
 
-from common.cache import get_cached_file_id, set_cached_file_id
-
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
 def handle_file_download(call):
     """
@@ -286,7 +285,11 @@ def handle_file_download(call):
 
     file_data = files[file_idx]
     file_url = file_data["url"]
-    file_name = file_data["name"] if "/" not in file_data["name"] else file_data["name"].split("/")[-1]
+    file_name = (
+        file_data["name"]
+        if "/" not in file_data["name"]
+        else file_data["name"].split("/")[-1]
+    )
 
     # 1. Check Cache
     cached_id = get_cached_file_id(file_url)
@@ -297,7 +300,7 @@ def handle_file_download(call):
             cached_id,
             caption=f"{get_file_icon(file_name)} {file_name}",
             is_file_id=True,
-            filename=file_name
+            filename=file_name,
         )
         return
 
@@ -315,7 +318,7 @@ def handle_file_download(call):
         USER_SESSIONS[chat_id].headers.update(HEADERS)
 
     session = USER_SESSIONS[chat_id]
-    
+
     # Download to buffer (RAM)
     result = download_file(
         session,
@@ -324,7 +327,7 @@ def handle_file_download(call):
         chat_id=chat_id,
         username=username,
         password=password,
-        to_buffer=True
+        to_buffer=True,
     )
 
     if result:
@@ -334,13 +337,13 @@ def handle_file_download(call):
             chat_id,
             file_buffer,
             caption=f"{get_file_icon(final_filename)} {final_filename}",
-            filename=final_filename
+            filename=final_filename,
         )
-        
+
         # Cache the file ID for future
         if sent_id:
             set_cached_file_id(file_url, sent_id)
-            
+
         file_buffer.close()
     else:
         bot.send_message(chat_id, "❌ Dosya indirilemedi.")

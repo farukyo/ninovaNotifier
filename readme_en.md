@@ -31,7 +31,6 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 
 ### 🤖 Automation and Developer Tools
 
-- **SemVer Automation:** Automatically updates `pyproject.toml` version based on Git commit messages (`feat:`, `fix:`, `major:`).
 - **Comprehensive Testing:** Over 90% test coverage using `pytest`.
 - **Rich Terminal UI:** Displays live statistics and progress bars for admins via a dashboard.
 

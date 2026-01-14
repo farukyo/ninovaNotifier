@@ -407,10 +407,12 @@ def send_telegram_message(chat_id, message, is_error=False):
             console.print(f"[red][Telegram] Gönderim hatası ({chat_id}): {e}")
 
 
-def send_telegram_document(chat_id, document, caption="", filename="document.pdf", is_file_id=False):
+def send_telegram_document(
+    chat_id, document, caption="", filename="document.pdf", is_file_id=False
+):
     """
     Telegram üzerinden dosya gönderir. Path, BytesIO veya File ID destekler.
-    
+
     :param chat_id: Telegram chat ID
     :param document: Dosya yolu (str), BytesIO nesnesi veya File ID (str)
     :param caption: Dosya açıklaması
@@ -423,13 +425,18 @@ def send_telegram_document(chat_id, document, caption="", filename="document.pdf
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
     sent_file_id = None
-    
+
     try:
         # 1. Send by File ID
         if is_file_id:
-            data = {"chat_id": chat_id, "document": document, "caption": caption, "parse_mode": "HTML"}
+            data = {
+                "chat_id": chat_id,
+                "document": document,
+                "caption": caption,
+                "parse_mode": "HTML",
+            }
             response = requests.post(url, data=data, timeout=30)
-        
+
         # 2. Send by File Path
         elif isinstance(document, str) and os.path.exists(document):
             filename = os.path.basename(document)
@@ -437,17 +444,17 @@ def send_telegram_document(chat_id, document, caption="", filename="document.pdf
                 files = {"document": (filename, f)}
                 data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
                 response = requests.post(url, data=data, files=files, timeout=60)
-            
+
             # Delete temp file if it was a path
             try:
                 os.remove(document)
             except OSError:
                 pass
-                
+
         # 3. Send by BytesIO / Buffer
         else:
             # Assume document is a file-like object (BytesIO)
-            if hasattr(document, 'seek'):
+            if hasattr(document, "seek"):
                 document.seek(0)
             files = {"document": (filename, document)}
             data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
@@ -459,15 +466,13 @@ def send_telegram_document(chat_id, document, caption="", filename="document.pdf
                 doc = resp_json["result"].get("document")
                 if doc:
                     sent_file_id = doc.get("file_id")
-                    
-            console.print(
-                f"[green][Telegram] Dosya gönderildi ({chat_id}): {filename}"
-            )
+
+            console.print(f"[green][Telegram] Dosya gönderildi ({chat_id}): {filename}")
         else:
             console.print(
                 f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {response.text}"
             )
-            
+
     except Exception as e:
         console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {e}")
 

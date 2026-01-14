@@ -7,7 +7,7 @@ from bot.instance import (
     bot_instance as bot,
     START_TIME,
 )
-from bot.keyboards import build_main_keyboard, build_manual_menu, build_cancel_keyboard
+from bot.keyboards import build_main_keyboard, build_cancel_keyboard
 from common.config import load_all_users, HEADERS, USER_SESSIONS
 from common.utils import (
     load_saved_grades,
@@ -148,7 +148,7 @@ def list_grades(message):
                     has_stats = True
                 except ValueError:
                     pass
-            
+
             if "std_dev" in details:
                 try:
                     std_dev = float(details["std_dev"].replace(",", "."))
@@ -178,14 +178,14 @@ def list_grades(message):
                 # Normalize weight: 20% -> 0.20
                 w_norm = w_val / 100.0
                 total_weight += w_val
-                
+
                 # User Average Calculation
                 try:
-                    user_grade_val = float(str(info['not']).replace(",", "."))
+                    user_grade_val = float(str(info["not"]).replace(",", "."))
                     user_weighted_avg_sum += w_norm * user_grade_val
                 except (ValueError, TypeError):
                     pass
-                
+
                 # Class Stats Calculation
                 if has_stats:
                     weighted_avg_sum += w_norm * class_avg
@@ -197,8 +197,8 @@ def list_grades(message):
             c_avg = f"{weighted_avg_sum:.2f}"
             c_std = f"{math.sqrt(weighted_var_sum):.2f}"
             u_avg = f"{user_weighted_avg_sum:.2f}"
-            
-            response += f"----------------------------\n"
+
+            response += "----------------------------\n"
             response += f"📊 <b>Ortalamanız: {u_avg}</b> | Sınıf geneli: Ort: {c_avg}, Std: {c_std} (%{total_weight:g} veriye göre)\n"
 
         response += "\n"
@@ -982,13 +982,15 @@ def show_academic_calendar(message):
     Geçmiş 5, Gelecek 10 satır kuralına göre filtreleme yapar.
     """
     bot.reply_to(message, "🔄 Akademik takvim verileri çekiliyor...")
-    
+
     def run_fetch():
         try:
             data = ITUCalendarService.get_filtered_calendar()
             if len(data) > 4000:
-                 for x in range(0, len(data), 4000):
-                    bot.send_message(message.chat.id, data[x : x + 4000], parse_mode="HTML")
+                for x in range(0, len(data), 4000):
+                    bot.send_message(
+                        message.chat.id, data[x : x + 4000], parse_mode="HTML"
+                    )
             else:
                 bot.send_message(message.chat.id, data, parse_mode="HTML")
         except Exception as e:

@@ -31,7 +31,6 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 
 ### 🤖 Otomasyon ve Geliştirici Araçları
 
-- **SemVer Otomasyonu:** Git commit mesajlarına göre (`feat:`, `fix:`, `major:`) `pyproject.toml` versiyonunu otomatik günceler.
 - **Kapsamlı Testler:** `pytest` ile %90+ test kapsamına (coverage) sahiptir.
 - **Rich Terminal UI:** Adminler için canlı istatistikler ve ilerleme çubukları gösterir.
 

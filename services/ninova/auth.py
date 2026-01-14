@@ -10,6 +10,7 @@ logger = logging.getLogger("ninova")
 _LOGIN_LOCKS = {}
 _GLOBAL_LOCK = threading.Lock()
 
+
 def get_user_lock(chat_id):
     with _GLOBAL_LOCK:
         if chat_id not in _LOGIN_LOCKS:
@@ -37,7 +38,9 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
     """
     with get_user_lock(chat_id):
         if not username or not password:
-            console.print(f"[bold red]Hata ({chat_id}): Kullanıcı adı veya şifre eksik!")
+            console.print(
+                f"[bold red]Hata ({chat_id}): Kullanıcı adı veya şifre eksik!"
+            )
             return False
 
         try:

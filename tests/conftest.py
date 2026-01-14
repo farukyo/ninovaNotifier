@@ -1,13 +1,13 @@
 """
 Pytest configuration and shared fixtures for ninovaNotifier tests.
 """
+
 import os
 import sys
 import json
 import tempfile
 import pytest
-from unittest.mock import MagicMock, patch
-from io import BytesIO
+from unittest.mock import MagicMock
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,13 +28,13 @@ def mock_users_file(temp_dir):
         "12345": {
             "username": "testuser",
             "password": "encrypted_password_here",
-            "urls": ["/Sinif/2123.110928"]
+            "urls": ["/Sinif/2123.110928"],
         },
         "67890": {
             "username": "anotheruser",
             "password": "another_encrypted",
-            "urls": []
-        }
+            "urls": [],
+        },
     }
     with open(users_file, "w", encoding="utf-8") as f:
         json.dump(users_data, f)
@@ -49,12 +49,8 @@ def mock_data_file(temp_dir):
         "12345": {
             "/Sinif/2123.110928": {
                 "course_name": "Test Course",
-                "grades": [
-                    {"name": "Midterm", "grade": "85", "weight": "30%"}
-                ],
-                "files": [
-                    {"name": "lectures/week1.pdf", "url": "/download/1"}
-                ]
+                "grades": [{"name": "Midterm", "grade": "85", "weight": "30%"}],
+                "files": [{"name": "lectures/week1.pdf", "url": "/download/1"}],
             }
         }
     }
@@ -67,9 +63,7 @@ def mock_data_file(temp_dir):
 def mock_cache_file(temp_dir):
     """Create a mock file_cache.json file."""
     cache_file = os.path.join(temp_dir, "file_cache.json")
-    cache_data = {
-        "https://ninova.itu.edu.tr/file1": "file_id_abc123"
-    }
+    cache_data = {"https://ninova.itu.edu.tr/file1": "file_id_abc123"}
     with open(cache_file, "w", encoding="utf-8") as f:
         json.dump(cache_data, f)
     return cache_file
@@ -89,11 +83,7 @@ def mock_telegram_response():
     response.status_code = 200
     response.json.return_value = {
         "ok": True,
-        "result": {
-            "document": {
-                "file_id": "test_file_id_12345"
-            }
-        }
+        "result": {"document": {"file_id": "test_file_id_12345"}},
     }
     return response
 
