@@ -4,6 +4,7 @@ import threading
 import traceback
 import requests
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import os
 from rich.progress import (
@@ -425,23 +426,43 @@ def check_for_updates():
             transient=True,
         ) as progress:
             task = progress.add_task(
-                f"[yellow]{username} ({len(urls)} ders) taranıyor...", total=len(urls)
+                f"[yellow]{username} ({len(urls)} ders) taranıyor...",
+                total=len(urls),
             )
-            for url in urls:
-                try:
-                    grades = get_grades(user_session, url, chat_id, username, password)
-                    if grades:
-                        all_current_grades[url] = grades
-                except LoginFailedError:
-                    error_msg = "⚠️ <b>Giriş Başarısız!</b>\n\nNinova'ya giriş yapılamıyor (Oturum hatası). Kontrol şu an için durduruldu."
-                    console.print(
-                        f"[bold red]Oturum açma hatası ({chat_id})! Diğer dersler atlanıyor."
-                    )
-                    send_telegram_message(chat_id, error_msg, is_error=True)
-                    break
 
-                progress.update(task, advance=1)
-                time.sleep(0.2)
+            # Paralel tarama için ThreadPoolExecutor kullan
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_url = {
+                    executor.submit(
+                        get_grades, user_session, url, chat_id, username, password
+                    ): url
+                    for url in urls
+                }
+
+                stop_processing = False
+                for future in as_completed(future_to_url):
+                    if stop_processing:
+                        break
+
+                    url = future_to_url[future]
+                    try:
+                        grades = future.result()
+                        if grades:
+                            all_current_grades[url] = grades
+                    except LoginFailedError:
+                        error_msg = "⚠️ <b>Giriş Başarısız!</b>\n\nNinova'ya giriş yapılamıyor (Oturum hatası). Kontrol şu an için durduruldu."
+                        console.print(
+                            f"[bold red]Oturum açma hatası ({chat_id})! Diğer dersler durduruluyor."
+                        )
+                        send_telegram_message(chat_id, error_msg, is_error=True)
+                        stop_processing = True
+                        # Diğerlerini iptal etmeye çalış
+                        for f in future_to_url:
+                            f.cancel()
+                    except Exception as e:
+                        logger.error(f"Ders tarama hatası ({url}): {e}")
+                    finally:
+                        progress.update(task, advance=1)
 
         user_saved_grades = saved_grades.get(chat_id, {})
         changes = []

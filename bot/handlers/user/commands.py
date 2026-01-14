@@ -119,37 +119,86 @@ def list_grades(message):
         else:
             response += f"<code>{'Sınav':<15} | {'%':>3} | {'Not':>5}</code>\n"
             response += f"<code>{'-' * 28}</code>\n"
-            for exam, info in grades.items():
-                w_raw = (
-                    info.get("agirlik", "").replace("%", "").replace(",", ".").strip()
-                )
+
+        # Weighted Class Average & Std Calculation
+        total_weight = 0.0
+        weighted_avg_sum = 0.0
+        weighted_var_sum = 0.0
+        user_weighted_avg_sum = 0.0
+        import math
+
+        for exam, info in grades.items():
+            # Parse weight
+            w_raw = info.get("agirlik", "").replace("%", "").replace(",", ".").strip()
+            try:
+                w_val = float(w_raw)
+            except ValueError:
+                w_val = 0.0
+
+            # Parse details
+            details = info.get("detaylar", {})
+            class_avg = 0.0
+            std_dev = 0.0
+            has_stats = False
+
+            if "class_avg" in details:
                 try:
-                    w_val = float(w_raw)
-                    w = f"{w_val:g}"
-                except Exception:
-                    w = ""
-                w_disp = f"{w:>3}"
-                response += (
-                    f"<code>{exam[:15]:<15} | {w_disp} | {info['not']:>5}</code>"
-                )
+                    class_avg = float(details["class_avg"].replace(",", "."))
+                    has_stats = True
+                except ValueError:
+                    pass
+            
+            if "std_dev" in details:
+                try:
+                    std_dev = float(details["std_dev"].replace(",", "."))
+                except ValueError:
+                    pass
 
-                # Ekstra detaylar
-                details = info.get("detaylar", {})
-                detail_lines = []
+            # Display logic
+            w_disp = f"{w_val:g}" if w_val > 0 else ""
+            response += f"<code>{exam[:15]:<15} | {w_disp:>3} | {info['not']:>5}</code>"
 
-                if "class_avg" in details:
-                    detail_lines.append(f"Ort: {details['class_avg']}")
-                if "std_dev" in details:
-                    detail_lines.append(f"Std: {details['std_dev']}")
-                if "student_count" in details:
-                    detail_lines.append(f"Kişi: {details['student_count']}")
-                if "rank" in details:
-                    detail_lines.append(f"Sıra: {details['rank']}")
+            detail_lines = []
+            if "class_avg" in details:
+                detail_lines.append(f"Ort: {details['class_avg']}")
+            if "std_dev" in details:
+                detail_lines.append(f"Std: {details['std_dev']}")
+            if "student_count" in details:
+                detail_lines.append(f"Kişi: {details['student_count']}")
+            if "rank" in details:
+                detail_lines.append(f"Sıra: {details['rank']}")
 
-                if detail_lines:
-                    response += f"\n   <i>└ {', '.join(detail_lines)}</i>"
+            if detail_lines:
+                response += f"\n   <i>└ {', '.join(detail_lines)}</i>"
+            response += "\n"
 
-                response += "\n"
+            # Accumulate for course statistics
+            if w_val > 0:
+                # Normalize weight: 20% -> 0.20
+                w_norm = w_val / 100.0
+                total_weight += w_val
+                
+                # User Average Calculation
+                try:
+                    user_grade_val = float(str(info['not']).replace(",", "."))
+                    user_weighted_avg_sum += w_norm * user_grade_val
+                except (ValueError, TypeError):
+                    pass
+                
+                # Class Stats Calculation
+                if has_stats:
+                    weighted_avg_sum += w_norm * class_avg
+                    # Var(aX) = a^2 Var(X)
+                    weighted_var_sum += (w_norm * w_norm) * (std_dev * std_dev)
+
+        # Append Course Statistics
+        if total_weight > 0:
+            c_avg = f"{weighted_avg_sum:.2f}"
+            c_std = f"{math.sqrt(weighted_var_sum):.2f}"
+            u_avg = f"{user_weighted_avg_sum:.2f}"
+            
+            response += f"----------------------------\n"
+            response += f"📊 <b>Ortalamanız: {u_avg}</b> | Sınıf geneli: Ort: {c_avg}, Std: {c_std} (%{total_weight:g} veriye göre)\n"
 
         response += "\n"
 
@@ -227,6 +276,12 @@ def interactive_menu(message):
     markup.add(
         types.InlineKeyboardButton(
             "🔄 Tümünü Kontrol Et", callback_data="global_kontrol"
+        )
+    )
+    # Add Manual Course Menu button
+    markup.add(
+        types.InlineKeyboardButton(
+            "📝 Manuel Ders Yönetimi", callback_data="manual_menu_open"
         )
     )
 
@@ -366,6 +421,7 @@ def user_otoders_command(message):
     threading.Thread(target=run_update, daemon=True).start()
 
 
+@bot.message_handler(func=lambda message: message.text == "🔄 Kontrol")
 @bot.message_handler(commands=["kontrol"])
 def kontrol_command_handler(message):
     """
@@ -770,23 +826,7 @@ def delete_course(message):
     )
 
 
-@bot.message_handler(func=lambda message: message.text == "📝 Manuel Ders")
-def manual_course_menu(message):
-    """
-    Manuel ders yönetimi menüsünü gösterir: Ekle, Sil, Liste
-    """
-    markup = build_manual_menu()
-    bot.send_message(
-        message.chat.id,
-        "📝 <b>Manuel Ders Yönetimi</b>\n\nİstediğiniz işlemi seçin:",
-        reply_markup=markup,
-        parse_mode="HTML",
-    )
-    # Menü gösterimi yapıldı; ekleme/sil/listeleme işlemleri
-    # callback_data ile callback query'lerde işlenecektir.
-
-
-@bot.message_handler(func=lambda message: message.text == "👤 Kullanıcı Adı")
+@bot.message_handler(func=lambda message: message.text == " Kullanıcı Adı")
 def set_username(message):
     """
     Kullanıcıdan yeni bir mesaj olarak kullanıcı adını ister.

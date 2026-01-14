@@ -9,9 +9,9 @@ def build_main_keyboard():
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("📊 Notlar", "📅 Ödevler", "📖 Dersler")
-    kb.row("🤖 Oto Ders", "📝 Manuel Ders")
-    kb.row("📋 Durum", "🔍 Ara", "❓ Yardım")
-    kb.row("👑 Admin", "🚪 Ayrıl", "👤 Kullanıcı Adı", "🔐 Şifre")
+    kb.row("🤖 Oto Ders", "🔄 Kontrol", "🔍 Ara")
+    kb.row("📋 Durum", "❓ Yardım", "👤 Kullanıcı Adı", "🔐 Şifre")
+    kb.row("👑 Admin", "🚪 Ayrıl")
     return kb
 
 

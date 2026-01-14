@@ -11,7 +11,6 @@ from .scraper import (
     get_all_files,
 )
 from .file_utils import download_file
-from .scanner import check_for_updates
 
 __all__ = [
     "LoginFailedError",
@@ -25,5 +24,5 @@ __all__ = [
     "download_file",
     "get_class_files",
     "get_all_files",
-    "check_for_updates",
 ]
+

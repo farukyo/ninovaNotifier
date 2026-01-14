@@ -3,19 +3,20 @@ from common.config import console
 from .auth import login_to_ninova
 
 
-def download_file(session, url, filename, chat_id=None, username=None, password=None):
+import io
+
+def download_file(session, url, filename, chat_id=None, username=None, password=None, to_buffer=False):
     """
-    Ninova'dan dosya indirir ve yerel diske kaydeder.
-
-    Oturum süresi dolmuşsa otomatik olarak yeniden giriş yapar.
-
+    Ninova'dan dosya indirir.
+    
     :param session: requests.Session nesnesi
     :param url: İndirilecek dosyanın URL'i
-    :param filename: Kaydedilecek dosya adı
-    :param chat_id: Kullanıcı chat ID (yeniden giriş için)
-    :param username: Ninova kullanıcı adı (yeniden giriş için)
-    :param password: Ninova şifresi (yeniden giriş için)
-    :return: İndirilen dosyanın yolu veya None
+    :param filename: Dosya adı (varsayılan)
+    :param chat_id: Kullanıcı ID
+    :param username: Ninova kullanıcı adı
+    :param password: Ninova şifresi
+    :param to_buffer: True ise (BytesIO, filename) döner, değilse dosya yolu döner.
+    :return: (BytesIO, filename) veya filepath veya None
     """
     try:
         response = session.get(url, stream=True, timeout=30, allow_redirects=False)
@@ -34,15 +35,23 @@ def download_file(session, url, filename, chat_id=None, username=None, password=
                     filename = cd.split('filename="')[1].split('"')[0]
                 else:
                     filename = cd.split("filename=")[1].split(";")[0].strip()
+            
+            # Clean filename
+            filename = "".join([c for c in filename if c.isalnum() or c in "._- "]).strip()
 
-            safe_filename = "".join(
-                [c for c in filename if c.isalnum() or c in "._- "]
-            ).strip()
-            filepath = os.path.join(os.getcwd(), safe_filename)
-            with open(filepath, "wb") as f:
+            if to_buffer:
+                buffer = io.BytesIO()
                 for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            return filepath
+                    buffer.write(chunk)
+                buffer.seek(0)
+                return buffer, filename
+            else:
+                filepath = os.path.join(os.getcwd(), filename)
+                with open(filepath, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                return filepath
+                
     except Exception as e:
         console.print(f"[bold red]Dosya indirme hatası: {e}")
     return None

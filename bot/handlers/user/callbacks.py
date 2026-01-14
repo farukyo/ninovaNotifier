@@ -259,15 +259,12 @@ def handle_main_menu(call):
     )
 
 
+from common.cache import get_cached_file_id, set_cached_file_id
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
 def handle_file_download(call):
     """
-    Dosya indirme işlemini başlatır ve dosyayı Telegram üzerinden gönderir.
-
-    Ninova'dan dosyayı indirir ve kullanıcıya Telegram üzerinden gönderir.
-    Oturum süresi dolmuşsa otomatik olarak yeniden giriş yapar.
-
-    :param call: CallbackQuery nesnesi (dl_<course_idx>_<file_idx> formatında)
+    Dosya indirme işlemini başlatır ve dosyayı Telegram üzerinden gönderir (Hızlı).
     """
     chat_id = str(call.message.chat.id)
     parts = call.data.split("_")
@@ -288,7 +285,24 @@ def handle_file_download(call):
         return
 
     file_data = files[file_idx]
-    bot.answer_callback_query(call.id, "Dosya hazırlanıyor...")
+    file_url = file_data["url"]
+    file_name = file_data["name"] if "/" not in file_data["name"] else file_data["name"].split("/")[-1]
+
+    # 1. Check Cache
+    cached_id = get_cached_file_id(file_url)
+    if cached_id:
+        bot.answer_callback_query(call.id, "🚀 Hızlı gönderiliyor...")
+        send_telegram_document(
+            chat_id,
+            cached_id,
+            caption=f"{get_file_icon(file_name)} {file_name}",
+            is_file_id=True,
+            filename=file_name
+        )
+        return
+
+    # 2. Download and Send
+    bot.answer_callback_query(call.id, "Dosya indiriliyor...")
     bot.send_chat_action(chat_id, "upload_document")
 
     users = load_all_users()
@@ -301,27 +315,33 @@ def handle_file_download(call):
         USER_SESSIONS[chat_id].headers.update(HEADERS)
 
     session = USER_SESSIONS[chat_id]
-    filepath = download_file(
+    
+    # Download to buffer (RAM)
+    result = download_file(
         session,
-        file_data["url"],
-        file_data["name"],
+        file_url,
+        file_name,
         chat_id=chat_id,
         username=username,
         password=password,
+        to_buffer=True
     )
 
-    if filepath:
-        # Dosya adının son kısmını al (uzantı bilgisi için)
-        display_name = (
-            file_data["name"].split("/")[-1]
-            if "/" in file_data["name"]
-            else file_data["name"]
-        )
-        send_telegram_document(
+    if result:
+        file_buffer, final_filename = result
+        # Send
+        sent_id = send_telegram_document(
             chat_id,
-            filepath,
-            caption=f"{get_file_icon(display_name)} {display_name}",
+            file_buffer,
+            caption=f"{get_file_icon(final_filename)} {final_filename}",
+            filename=final_filename
         )
+        
+        # Cache the file ID for future
+        if sent_id:
+            set_cached_file_id(file_url, sent_id)
+            
+        file_buffer.close()
     else:
         bot.send_message(chat_id, "❌ Dosya indirilemedi.")
 
@@ -431,6 +451,21 @@ def handle_course_delete_any(call):
             message_id=call.message.message_id,
             text="Silme işlemi iptal edildi.",
         )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "manual_menu_open")
+def handle_manual_menu_open(call):
+    """
+    Manuel ders yönetimi menüsünü açar (Inline).
+    """
+    markup = build_manual_menu()
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="📝 <b>Manuel Ders Yönetimi</b>\n\nİstediğiniz işlemi seçin:",
+        reply_markup=markup,
+        parse_mode="HTML",
+    )
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "manual_add")
