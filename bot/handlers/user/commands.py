@@ -16,6 +16,7 @@ from common.utils import (
     decrypt_password,
 )
 from services.ninova import login_to_ninova, get_user_courses
+from services.calendar.itu_calendar import ITUCalendarService
 
 
 def _is_cancel_text(text: str) -> bool:
@@ -972,3 +973,25 @@ def leave_system(message):
         reply_markup=markup,
         parse_mode="HTML",
     )
+
+
+@bot.message_handler(func=lambda message: message.text == "📆 Akademik Takvim")
+def show_academic_calendar(message):
+    """
+    İTÜ Akademik Takvimden güncel bilgileri çeker ve gösterir.
+    Geçmiş 5, Gelecek 10 satır kuralına göre filtreleme yapar.
+    """
+    bot.reply_to(message, "🔄 Akademik takvim verileri çekiliyor...")
+    
+    def run_fetch():
+        try:
+            data = ITUCalendarService.get_filtered_calendar()
+            if len(data) > 4000:
+                 for x in range(0, len(data), 4000):
+                    bot.send_message(message.chat.id, data[x : x + 4000], parse_mode="HTML")
+            else:
+                bot.send_message(message.chat.id, data, parse_mode="HTML")
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Hata oluştu: {str(e)}")
+
+    threading.Thread(target=run_fetch, daemon=True).start()
