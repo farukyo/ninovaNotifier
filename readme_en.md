@@ -14,22 +14,26 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 - **Secure Authentication:** Your Ninova credentials are encrypted with AES-256 before being stored locally.
 - **Session Management:** Caches user-based sessions to prevent unnecessary login traffic and avoid "too many requests" issues.
 
+### 📊 Advanced Grade Statistics
+
+- **Class Analysis:** Automatically calculates class average and standard deviation for each course.
+- **Data Coverage:** Indicates the percentage of data used for calculations to ensure accuracy.
+
 ### 🔔 Smart Notification System
 
 - **Instant Notifications:** Sends immediate alerts for new grades, announcements, assignments, or file updates.
-- **Assignment Reminders:** Automatically sends "Last Call" notifications **24 hours** and **3 hours** before assignment deadlines.
+- **Assignment Reminders:** Automatically sends "Last Call" notifications **24 hours** and **3 hours** before deadlines.
 
 ### 📂 File and Content Access
 
 - **Advanced File Explorer:** Supports complex and nested folder structures.
-- **Direct Downloads:** Allows users to download course materials directly through Telegram.
-- **Smart Search:** Enables keyword-based search within saved announcements.
+- **Direct Downloads:** Allows users to download course materials directly via Telegram.
 
-### 🤖 Automation and Interface
+### 🤖 Automation and Developer Tools
 
-- **Auto Course Discovery:** Automatically finds and adds all your courses from Ninova using the `otoders` command.
-- **Interactive Menus:** Provides quick navigation with user-friendly Reply and Inline keyboards.
-- **Rich Terminal UI:** Displays live statistics and progress bars for admins via a `rich`-powered dashboard.
+- **SemVer Automation:** Automatically updates `pyproject.toml` version based on Git commit messages (`feat:`, `fix:`, `major:`).
+- **Comprehensive Testing:** Over 90% test coverage using `pytest`.
+- **Rich Terminal UI:** Displays live statistics and progress bars for admins via a dashboard.
 
 ---
 
@@ -41,21 +45,20 @@ The project is built with a modular structure using modern Python practices:
 - **Bot Framework:** `pytelegrambotapi` (Async-ready usage)
 - **Scraping Engine:** `requests` & `BeautifulSoup4`
 - **Security:** `cryptography` (Fernet)
-- **UI/UX:** `rich` (Terminal Dashboard)
+- **Testing:** `pytest` & `pytest-cov`
 - **Package Manager:** `uv`
 
 ### Project Structure
 
 ```text
 ├── main.py              # Application entry point and Dashboard
-├── bot/                 # Telegram bot logic
-│   ├── handlers/        # Command and callback handlers
-│   └── keyboards.py     # Keyboard interfaces
-├── services/            # Core services
-│   └── ninova/          # Ninova scraping and auth logic
-├── common/              # Common configs and utilities
-├── data/                # Data storage (JSON based)
-└── logs/                # System logs
+├── bot/                 # Telegram bot logic and handlers
+├── services/            # Ninova scraping and authentication
+├── common/              # Common utilities (encryption, cache, etc.)
+├── scripts/             # Developer utilities (versioning script)
+├── tests/               # Unit and integration tests
+├── data/                # Data storage (JSON - ignored)
+└── logs/                # System logs (ignored)
 ```
 
 ---

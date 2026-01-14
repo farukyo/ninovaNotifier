@@ -14,6 +14,11 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 - **Güvenli Doğrulama:** Ninova kimlik bilgileriniz yerel olarak saklanmadan önce AES-256 ile şifrelenir.
 - **Oturum Yönetimi:** Kullanıcı bazlı oturum önbellekleme ile gereksiz giriş trafiği ve "çok fazla istek" sorunları azaltılır.
 
+### 📊 Gelişmiş Not İstatistikleri
+
+- **Sınıf Analizi:** Her ders için sınıf ortalamasını ve standart sapmayı otomatik olarak hesaplar.
+- **Veri Kapsamı:** Hesaplamaların hangi oranda veriye dayandığını göstererek doğruluk payını belirtir.
+
 ### 🔔 Akıllı Bildirim Sistemi
 
 - **Anlık Bildirimler:** Yeni not, duyuru, ödev veya dosya güncellemeleri için anında uyarı gönderir.
@@ -23,13 +28,12 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 
 - **Gelişmiş Dosya Gezgini:** Karmaşık ve iç içe geçmiş klasör yapılarını destekler.
 - **Doğrudan İndirme:** Kullanıcıların ders materyallerini doğrudan Telegram üzerinden indirmesine olanak tanır.
-- **Akıllı Arama:** Kaydedilmiş duyurular içinde anahtar kelimeye dayalı arama imkanı sağlar.
 
-### 🤖 Otomasyon ve Arayüz
+### 🤖 Otomasyon ve Geliştirici Araçları
 
-- **Otomatik Ders Keşfi:** `otoders` komutuyla Ninova'daki tüm derslerinizi otomatik olarak bulur ve ekler.
-- **Etkileşimli Menü:** Kullanıcı dostu Reply ve Inline klavyelerle hızlı gezinme sağlar.
-- **Rich Terminal UI:** Adminler için `rich` destekli gösterge paneliyle canlı istatistikler ve ilerleme çubukları gösterir.
+- **SemVer Otomasyonu:** Git commit mesajlarına göre (`feat:`, `fix:`, `major:`) `pyproject.toml` versiyonunu otomatik günceler.
+- **Kapsamlı Testler:** `pytest` ile %90+ test kapsamına (coverage) sahiptir.
+- **Rich Terminal UI:** Adminler için canlı istatistikler ve ilerleme çubukları gösterir.
 
 ---
 
@@ -41,21 +45,20 @@ Proje, modern Python uygulama pratikleriyle modüler bir yapıda inşa edilmişt
 - **Bot Çatısı:** `pytelegrambotapi` (Async uyumlu)
 - **Kazıyıcı:** `requests` & `BeautifulSoup4`
 - **Güvenlik:** `cryptography` (Fernet)
-- **Arayüz:** `rich` (Terminal Gösterge Paneli)
+- **Test:** `pytest` & `pytest-cov`
 - **Paket Yöneticisi:** `uv`
 
 ### Proje Yapısı
 
 ```text
 ├── main.py              # Uygulama giriş noktası ve Gösterge Paneli
-├── bot/                 # Telegram bot mantığı
-│   ├── handlers/        # Komut ve callback handler'ları
-│   └── keyboards.py     # Klavye arayüzleri
-├── services/            # Temel servisler
-│   └── ninova/          # Ninova kazıma ve kimlik doğrulama mantığı
-├── common/              # Ortak yapılandırmalar ve yardımcılar
-├── data/                # Veri saklama (JSON tabanlı)
-└── logs/                # Sistem günlükleri
+├── bot/                 # Telegram bot mantığı ve handler'lar
+├── services/            # Ninova kazıma ve kimlik doğrulama
+├── common/              # Ortak yardımcılar (şifreleme, cache vb.)
+├── scripts/             # Geliştirici araçları (versiyonlama betiği)
+├── tests/               # Unit ve entegrasyon testleri
+├── data/                # Veri saklama (JSON - ignore edilir)
+└── logs/                # Sistem günlükleri (ignore edilir)
 ```
 
 ---
