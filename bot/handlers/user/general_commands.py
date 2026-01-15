@@ -355,13 +355,14 @@ def leave_system(message):
 
 
 @bot.message_handler(func=lambda message: message.text == "📆 Akademik Takvim")
-def show_academic_calendar(message, show_all=False):
+def show_academic_calendar(message, show_past=False, show_future=False):
     """
     İTÜ Akademik Takvimden güncel bilgileri çeker ve gösterir.
-    Varsayılan olarak geçmiş etkinlikleri gizler, buton ile tümünü gösterir.
+    Varsayılan olarak 10 günlük pencere gösterir (geç geçmiş ve uzak gelecek gizli).
 
     :param message: Kullanıcıdan gelen mesaj
-    :param show_all: Geçmiş etkinlikleri de göster (default: False)
+    :param show_past: Geçmiş etkinlikleri de göster (default: False)
+    :param show_future: 10 günden uzak etkinlikleri de göster (default: False)
     """
     bot.reply_to(message, "🔄 Akademik takvim verileri çekiliyor...")
 
@@ -369,17 +370,36 @@ def show_academic_calendar(message, show_all=False):
         try:
             from telebot import types
 
-            data = ITUCalendarService.get_filtered_calendar(show_all=show_all)
+            data = ITUCalendarService.get_filtered_calendar(
+                show_past=show_past, show_future=show_future
+            )
 
-            # Check if there are hidden events
+            # Check if there are hidden events and create appropriate buttons
             markup = None
-            if "geçmiş etkinlik gizlendi" in data and not show_all:
+            has_hidden_past = "geçmiş etkinlik gizlendi" in data
+            has_hidden_future = "uzak gelecek etkinlik gizlendi" in data
+
+            if has_hidden_past or has_hidden_future:
                 markup = types.InlineKeyboardMarkup()
-                markup.add(
-                    types.InlineKeyboardButton(
-                        "📜 Geçmişi Göster", callback_data="show_all_calendar"
+                buttons = []
+
+                if has_hidden_past and not show_past:
+                    buttons.append(
+                        types.InlineKeyboardButton(
+                            "📜 Geçmişi Göster", callback_data="show_past_calendar"
+                        )
                     )
-                )
+
+                if has_hidden_future and not show_future:
+                    buttons.append(
+                        types.InlineKeyboardButton(
+                            "📅 Gelecektekileri Göster",
+                            callback_data="show_future_calendar",
+                        )
+                    )
+
+                if buttons:
+                    markup.row(*buttons)
 
             chunks = split_long_message(data)
             for i, chunk in enumerate(chunks):

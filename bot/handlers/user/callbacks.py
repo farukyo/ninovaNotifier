@@ -973,8 +973,8 @@ def handle_add_expired_no(call):
     )
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "show_all_calendar")
-def handle_show_all_calendar(call):
+@bot.callback_query_handler(func=lambda call: call.data == "show_past_calendar")
+def handle_show_past_calendar(call):
     """
     Kullanıcı akademik takvimde geçmiş etkinlikleri görmek istediğinde çalışır.
     """
@@ -983,11 +983,13 @@ def handle_show_all_calendar(call):
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text="🔄 Tüm etkinlikler yükleniyor...",
+        text="🔄 Geçmiş etkinlikler yükleniyor...",
     )
 
     try:
-        data = ITUCalendarService.get_filtered_calendar(show_all=True)
+        data = ITUCalendarService.get_filtered_calendar(show_past=True, show_future=False)
+
+        from telebot import types
 
         from common.utils import split_long_message
 
@@ -996,9 +998,73 @@ def handle_show_all_calendar(call):
         # Delete the loading message
         bot.delete_message(call.message.chat.id, call.message.message_id)
 
-        # Send full calendar
-        for chunk in chunks:
-            bot.send_message(call.message.chat.id, chunk, parse_mode="HTML")
+        # Check if there are still hidden future events
+        markup = None
+        if "uzak gelecek etkinlik gizlendi" in data:
+            markup = types.InlineKeyboardMarkup()
+            markup.add(
+                types.InlineKeyboardButton(
+                    "📅 Gelecektekileri Göster", callback_data="show_future_calendar"
+                )
+            )
+
+        # Send calendar with past events
+        for i, chunk in enumerate(chunks):
+            if i == len(chunks) - 1:
+                bot.send_message(
+                    call.message.chat.id, chunk, parse_mode="HTML", reply_markup=markup
+                )
+            else:
+                bot.send_message(call.message.chat.id, chunk, parse_mode="HTML")
+    except Exception as e:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"❌ Hata: {str(e)}",
+        )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "show_future_calendar")
+def handle_show_future_calendar(call):
+    """
+    Kullanıcı 10 günden uzak etkinlikleri görmek istediğinde çalışır.
+    """
+    from services.calendar import ITUCalendarService
+
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="🔄 Uzak gelecek etkinlikleri yükleniyor...",
+    )
+
+    try:
+        data = ITUCalendarService.get_filtered_calendar(show_past=False, show_future=True)
+
+        from telebot import types
+
+        from common.utils import split_long_message
+
+        chunks = split_long_message(data)
+
+        # Delete the loading message
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+
+        # Check if there are still hidden past events
+        markup = None
+        if "geçmiş etkinlik gizlendi" in data:
+            markup = types.InlineKeyboardMarkup()
+            markup.add(
+                types.InlineKeyboardButton("📜 Geçmişi Göster", callback_data="show_past_calendar")
+            )
+
+        # Send calendar with future events
+        for i, chunk in enumerate(chunks):
+            if i == len(chunks) - 1:
+                bot.send_message(
+                    call.message.chat.id, chunk, parse_mode="HTML", reply_markup=markup
+                )
+            else:
+                bot.send_message(call.message.chat.id, chunk, parse_mode="HTML")
     except Exception as e:
         bot.edit_message_text(
             chat_id=call.message.chat.id,

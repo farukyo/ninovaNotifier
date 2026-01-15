@@ -89,8 +89,8 @@ class ITUCalendarService:
             return []
 
     @staticmethod
-    def get_filtered_calendar(show_all: bool = False) -> str:
-        from datetime import datetime
+    def get_filtered_calendar(show_past: bool = False, show_future: bool = False) -> str:
+        from datetime import datetime, timedelta
 
         from common.utils import parse_turkish_date
 
@@ -99,11 +99,24 @@ class ITUCalendarService:
             return "❌ Akademik takvim verisi alınamadı."
 
         output = []
-        output.append("📚 <b>İTÜ AKADEMİK TAKVİM</b>")
+
+        # Header with context
+        if show_past and show_future:
+            output.append("📚 <b>İTÜ AKADEMİK TAKVİM</b> (Tüm Etkinlikler)")
+        elif show_past:
+            output.append("📚 <b>İTÜ AKADEMİK TAKVİM</b> (Geçmiş + Sonraki 10 Gün)")
+        elif show_future:
+            output.append("📚 <b>İTÜ AKADEMİK TAKVİM</b> (Tüm Gelecek)")
+        else:
+            output.append("📚 <b>İTÜ AKADEMİK TAKVİM</b> (Sonraki 10 Gün)")
+
         output.append("━━━━━━━━━━━━━━━━━━━━━")
 
         now = datetime.now()
+        window_end = now + timedelta(days=10)
+
         hidden_past_count = 0
+        hidden_future_count = 0
 
         for section in sections:
             # Sadece "Lisans / Önlisans Akademik Takvimi" bölümünü göster
@@ -127,6 +140,7 @@ class ITUCalendarService:
                 # Determine category
                 category = "past"
                 days_until = None
+                is_beyond_30_days = False
 
                 if event.is_past:
                     category = "past"
@@ -138,6 +152,10 @@ class ITUCalendarService:
                         category = "starting_soon"
                     else:
                         category = "upcoming"
+
+                    # Check if beyond 30-day window
+                    if parsed_date > window_end:
+                        is_beyond_30_days = True
                 else:
                     # No date parsed, check status
                     if "kaldı" in event.status:
@@ -149,20 +167,39 @@ class ITUCalendarService:
                                 category = "starting_soon"
                             else:
                                 category = "upcoming"
+
+                            # Estimate if beyond window
+                            if days_until > 10:
+                                is_beyond_30_days = True
                     else:
                         category = "upcoming"
 
                 categorized_events.append(
-                    {"event": event, "category": category, "days_until": days_until}
+                    {
+                        "event": event,
+                        "category": category,
+                        "days_until": days_until,
+                        "is_beyond_30_days": is_beyond_30_days,
+                    }
                 )
 
-            # Filter events based on show_all
+            # Filter events based on view mode
             visible_events = []
             for item in categorized_events:
-                if show_all or item["category"] != "past":
+                should_show = True
+
+                # Apply 30-day window filter
+                if item["category"] == "past":
+                    if not show_past:
+                        should_show = False
+                        hidden_past_count += 1
+                elif item["is_beyond_30_days"] and item["category"] != "ongoing":
+                    if not show_future:
+                        should_show = False
+                        hidden_future_count += 1
+
+                if should_show:
                     visible_events.append(item)
-                else:
-                    hidden_past_count += 1
 
             if visible_events:
                 # Section header
@@ -203,9 +240,11 @@ class ITUCalendarService:
 
         output.append("━━━━━━━━━━━━━━━━━━━━━")
 
-        # Add "Show All" hint if there are hidden events
-        if hidden_past_count > 0 and not show_all:
+        # Add hidden events summary
+        if hidden_past_count > 0:
             output.append(f"📜 <i>{hidden_past_count} geçmiş etkinlik gizlendi</i>")
+        if hidden_future_count > 0:
+            output.append(f"📅 <i>{hidden_future_count} uzak gelecek etkinlik gizlendi</i>")
 
         output.append(f"🔗 <a href='{ITUCalendarService.url}'>Detaylı Takvim için Tıklayın</a>")
         return "\n".join(output)
