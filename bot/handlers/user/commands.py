@@ -46,6 +46,7 @@ from .general_commands import (
     send_help_button,
     send_welcome,
     show_academic_calendar,
+    show_faq,
     show_menu,
     show_status,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "show_status",
     "leave_system",
     "show_academic_calendar",
+    "show_faq",
     # Arı24
     "show_ari24_menu",
     "discover_events",

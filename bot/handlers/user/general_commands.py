@@ -58,29 +58,99 @@ def show_user_menu(message):
 def send_welcome(message):
     """
     Kullanıcıya karşılama mesajını ve yardım metnini gönderir.
-    Kullanıcıyı veritabanında başlatır.
+    Güvenlik ve şeffaflık vurgusu yapar.
     """
     update_user_data(message.chat.id, "chat_id", str(message.chat.id))
-    help_text = (
+
+    welcome_text = (
         "👋 <b>Ninova Not Takipçisi'ne Hoş Geldiniz!</b>\n\n"
-        "Notlarınızı ve İTÜ gündemini tek yerden takip edin:\n\n"
-        "1️⃣ <b>Hesap Kurulumu:</b>\n"
-        "   • '👤 Kullanıcı' menüsünden kullanıcı adı ve şifrenizi girin.\n"
-        "   • '🤖 Oto Ders' ile derslerinizi otomatik çekin.\n\n"
-        "🔎 <b>Hızlı Menü:</b>\n"
-        "• 📊 Notlar — Notlarınız, ortalamalarınız ve harf notları\n"
-        "• 📅 Ödevler — Bekleyen ödevler ve teslim tarihleri\n"
-        "• 🐝 Arı24 — <b>Haberler</b>, etkinlikler ve kulüp abonelikleri\n"
-        "• 🍽 Yemekhane — Günlük SKS yemek menüsü\n"
-        "• 📆 Akademik Takvim — İTÜ akademik takvimi\n"
-        "• 📖 Dersler — Ders bazlı detaylı görünüm\n"
-        "• 🔍 Ara — Geçmiş duyurularda arama yapar\n\n"
-        "� <b>Bildirimler:</b>\n"
-        "• Yeni not, ödev ve duyuru geldiğinde anında bildirim alırsınız.\n"
-        "• Arı24 menüsünden 'Günlük Bülten'i açarak her sabah etkinlik özeti alabilirsiniz.\n"
-        "• Abone olduğunuz kulüplerin etkinlikleri ve yeni haberler anında cebinize gelir."
+        "Ben, İTÜ'lüler için geliştirilmiş <b>açık kaynaklı</b> bir yardımcı botum.\n"
+        "Amacım; notlarınızı, ödevlerinizi ve kampüs gündemini en hızlı şekilde size ulaştırmak.\n\n"
+        "🛡️ <b>Güvenlik & Gizlilik</b>\n"
+        "Ninova verilerinize erişebilmek için giriş yapmaya ihtiyacım var. Ancak endişelenmeyin:\n"
+        "• Şifreniz <b>AES-256</b> standardı ile şifrelenir.\n"
+        "• Verileriniz sadece bu sunucuda <b>şifrelenmiş</b> olarak saklanır, 3. taraflarla paylaşılmaz.\n"
+        "• İstediğiniz zaman <code>/ayril</code> komutunu kullanarak tüm verilerinizi silebilirsiniz.\n"
+        "• Kodlarım tamamen şeffaftır, inceleyebilir veya kendi bilgisayarınızda çalıştırabilirsiniz.\n\n"
+        "🚀 <b>Başlarken:</b>\n"
+        "1. Aşağıdaki 'Sıkça Sorulan Sorular' butonuna tıklayarak aklınızdaki soruları giderin.\n"
+        "2. 'Kaynak Kodu' butonundan GitHub'da kodlarımı inceleyin.\n"
+        "3. Hazır hissettiğinizde '👤 Kullanıcı' menüsünden giriş yapın.\n"
     )
-    bot.reply_to(message, help_text, parse_mode="HTML", reply_markup=build_main_keyboard())
+
+    # Inline Keyboard for Trust
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    btn_faq = types.InlineKeyboardButton(
+        "❓ Sıkça Sorulan Sorular / Güvenlik", callback_data="faq_security"
+    )
+    btn_source = types.InlineKeyboardButton(
+        "💻 Kaynak Kodu (GitHub)", url="https://github.com/farukyo/ninovaNotifier"
+    )
+    markup.add(btn_faq, btn_source)
+
+    # Send Welcome with Inline Actions
+    bot.send_message(
+        message.chat.id,
+        welcome_text,
+        parse_mode="HTML",
+        reply_markup=markup,
+        disable_web_page_preview=True,
+    )
+
+    # Send Main Menu separately to ensure it persists
+    bot.send_message(
+        message.chat.id,
+        "👇 İşlemleriniz için aşağıdaki menüyü kullanabilirsiniz:",
+        reply_markup=build_main_keyboard(),
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "faq_security")
+def callback_faq(call):
+    """FAQ butonuna basıldığında tetiklenir."""
+    # Sadece mesajı güncelleme veya yeni mesaj atma
+    # Burada yeni mesaj atarak temiz bir görünüm sağlıyoruz
+    show_faq(call.message)
+    # Callback'i cevapla (loading dairesini kaldırır)
+    bot.answer_callback_query(call.id)
+
+
+@bot.message_handler(commands=["faq"])
+def show_faq(message):
+    """
+    Sıkça sorulan soruları ve güvenlik detaylarını gösterir.
+    """
+    faq_text = (
+        "❓ <b>Sıkça Sorulan Sorular & Güvenlik</b>\n\n"
+        "<b>S: Şifrem güvende mi?</b>\n"
+        "C: Evet. Şifrenizi veritabanına kaydetmeden önce <b>AES-256</b> ile şifreliyorum. Anahtar sadece sunucuda bulunur.\n\n"
+        "<b>S: Neden şifremi istiyorsun?</b>\n"
+        "C: Senin adına Ninova'ya girip notlarını vs. çekebilmesi için botun şifrene ihtiyacı var. Maalesef İTÜ'nün sunduğu başka bir erişim yöntemi (API) yok.\n\n"
+        "<b>S: Verilerimi kimler görebilir?</b>\n"
+        "C: Şifren şifreli olduğu için ben dahil kimse veritabanını açıp şifreni okuyamaz. Benim bilgilerim:\n"
+        "Kullanıcı Adım: <code>olusan23</code>\n"
+        "Şifrem (Veritabanındaki Hali): <code>gAAAAABpaSBCXrSlCegdWvVc3Q-Lpf1Wi0b8kBE49poP7oWKicpU_UeKlW4bXqEZwvz6GDwnsX8VG05LSER-x_wz39q6y2xPLA==</code>\n"
+        "<b>S: Sana güvenmiyorum!</b>\n"
+        "C: En doğal hakkın, bana güvenme koda güven. Aşağıdaki butondan tüm kaynak kodlarımı inceleyebilirsin. Hatta istersen botu kendi bilgisayarında çalıştırabilirsin, o zaman verilerin tamamen senin kontrolünde olur.\n\n"
+        "<b>S: Verilerimi silebilir miyim?</b>\n"
+        "C: Tabii ki. <code>/ayril</code> komutunu gönderdiğin an tüm bilgilerini (kullanıcı adın, şifren, ayarların) saniyeler içinde kalıcı olarak silerim."
+    )
+
+    # Altına tekrar kaynak kodu butonu ekleyelim
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton(
+            "💻 GitHub Kaynak Kodu", url="https://github.com/farukyo/ninovaNotifier"
+        )
+    )
+
+    bot.send_message(
+        message.chat.id,
+        faq_text,
+        parse_mode="HTML",
+        reply_markup=markup,
+        disable_web_page_preview=True,
+    )
 
 
 @bot.message_handler(func=lambda message: message.text == "⛔ İptal")
