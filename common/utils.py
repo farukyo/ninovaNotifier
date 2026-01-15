@@ -498,3 +498,48 @@ def save_grades(grades):
     """
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(grades, f, ensure_ascii=False, indent=4)
+
+
+def split_long_message(text, limit=4000):
+    """
+    Splits a long message into chunks while respecting newline boundaries to avoid breaking HTML tags.
+    Default Telegram limit is 4096, but we use 4000 to be safe.
+
+    :param text: The text to split.
+    :param limit: Maximum characters per chunk.
+    :return: List of text chunks.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    chunks = []
+    current_chunk = ""
+
+    lines = text.split("\n")
+    for line in lines:
+        # If a single line is too long, force split it (rare case)
+        if len(line) > limit:
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = ""
+
+            # Split line by chars
+            for i in range(0, len(line), limit):
+                chunks.append(line[i : i + limit])
+            continue
+
+        # Check if adding this line would exceed the limit
+        # +1 accounts for the newline character we'll eventually need to join with (or implicit newlines)
+        if len(current_chunk) + len(line) + 1 > limit:
+            chunks.append(current_chunk)
+            current_chunk = line
+        else:
+            if current_chunk:
+                current_chunk += "\n" + line
+            else:
+                current_chunk = line
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks

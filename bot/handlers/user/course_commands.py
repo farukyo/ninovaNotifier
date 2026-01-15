@@ -9,7 +9,7 @@ from telebot import types
 
 from bot.instance import bot_instance as bot
 from common.config import HEADERS, USER_SESSIONS, load_all_users
-from common.utils import decrypt_password, load_saved_grades, update_user_data
+from common.utils import decrypt_password, load_saved_grades, split_long_message, update_user_data
 from services.ninova import get_user_courses, login_to_ninova
 
 
@@ -237,11 +237,9 @@ def auto_add_courses(message):
                 else:
                     response += "ℹ️ Yeni eklenecek ders bulunamadı.\n"
 
-                if len(response) > 4000:
-                    for x in range(0, len(response), 4000):
-                        bot.send_message(chat_id, response[x : x + 4000], parse_mode="HTML")
-                else:
-                    bot.send_message(chat_id, response, parse_mode="HTML")
+                chunks = split_long_message(response)
+                for chunk in chunks:
+                    bot.send_message(chat_id, chunk, parse_mode="HTML")
 
                 if newly_added:
                     from main import check_user_updates
@@ -331,11 +329,9 @@ def list_courses(message):
         course_name = user_grades.get(url, {}).get("course_name", f"Ders {i}")
         response += f"{i}. <b>{course_name}</b>\n<code>{url}</code>\n\n"
 
-    if len(response) > 4000:
-        for x in range(0, len(response), 4000):
-            bot.send_message(message.chat.id, response[x : x + 4000], parse_mode="HTML")
-    else:
-        bot.send_message(message.chat.id, response, parse_mode="HTML")
+    chunks = split_long_message(response)
+    for chunk in chunks:
+        bot.send_message(message.chat.id, chunk, parse_mode="HTML")
 
 
 def delete_course(message):

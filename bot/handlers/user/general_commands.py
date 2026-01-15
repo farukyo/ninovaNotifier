@@ -16,7 +16,7 @@ from bot.keyboards import (
     build_user_menu_keyboard,
 )
 from common.config import load_all_users
-from common.utils import escape_html, load_saved_grades, update_user_data
+from common.utils import escape_html, load_saved_grades, split_long_message, update_user_data
 from services.calendar.itu_calendar import ITUCalendarService
 
 # ... (omitted)
@@ -364,11 +364,9 @@ def show_academic_calendar(message):
     def run_fetch():
         try:
             data = ITUCalendarService.get_filtered_calendar()
-            if len(data) > 4000:
-                for x in range(0, len(data), 4000):
-                    bot.send_message(message.chat.id, data[x : x + 4000], parse_mode="HTML")
-            else:
-                bot.send_message(message.chat.id, data, parse_mode="HTML")
+            chunks = split_long_message(data)
+            for chunk in chunks:
+                bot.send_message(message.chat.id, chunk, parse_mode="HTML")
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Hata oluştu: {str(e)}")
 

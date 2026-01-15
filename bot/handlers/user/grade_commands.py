@@ -7,7 +7,7 @@ import math
 import threading
 
 from bot.instance import bot_instance as bot
-from common.utils import load_saved_grades
+from common.utils import load_saved_grades, split_long_message
 
 from .course_commands import interactive_menu
 
@@ -106,11 +106,9 @@ def list_grades(message):
 
         response += "\n"
 
-    if len(response) > 4000:
-        for x in range(0, len(response), 4000):
-            bot.send_message(message.chat.id, response[x : x + 4000], parse_mode="HTML")
-    else:
-        bot.send_message(message.chat.id, response, parse_mode="HTML")
+    chunks = split_long_message(response)
+    for chunk in chunks:
+        bot.send_message(message.chat.id, chunk, parse_mode="HTML")
 
 
 @bot.message_handler(func=lambda message: message.text == "📅 Ödevler")
@@ -126,27 +124,49 @@ def list_assignments(message):
         bot.reply_to(message, "Henüz kayıtlı veri bulunamadı.")
         return
 
-    response = "📅 <b>Ödev Durumları:</b>\n\n"
+    response = ""
+    total_assignments = 0
+
+    # İlk döngü: Toplam ödev sayısını hesapla ve yanıtı hazırla
     for _url, data in user_grades.items():
         course_name = data.get("course_name", "Bilinmeyen Ders")
         assignments = data.get("assignments", [])
-        response += f"📚 <b>{course_name}</b>\n"
-        if not assignments:
-            response += "<i>Ödev bulunamadı.</i>\n"
-        else:
+
+        # Sadece ödevi olan dersleri veya (tercihe göre) hepsini ekleyebiliriz.
+        # Kullanıcı "boş" görmek istemiyor, bu yüzden sadece dolu olanları ekleyelim mi?
+        # Hayır, kullanıcı hangi derste ödev olmadığını da görmek isteyebilir ama
+        # "hiç ödev yoksa" özel mesaj istiyor.
+
+        if assignments:
+            total_assignments += len(assignments)
+            response += f"📚 <b>{course_name}</b>\n"
             for target_assign in assignments:
                 status = "✅" if target_assign.get("is_submitted") else "❌"
                 response += (
                     f"{status} <a href='{target_assign['url']}'>{target_assign['name']}</a>\n"
                 )
                 response += f"└ ⏳ Son Teslim: <code>{target_assign['end_date']}</code>\n"
-        response += "\n"
+            response += "\n"
+        else:
+            # Ödevi olmayan dersleri de listeye ekleyelim mi?
+            # Kullanıcı "ödev yoksa ödev yok diyor mu" dediği için,
+            # eğer GENEL olarak hiç ödev yoksa "yok" diyeceğiz.
+            # Ama kısmi olarak varsa, ödevi olmayanları da belirtmek iyidir.
+            response += f"📚 <b>{course_name}</b>\n<i>Ödev bulunamadı.</i>\n\n"
 
-    if len(response) > 4000:
-        for x in range(0, len(response), 4000):
-            bot.send_message(message.chat.id, response[x : x + 4000], parse_mode="HTML")
-    else:
-        bot.send_message(message.chat.id, response, parse_mode="HTML")
+    # Eğer HİÇBİR derste ödev yoksa
+    if total_assignments == 0:
+        bot.reply_to(
+            message, "🎉 <b>Harika! Hiç ödeviniz yok.</b>\n", parse_mode="HTML"
+        )
+        return
+
+    # Başlık ekle
+    final_response = "📅 <b>Ödev Durumları:</b>\n\n" + response
+
+    chunks = split_long_message(final_response)
+    for chunk in chunks:
+        bot.send_message(message.chat.id, chunk, parse_mode="HTML")
 
 
 @bot.message_handler(func=lambda message: message.text == "🔄 Kontrol")
