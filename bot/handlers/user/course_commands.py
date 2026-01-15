@@ -244,11 +244,15 @@ def auto_add_courses(message):
                 if newly_added:
                     from main import check_user_updates
 
-                    result = check_user_updates(chat_id)
+                    # İlk tarama sessiz modda yapılır (spam önleme)
+                    result = check_user_updates(chat_id, silent=True)
+                    
                     if result.get("success"):
                         bot.send_message(
                             chat_id,
-                            "✅ <b>Kontrol tamamlandı!</b>\nYeni derslerinizin not, ödev, dosya ve duyuru bilgileri alındı.",
+                            "✅ <b>Kurulum Tamamlandı!</b>\n"
+                            "Derslerinizin verileri başarıyla senkronize edildi.\n"
+                            "Bundan sonraki <b>yeni</b> not, ödev ve duyurular için bildirim alacaksınız.",
                             parse_mode="HTML",
                         )
                     else:

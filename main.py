@@ -296,7 +296,7 @@ def check_daily_bulletin():
         logger.error(f"Daily bulletin error: {e}")
 
 
-def check_user_updates(chat_id: str, course_idx: int = None):
+def check_user_updates(chat_id: str, course_idx: int = None, silent: bool = False):
     """
     Belirli bir kullanıcının notlarını kontrol eder.
 
@@ -306,6 +306,7 @@ def check_user_updates(chat_id: str, course_idx: int = None):
 
     :param chat_id: Kontrol edilecek kullanıcının chat ID'si
     :param course_idx: (Opsiyonel) Sadece bu indeksteki dersi kontrol et
+    :param silent: (Opsiyonel) Bildirim göndermeden sadece verileri güncelle (True/False)
     :return: Başarı durumu ve mesaj içeren dict
     """
     users = load_all_users()
@@ -528,7 +529,7 @@ def check_user_updates(chat_id: str, course_idx: int = None):
                 changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
 
         # BİLDİRİM GÖNDERME
-        if sections_changes:
+        if sections_changes and not silent:
             msg = f"📢 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
             telegram_messages.append(msg)
 
