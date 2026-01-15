@@ -172,6 +172,7 @@ def send_broadcast(admin_chat_id, message_text):
 
     success_count = 0
     fail_count = 0
+    failed_users = []  # Track failed users with details
 
     broadcast_msg = f"📢 <b>Sistem Duyurusu</b>\n\n{message_text}"
 
@@ -179,14 +180,31 @@ def send_broadcast(admin_chat_id, message_text):
         try:
             bot.send_message(uid, broadcast_msg, parse_mode="HTML")
             success_count += 1
-        except Exception:
+        except Exception as e:
             fail_count += 1
+            # Store user ID and error message
+            error_msg = str(e)
+            # Shorten common errors for readability
+            if "bot was blocked" in error_msg:
+                error_msg = "Bot engellendi"
+            elif "user is deactivated" in error_msg:
+                error_msg = "Kullanıcı hesabı kapalı"
+            elif "chat not found" in error_msg:
+                error_msg = "Chat bulunamadı"
+            failed_users.append((uid, error_msg))
 
-    bot.send_message(
-        admin_chat_id,
-        f"📢 <b>Duyuru Gönderildi</b>\n\n✅ Başarılı: {success_count}\n❌ Başarısız: {fail_count}",
-        parse_mode="HTML",
+    # Build response message
+    response = (
+        f"📢 <b>Duyuru Gönderildi</b>\n\n✅ Başarılı: {success_count}\n❌ Başarısız: {fail_count}"
     )
+
+    # Add detailed failure list if there are any
+    if failed_users:
+        response += "\n\n📋 <b>Başarısız Gönderimler:</b>\n"
+        for uid, error in failed_users:
+            response += f"• <code>{uid}</code> - {error}\n"
+
+    bot.send_message(admin_chat_id, response, parse_mode="HTML")
 
 
 def send_direct_message(admin_chat_id, target_id, message_text):

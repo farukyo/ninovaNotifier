@@ -8,9 +8,9 @@ from .scraper import (
     get_assignment_detail,
     get_assignments,
     get_class_files,
+    get_class_info,
     get_grades,
     get_user_courses,
-    get_class_info,
 )
 
 __all__ = [
