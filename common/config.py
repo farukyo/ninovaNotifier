@@ -5,15 +5,17 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from rich.console import Console
 
-load_dotenv()
+load_dotenv(os.path.join("secrets", ".env"))
 console = Console()
 
 # Klasör ve Dosya Yolları
 DATA_DIR = "data"
 LOGS_DIR = "logs"
+SECRETS_DIR = "secrets"
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(SECRETS_DIR, exist_ok=True)
 
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 DATA_FILE = os.path.join(DATA_DIR, "ninova_data.json")
@@ -21,7 +23,7 @@ DATA_FILE = os.path.join(DATA_DIR, "ninova_data.json")
 # Şifreleme anahtarı (ENV'den veya varsayılan)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 if not ENCRYPTION_KEY:
-    KEY_FILE = ".encryption_key"
+    KEY_FILE = os.path.join(SECRETS_DIR, ".encryption_key")
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "rb") as f:
             ENCRYPTION_KEY = f.read()

@@ -20,6 +20,8 @@ venv/
 env/
 
 # Environment & Secrets
+secrets/
+!secrets/.env.example
 *.env
 *.env.local
 .encryption_key
