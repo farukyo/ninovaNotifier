@@ -1,4 +1,5 @@
 import contextlib
+import math
 
 import requests
 from telebot import types
@@ -152,23 +153,76 @@ def handle_course_detail(call):
         if not grades:
             response += "<i>Not bulunamadı.</i>"
         else:
+            total_weight = 0.0
+            weighted_avg_sum = 0.0
+            weighted_var_sum = 0.0
+            user_weighted_avg_sum = 0.0
+
             for key, val in grades.items():
-                score = val.get("not", "?")
-                weight = val.get("agirlik", "")
-                weight_str = f" (%{weight})" if weight else ""
-                response += f"▫️ {key}: <b>{score}</b>{weight_str}\n"
+                # Extract weight safely
+                w_raw = val.get("agirlik", "").replace("%", "").replace(",", ".").strip()
+                try:
+                    w_val = float(w_raw)
+                except ValueError:
+                    w_val = 0.0
 
                 details = val.get("detaylar", {})
+                class_avg = 0.0
+                std_dev = 0.0
+                has_stats = False
+
+                if "class_avg" in details:
+                    with contextlib.suppress(ValueError):
+                        class_avg = float(details["class_avg"].replace(",", "."))
+                        has_stats = True
+
+                if "std_dev" in details:
+                    with contextlib.suppress(ValueError):
+                        std_dev = float(details["std_dev"].replace(",", "."))
+
+                score = val.get("not", "?")
+                weight_str = f" (%{w_val:g})" if w_val > 0 else ""
+
+                # Format the grade line
+                response += f"▫️ {key}: <b>{score}</b>{weight_str}\n"
+
+                # Sub-line details
                 detail_lines = []
                 if "class_avg" in details:
                     detail_lines.append(f"Ort: {details['class_avg']}")
                 if "std_dev" in details:
                     detail_lines.append(f"Std: {details['std_dev']}")
+                if "student_count" in details:
+                    detail_lines.append(f"Kişi: {details['student_count']}")
                 if "rank" in details:
                     detail_lines.append(f"Sıra: {details['rank']}")
 
                 if detail_lines:
                     response += f"   <i>└ {', '.join(detail_lines)}</i>\n"
+
+                # Cumulative Calculations
+                if w_val > 0:
+                    w_norm = w_val / 100.0
+                    total_weight += w_val
+
+                    try:
+                        user_grade_val = float(str(score).replace(",", "."))
+                        user_weighted_avg_sum += w_norm * user_grade_val
+                    except (ValueError, TypeError):
+                        pass
+
+                    if has_stats:
+                        weighted_avg_sum += w_norm * class_avg
+                        weighted_var_sum += (w_norm * w_norm) * (std_dev * std_dev)
+
+            # Cumulative Summary Footer
+            if total_weight > 0:
+                c_avg = f"{weighted_avg_sum:.2f}"
+                c_std = f"{math.sqrt(weighted_var_sum):.2f}"
+                u_avg = f"{user_weighted_avg_sum:.2f}"
+
+                response += "\n----------------------------\n"
+                response += f"📊 <b>Ortalamanız: {u_avg}</b> | Sınıf geneli: Ort: {c_avg}, Std: {c_std} (%{total_weight:g} veriye göre)\n"
 
     elif detail_type == "odev":
         response += "📅 <b>Ödevler:</b>\n"

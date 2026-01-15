@@ -16,6 +16,10 @@ from .auth_commands import (
     set_password,
     set_username,
 )
+from .cafeteria_commands import (
+    handle_cafeteria_refresh,
+    send_cafeteria_menu,
+)
 from .course_commands import (
     add_course,
     auto_add_courses,
@@ -48,6 +52,9 @@ __all__ = [
     "process_username",
     "set_password",
     "process_password",
+    # Cafeteria
+    "send_cafeteria_menu",
+    "handle_cafeteria_refresh",
     # Course
     "interactive_menu",
     "user_otoders_command",
