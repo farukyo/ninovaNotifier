@@ -31,12 +31,8 @@ from .cafeteria_commands import (
     send_cafeteria_menu,
 )
 from .course_commands import (
-    add_course,
     auto_add_courses,
-    delete_course,
     interactive_menu,
-    list_courses,
-    user_otoders_command,
 )
 from .general_commands import (
     handle_cancel_button,
@@ -47,7 +43,6 @@ from .general_commands import (
     send_welcome,
     show_academic_calendar,
     show_faq,
-    show_menu,
     show_status,
 )
 from .grade_commands import (
@@ -68,11 +63,8 @@ __all__ = [
     "handle_cafeteria_refresh",
     # Course
     "interactive_menu",
-    "user_otoders_command",
+    "interactive_menu",
     "auto_add_courses",
-    "add_course",
-    "list_courses",
-    "delete_course",
     # Grade
     "list_grades",
     "list_assignments",
@@ -82,7 +74,7 @@ __all__ = [
     "send_welcome",
     "handle_cancel_button",
     "send_help_button",
-    "show_menu",
+    "send_help_button",
     "search_announcements",
     "process_search_term",
     "show_status",

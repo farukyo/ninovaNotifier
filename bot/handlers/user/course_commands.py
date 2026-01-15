@@ -51,121 +51,6 @@ def interactive_menu(message):
     )
 
 
-@bot.message_handler(commands=["otoders"])
-def user_otoders_command(message):
-    """
-    Kullanıcı düzeyinde otomatik ders keşfi.
-
-    Bu komut sadece çağıran kullanıcının Ninova hesabına bağlanır,
-    ders listesini çeker ve yeni dersleri ekler.
-    """
-    chat_id = str(message.chat.id)
-    users = load_all_users()
-    user_data = users.get(chat_id)
-
-    if not user_data:
-        bot.reply_to(
-            message,
-            "⚠️ Kullanıcı bilgileri bulunamadı. Lütfen önce kullanıcı adınızı ve şifrenizi ayarlayın.",
-        )
-        return
-
-    username = user_data.get("username")
-    password = decrypt_password(user_data.get("password", ""))
-
-    if not username or not password:
-        bot.reply_to(
-            message,
-            "⚠️ Lütfen önce kullanıcı adınızı ve şifrenizi ayarlayın.",
-        )
-        return
-
-    bot.reply_to(message, "🔄 Ninova'ya bağlanılıyor ve aktif dersler taranıyor...")
-
-    def run_update():
-        try:
-            USER_SESSIONS[chat_id] = requests.Session()
-            USER_SESSIONS[chat_id].headers.update(HEADERS)
-            session = USER_SESSIONS[chat_id]
-
-            if not login_to_ninova(session, chat_id, username, password):
-                bot.send_message(
-                    chat_id,
-                    "❌ Ninova'ya giriş yapılamadı. Bilgilerinizi kontrol edin.",
-                )
-                return
-
-            courses = get_user_courses(session)
-            if not courses:
-                bot.send_message(chat_id, "❌ Aktif ders bulunamadı veya çekilemedi.")
-                return
-
-            all_grades = load_saved_grades()
-            user_grades = all_grades.get(chat_id, {})
-            current_urls = set(user_data.get("urls", []))
-
-            already_added = []
-            newly_added = []
-            new_urls_list = list(current_urls)
-
-            for course in courses:
-                course_url = course.get("url")
-                course_name = course.get("name", "Bilinmeyen Ders")
-
-                if not course_url:
-                    continue
-
-                if course_url in user_grades:
-                    already_added.append(course_name)
-                elif course_url in current_urls:
-                    newly_added.append({"name": course_name, "url": course_url})
-                else:
-                    newly_added.append({"name": course_name, "url": course_url})
-                    new_urls_list.append(course_url)
-
-            update_user_data(chat_id, "urls", new_urls_list)
-
-            response = "📊 <b>Ders Tarama Sonucu</b>\n\n"
-
-            if already_added:
-                response += "✅ <b>Zaten Ekli Dersler:</b>\n"
-                for name in already_added:
-                    response += f"  • {name}\n"
-                response += "\n"
-
-            if newly_added:
-                response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
-                for c in newly_added:
-                    response += f"  ➕ {c['name']}\n"
-                response += "\n🔄 Yeni dersler için kontrol başlatılıyor...\n"
-            else:
-                response += "ℹ️ Yeni eklenecek ders bulunamadı.\n"
-
-            bot.send_message(chat_id, response, parse_mode="HTML")
-
-            if newly_added:
-                from main import check_user_updates
-
-                result = check_user_updates(chat_id)
-                if result.get("success"):
-                    bot.send_message(
-                        chat_id,
-                        "✅ <b>Kontrol tamamlandı!</b>\nYeni derslerinizin not, ödev, dosya ve duyuru bilgileri alındı.",
-                        parse_mode="HTML",
-                    )
-                else:
-                    bot.send_message(
-                        chat_id,
-                        f"⚠️ Kontrol sırasında hata: {result.get('message', 'Bilinmeyen hata')}",
-                        parse_mode="HTML",
-                    )
-
-        except Exception as e:
-            bot.send_message(chat_id, f"❌ Hata oluştu: {str(e)}")
-
-    threading.Thread(target=run_update, daemon=True).start()
-
-
 @bot.message_handler(func=lambda message: message.text == "🤖 Oto Ders")
 def auto_add_courses(message):
     """
@@ -188,6 +73,10 @@ def auto_add_courses(message):
 
     def run_auto_add():
         try:
+            from datetime import datetime
+
+            from services.ninova import get_class_info
+
             if chat_id not in USER_SESSIONS:
                 USER_SESSIONS[chat_id] = requests.Session()
                 USER_SESSIONS[chat_id].headers.update(HEADERS)
@@ -199,28 +88,52 @@ def auto_add_courses(message):
                     bot.send_message(chat_id, "❌ Hiç aktif ders bulunamadı veya bir hata oluştu.")
                     return
 
-                all_grades = load_saved_grades()
-                user_grades = all_grades.get(chat_id, {})
+                # all_grades and user_grades not needed here
                 current_urls = set(user_info.get("urls", []))
 
                 already_in_data = []
-                newly_added = []
+                active_to_add = []
+                expired_candidates = []
+
+                # Mevcut dersleri listeye al
                 new_urls_list = list(current_urls)
+
+                # Yeni dersler için tarih kontrolü yapacağız
+                # Mevcut dersler zaten 'current_urls' içinde, onları tekrar kontrol etmeye gerek yok
+
+                now = datetime.now()
 
                 for course in courses:
                     name, url = course["name"], course["url"]
 
-                    if url in user_grades:
+                    if url in current_urls:
+                        # Zaten ekli
                         already_in_data.append(name)
-                    elif url in current_urls:
-                        newly_added.append({"name": name, "url": url})
+                        continue
+
+                    # Yeni bir ders, tarihini kontrol et
+                    # Eğer kullanıcı daha önce eklemişse (URL listesinde varsa) tekrar sormaya gerek yok
+                    # Ama yukarıdaki if bunu check ediyor zaten.
+
+                    class_info = get_class_info(session, url)
+                    end_date = class_info.get("end_date")
+
+                    is_expired = False
+                    if end_date:
+                        if end_date < now:
+                            is_expired = True
+
+                    if is_expired:
+                        expired_candidates.append({"name": name, "url": url})
                     else:
-                        newly_added.append({"name": name, "url": url})
+                        active_to_add.append({"name": name, "url": url})
                         new_urls_list.append(url)
 
-                if new_urls_list != list(current_urls):
+                # 1. Aktif dersleri kaydet
+                if active_to_add:
                     update_user_data(chat_id, "urls", new_urls_list)
 
+                # 2. Rapor oluştur
                 response = "📊 <b>Ders Tarama Sonucu</b>\n\n"
 
                 if already_in_data:
@@ -229,38 +142,59 @@ def auto_add_courses(message):
                         response += f"  • {name}\n"
                     response += "\n"
 
-                if newly_added:
+                if active_to_add:
                     response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
-                    for c in newly_added:
+                    for c in active_to_add:
                         response += f"  ➕ {c['name']}\n"
-                    response += "\n🔄 Yeni dersler için kontrol başlatılıyor...\n"
-                else:
+                    response += "\n🔄 Yeni dersler için senkronizasyon yapılıyor...\n"
+
+                if not active_to_add and not already_in_data and not expired_candidates:
                     response += "ℹ️ Yeni eklenecek ders bulunamadı.\n"
 
                 chunks = split_long_message(response)
                 for chunk in chunks:
                     bot.send_message(chat_id, chunk, parse_mode="HTML")
 
-                if newly_added:
+                # 3. Aktif dersler için senkronizasyon
+                if active_to_add:
                     from main import check_user_updates
 
-                    # İlk tarama sessiz modda yapılır (spam önleme)
                     result = check_user_updates(chat_id, silent=True)
-                    
                     if result.get("success"):
                         bot.send_message(
                             chat_id,
-                            "✅ <b>Kurulum Tamamlandı!</b>\n"
-                            "Derslerinizin verileri başarıyla senkronize edildi.\n"
-                            "Bundan sonraki <b>yeni</b> not, ödev ve duyurular için bildirim alacaksınız.",
+                            "✅ <b>Senkronizasyon Tamamlandı!</b>\n"
+                            "Aktif dersleriniz listeye eklendi.",
                             parse_mode="HTML",
                         )
                     else:
                         bot.send_message(
                             chat_id,
-                            f"⚠️ Kontrol sırasında hata: {result.get('message', 'Bilinmeyen hata')}",
-                            parse_mode="HTML",
+                            f"⚠️ Senkronizasyon hatası: {result.get('message')}",
                         )
+
+                # 4. Eski dersler varsa sor
+                if expired_candidates:
+                    # Save candidates to user_data temporarily
+                    expired_urls = [c["url"] for c in expired_candidates]
+                    update_user_data(chat_id, "temp_expired_courses", expired_urls)
+
+                    markup = types.InlineKeyboardMarkup()
+                    markup.add(
+                        types.InlineKeyboardButton(
+                            "✅ Evet, Ekle", callback_data="add_expired_yes"
+                        ),
+                        types.InlineKeyboardButton("❌ Hayır", callback_data="add_expired_no"),
+                    )
+
+                    bot.send_message(
+                        chat_id,
+                        f"⚠️ <b>Dikkat:</b> Ninova sınıf listesinde tarihi geçmiş {len(expired_candidates)} eski dönem dersi bulundu.\n\n"
+                        "Bunları da listenize eklemek ister misiniz?",
+                        reply_markup=markup,
+                        parse_mode="HTML",
+                    )
+
             else:
                 bot.send_message(
                     chat_id,
@@ -270,100 +204,3 @@ def auto_add_courses(message):
             bot.send_message(chat_id, f"❌ Hata oluştu: {str(e)}")
 
     threading.Thread(target=run_auto_add, daemon=True).start()
-
-
-def add_course(message):
-    """Manuel olarak Ninova ders linki ekler.
-
-    Kullanım: /ekle <url>
-    """
-    args = message.text.split()
-    if len(args) < 2 or "ninova.itu.edu.tr" not in args[1]:
-        bot.reply_to(
-            message,
-            "❌ Lütfen geçerli bir Ninova ders linki girin.\nÖrn: <code>/ekle https://ninova.itu.edu.tr/Sinif/123.456</code>",
-            parse_mode="HTML",
-        )
-        return
-
-    url = args[1].split("?")[0].strip()
-    for suffix in ["/Notlar", "/Duyurular", "/Odevler", "/SinifDosyalari"]:
-        if url.endswith(suffix):
-            url = url[: -len(suffix)]
-            break
-
-    chat_id = str(message.chat.id)
-    users = load_all_users()
-    user_data = users.get(chat_id, {})
-    urls = user_data.get("urls", [])
-
-    if url in urls:
-        bot.reply_to(
-            message,
-            "⚠️ Bu ders zaten takip ediliyor.",
-        )
-        return
-
-    urls.append(url)
-    update_user_data(chat_id, "urls", urls)
-    bot.reply_to(
-        message,
-        f"✅ Ders başarıyla eklendi!\n<code>{url}</code>",
-        parse_mode="HTML",
-    )
-
-
-def list_courses(message):
-    """
-    Kullanıcının takip ettiği dersleri listeler.
-    """
-    chat_id = str(message.chat.id)
-    users = load_all_users()
-    user_data = users.get(chat_id, {})
-    urls = user_data.get("urls", [])
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
-
-    if not urls:
-        bot.reply_to(message, "❌ Takip ettiğiniz ders bulunamadı.")
-        return
-
-    response = "📋 <b>Takip Ettiğiniz Dersler:</b>\n\n"
-    for i, url in enumerate(urls, 1):
-        course_name = user_grades.get(url, {}).get("course_name", f"Ders {i}")
-        response += f"{i}. <b>{course_name}</b>\n<code>{url}</code>\n\n"
-
-    chunks = split_long_message(response)
-    for chunk in chunks:
-        bot.send_message(message.chat.id, chunk, parse_mode="HTML")
-
-
-def delete_course(message):
-    """
-    Kullanıcıdan bir ders seçerek silme menüsünü gösterir.
-    """
-    chat_id = str(message.chat.id)
-    users = load_all_users()
-    user_data = users.get(chat_id, {})
-    urls = user_data.get("urls", [])
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
-
-    if not urls:
-        bot.reply_to(message, "❌ Silinecek ders bulunamadı.")
-        return
-
-    markup = types.InlineKeyboardMarkup()
-    for i, url in enumerate(urls):
-        course_name = user_grades.get(url, {}).get("course_name", f"Ders {i + 1}")
-        display_text = course_name if len(course_name) <= 40 else course_name[:37] + "..."
-        markup.add(types.InlineKeyboardButton(f"🗑️ {display_text}", callback_data=f"del_req_{i}"))
-
-    markup.add(types.InlineKeyboardButton("↩️ İptal", callback_data="del_no"))
-
-    bot.send_message(
-        chat_id,
-        "🗑️ <b>Ders Silme</b>\n\nSilmek istediğiniz dersi seçin:",
-        reply_markup=markup,
-        parse_mode="HTML",
-    )

@@ -70,12 +70,13 @@ def send_welcome(message):
         "Ninova verilerinize erişebilmek için giriş yapmaya ihtiyacım var. Ancak endişelenmeyin:\n"
         "• Şifreniz <b>AES-256</b> standardı ile şifrelenir.\n"
         "• Verileriniz sadece bu sunucuda <b>şifrelenmiş</b> olarak saklanır, 3. taraflarla paylaşılmaz.\n"
-        "• İstediğiniz zaman <code>/ayril</code> komutunu kullanarak tüm verilerinizi silebilirsiniz.\n"
+        "• İstediğiniz zaman <code>👤 Kullanıcı -> 🚪 Ayrıl</code> menüsünden tüm verilerinizi silebilirsiniz.\n"
         "• Kodlarım tamamen şeffaftır, inceleyebilir veya kendi bilgisayarınızda çalıştırabilirsiniz.\n\n"
         "🚀 <b>Başlarken:</b>\n"
         "1. Aşağıdaki 'Sıkça Sorulan Sorular' butonuna tıklayarak aklınızdaki soruları giderin.\n"
         "2. 'Kaynak Kodu' butonundan GitHub'da kodlarımı inceleyin.\n"
-        "3. Hazır hissettiğinizde '👤 Kullanıcı' menüsünden giriş yapın.\n"
+        "3. Hazır hissettiğinizde '👤 Kullanıcı' menüsünden itü kullanıcı adı ve şifrenizi girerek giriş yapın.\n"
+        "4. '🤖 Otoders' ile derslerinizi senkronize edin ve tüm güzel özellikleri keşfedin!\n"
     )
 
     # Inline Keyboard for Trust

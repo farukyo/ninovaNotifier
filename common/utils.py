@@ -341,6 +341,50 @@ def get_file_icon(filename):
     return icons.get(ext, "📄")
 
 
+def get_assignment_status(assignment_dict):
+    """
+    Calculates the status icon and active state of an assignment.
+
+    :param assignment_dict: The assignment dictionary containing 'is_submitted' and 'end_date'
+    :return: tuple (status_icon, is_active_future_assignment)
+    """
+    is_submitted = assignment_dict.get("is_submitted", False)
+    end_date_str = assignment_dict.get("end_date", "")
+
+    # ✅ If submitted, always show green check
+    if is_submitted:
+        return (
+            "✅",
+            False,
+        )  # It is completed, so 'active' depending on context, but here we treat it as fine.
+        # Wait, if submitted, user wants to see it? "active" usually means "ToDo".
+        # But let's check the requirement: "Show only active (future) assignments".
+        # If I submitted it, it's done. Should it be hidden by default?
+        # User said: "ödev tamamlandıysa ✅göstersin".
+        # Usually completed assignments are good to see.
+        # Let's consider 'active' = 'not expired OR submitted'.
+        # If expired and not submitted -> ❌ (Hidden by default)
+
+    # Convert date
+    due_date = parse_turkish_date(end_date_str)
+    if not due_date:
+        # Cannot parse, treat as neutral
+        return "⚪", True
+
+    now = datetime.now()
+    delta = due_date - now
+    days_left = delta.total_seconds() / (3600 * 24)
+
+    if days_left < 0:
+        # ❌ Expired (and not submitted, captured above)
+        return "❌", False  # Expired -> Not active
+    if days_left <= 3:
+        # ⚠️ Warning
+        return "⚠️", True
+    # 🟡 Info
+    return "🟡", True
+
+
 def send_telegram_message(chat_id, message, is_error=False):
     """
     Telegram botu üzerinden belirli bir kullanıcıya mesaj gönderir.
@@ -543,3 +587,28 @@ def split_long_message(text, limit=4000):
         chunks.append(current_chunk)
 
     return chunks
+
+
+def delete_course_data(chat_id, course_url):
+    """
+    Belirli bir dersin verilerini (not, ödev vb.) ninova_data.json dosyasından siler.
+
+    :param chat_id: Kullanıcı ID
+    :param course_url: Silinecek dersin URL'i
+    """
+    chat_id = str(chat_id)
+    all_grades = load_saved_grades()
+
+    if chat_id in all_grades:
+        user_grades = all_grades[chat_id]
+        if course_url in user_grades:
+            del user_grades[course_url]
+            # Eğer kullanıcının hiç dersi kalmadıysa, kullanıcı kaydını da data'dan silebiliriz (opsiyonel)
+            if not user_grades:
+                del all_grades[chat_id]
+            else:
+                all_grades[chat_id] = user_grades
+
+            save_grades(all_grades)
+            return True
+    return False

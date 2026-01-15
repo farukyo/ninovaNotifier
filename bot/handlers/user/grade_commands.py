@@ -5,6 +5,9 @@ Not ve ödev komutları.
 import contextlib
 import math
 import threading
+from datetime import datetime
+
+from telebot import types
 
 from bot.instance import bot_instance as bot
 from common.utils import load_saved_grades, split_long_message
@@ -112,9 +115,10 @@ def list_grades(message):
 
 
 @bot.message_handler(func=lambda message: message.text == "📅 Ödevler")
-def list_assignments(message):
+def list_assignments(message, show_all=False):
     """
     Kullanıcının ödevlerini ve teslim durumlarını listeler.
+    Varsayılan olarak sadece 'aktif' ödevleri gösterir.
     """
     chat_id = str(message.chat.id)
     all_grades = load_saved_grades()
@@ -124,57 +128,95 @@ def list_assignments(message):
         bot.reply_to(message, "Henüz kayıtlı veri bulunamadı.")
         return
 
-    response = ""
-    total_assignments = 0
+    from common.utils import get_assignment_status, parse_turkish_date
 
-    # İlk döngü: Toplam ödev sayısını hesapla ve yanıtı hazırla
+    total_assignments_count = 0
+    hidden_assignments_count = 0
+    response_lines = []
+
+    # Tüm dersleri gez
     for _url, data in user_grades.items():
         course_name = data.get("course_name", "Bilinmeyen Ders")
         assignments = data.get("assignments", [])
 
-        # Sadece ödevi olan dersleri veya (tercihe göre) hepsini ekleyebiliriz.
-        # Kullanıcı "boş" görmek istemiyor, bu yüzden sadece dolu olanları ekleyelim mi?
-        # Hayır, kullanıcı hangi derste ödev olmadığını da görmek isteyebilir ama
-        # "hiç ödev yoksa" özel mesaj istiyor.
+        if not assignments:
+            continue
 
-        if assignments:
-            total_assignments += len(assignments)
-            response += f"📚 <b>{course_name}</b>\n"
-            for target_assign in assignments:
-                status = "✅" if target_assign.get("is_submitted") else "❌"
-                response += (
-                    f"{status} <a href='{target_assign['url']}'>{target_assign['name']}</a>\n"
+        # Ödevleri parse et ve durumlarını hesapla
+        parsed_assignments = []
+        for assign in assignments:
+            icon, is_active = get_assignment_status(assign)
+            # Tarihe göre sıralama için datetime objesi al
+            dt = parse_turkish_date(assign.get("end_date", ""))
+            parsed_assignments.append(
+                {
+                    "data": assign,
+                    "icon": icon,
+                    "is_active": is_active,
+                    "dt": dt or datetime.max,  # Parse edilemezse en sona at
+                }
+            )
+
+        # Tarihe göre sırala (Yakın tarih en üstte)
+        parsed_assignments.sort(key=lambda x: x["dt"])
+
+        # Filtreleme
+        visible_assignments = []
+        for item in parsed_assignments:
+            total_assignments_count += 1
+            if show_all or item["is_active"]:
+                visible_assignments.append(item)
+            else:
+                hidden_assignments_count += 1
+
+        if visible_assignments:
+            response_lines.append(f"📚 <b>{course_name}</b>")
+            for item in visible_assignments:
+                assign = item["data"]
+                icon = item["icon"]
+                response_lines.append(
+                    f"{icon} <a href='{assign['url']}'>{assign['name']}</a>\n└ ⏳ Son Teslim: <code>{assign['end_date']}</code>"
                 )
-                response += f"└ ⏳ Son Teslim: <code>{target_assign['end_date']}</code>\n"
-            response += "\n"
-        else:
-            # Ödevi olmayan dersleri de listeye ekleyelim mi?
-            # Kullanıcı "ödev yoksa ödev yok diyor mu" dediği için,
-            # eğer GENEL olarak hiç ödev yoksa "yok" diyeceğiz.
-            # Ama kısmi olarak varsa, ödevi olmayanları da belirtmek iyidir.
-            response += f"📚 <b>{course_name}</b>\n<i>Ödev bulunamadı.</i>\n\n"
+            response_lines.append("")  # Dersler arası boşluk
 
-    # Eğer HİÇBİR derste ödev yoksa
-    if total_assignments == 0:
+    if total_assignments_count == 0:
         bot.reply_to(
-            message, "🎉 <b>Harika! Hiç ödeviniz yok.</b>\n", parse_mode="HTML"
+            message, "🎉 <b>Harika! Hiç ödeviniz yok.</b> Keyfinize bakın! ☕", parse_mode="HTML"
         )
         return
 
-    # Başlık ekle
-    final_response = "📅 <b>Ödev Durumları:</b>\n\n" + response
+    if not response_lines and hidden_assignments_count > 0:
+        response = "📅 <b>Aktif ödeviniz yok!</b>\n"
+        response += f"\n<i>({hidden_assignments_count} geçmiş ödev gizlendi.)</i>"
+    elif response_lines:
+        response = "📅 <b>Ödev Durumları:</b>\n\n" + "\n".join(response_lines)
+    else:
+        # Should be covered by total_assignments_count == 0, but safe fallback
+        response = "📅 <b>Ödev Durumları:</b>\n\n<i>Kayıtlı ödev bulunamadı.</i>"
 
-    chunks = split_long_message(final_response)
-    for chunk in chunks:
-        bot.send_message(message.chat.id, chunk, parse_mode="HTML")
+    markup = None
+    if hidden_assignments_count > 0 and not show_all:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton(
+                f"📜 Tümünü Göster ({hidden_assignments_count} Gizli)",
+                callback_data="show_all_assignments",
+            )
+        )
+
+    chunks = split_long_message(response)
+    for i, chunk in enumerate(chunks):
+        # Sadece son parça ile buton gönder
+        if i == len(chunks) - 1:
+            bot.send_message(message.chat.id, chunk, parse_mode="HTML", reply_markup=markup)
+        else:
+            bot.send_message(message.chat.id, chunk, parse_mode="HTML")
 
 
 @bot.message_handler(func=lambda message: message.text == "🔄 Kontrol")
-@bot.message_handler(commands=["kontrol"])
 def kontrol_command_handler(message):
     """
     Manuel kontrol komudu.
-    /kontrol -> Tüm dersleri kontrol eder.
     /kontrol ders -> Ders listesini ve kontrol butonlarını gösterir.
     /kontrol force -> (Admin) Tüm kullanıcıları kontrol eder.
     """

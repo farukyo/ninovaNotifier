@@ -11,6 +11,7 @@ from common.cache import get_cached_file_id, set_cached_file_id
 from common.config import HEADERS, USER_SESSIONS, load_all_users, save_all_users
 from common.utils import (
     decrypt_password,
+    delete_course_data,
     escape_html,
     get_file_icon,
     load_saved_grades,
@@ -346,6 +347,10 @@ def handle_main_menu(call):
 
     # Add general control button
     markup.add(types.InlineKeyboardButton("🔄 Tümünü Kontrol Et", callback_data="global_kontrol"))
+    # Add Manual Course Menu button
+    markup.add(
+        types.InlineKeyboardButton("📝 Manuel Ders Yönetimi", callback_data="manual_menu_open")
+    )
 
     bot.edit_message_text(
         chat_id=chat_id,
@@ -530,13 +535,17 @@ def handle_course_delete_any(call):
         user_data = users.get(chat_id, {})
         urls = user_data.get("urls", [])
         if idx < len(urls):
-            # Listeyi doğrudan users dict'i üzerinden güncelle
+            # Önce veriyi sil (Deep Clean)
+            course_url = urls[idx]
+            delete_course_data(chat_id, course_url)
+
+            # Sonra listeyi kullanıcıdan sil
             del users[chat_id]["urls"][idx]
             save_all_users(users)
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=call.message.message_id,
-                text="✅ Ders başarıyla silindi.",
+                text="✅ Ders ve ilgili tüm veriler başarıyla silindi.",
             )
     elif call.data == "del_no":
         bot.edit_message_text(
@@ -870,6 +879,98 @@ def handle_kontrol(call):
     import threading
 
     threading.Thread(target=run_check, daemon=True).start()
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "show_all_assignments")
+def handle_show_all_assignments(call):
+    """
+    Kullanıcı 'Tümünü Göster' dediğinde, ödev listesini filtrelemeden tekrar gönderir.
+    """
+    # Mevcut mesajı sil (temiz görüntü için)
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception:
+        pass
+
+    from bot.handlers.user.grade_commands import list_assignments
+
+    # show_all=True ile çağır
+    list_assignments(call.message, show_all=True)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "add_expired_yes")
+def handle_add_expired_yes(call):
+    """
+    Kullanıcı eski dönem derslerinin eklenmesini onayladığında çalışır.
+    """
+    # Mesajı güncelle
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="⏳ Eski dönem dersleri ekleniyor ve senkronize ediliyor...",
+    )
+
+    chat_id = str(call.message.chat.id)
+    users = load_all_users()
+    user_data = users.get(chat_id, {})
+
+    # Temp listeyi al
+    expired_urls = user_data.get("temp_expired_courses", [])
+    if not expired_urls:
+        bot.send_message(chat_id, "⚠️ Eklenecek eski ders bulunamadı (liste boş).")
+        return
+
+    # Ekle
+    current_urls = user_data.get("urls", [])
+    updated_urls = list(set(current_urls + expired_urls))
+    update_user_data(chat_id, "urls", updated_urls)
+
+    # Temp'i sil
+    if "temp_expired_courses" in users[chat_id]:
+        del users[chat_id]["temp_expired_courses"]
+        save_all_users(users)
+
+    # Senkronizasyon başlat
+    def run_sync():
+        from main import check_user_updates
+
+        result = check_user_updates(chat_id, silent=True)
+
+        if result.get("success"):
+            bot.send_message(
+                chat_id,
+                f"✅ <b>İşlem Tamamlandı!</b>\n"
+                f"{len(expired_urls)} adet eski dönem dersi listenize eklendi.",
+                parse_mode="HTML",
+            )
+        else:
+            bot.send_message(
+                chat_id,
+                f"⚠️ Dersler eklendi ancak senkronizasyon sırasında hata oluştu: {result.get('message')}",
+            )
+
+    import threading
+
+    threading.Thread(target=run_sync, daemon=True).start()
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "add_expired_no")
+def handle_add_expired_no(call):
+    """
+    Kullanıcı eski dönem derslerini reddettiğinde çalışır.
+    """
+    chat_id = str(call.message.chat.id)
+    # Temp'i sil
+    users = load_all_users()
+    if chat_id in users and "temp_expired_courses" in users[chat_id]:
+        del users[chat_id]["temp_expired_courses"]
+        save_all_users(users)
+
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="🙅‍♂️ Eski dönem dersleri eklenmedi. Sadece aktif dersler listenizde.",
+    )
 
 
 # Admin callback handlers - admin/callbacks.py'de tanımlı

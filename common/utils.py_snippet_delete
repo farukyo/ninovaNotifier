@@ -1,0 +1,24 @@
+
+def delete_course_data(chat_id, course_url):
+    """
+    Belirli bir dersin verilerini (not, ödev vb.) ninova_data.json dosyasından siler.
+
+    :param chat_id: Kullanıcı ID
+    :param course_url: Silinecek dersin URL'i
+    """
+    chat_id = str(chat_id)
+    all_grades = load_saved_grades()
+    
+    if chat_id in all_grades:
+        user_grades = all_grades[chat_id]
+        if course_url in user_grades:
+            del user_grades[course_url]
+            # Eğer kullanıcının hiç dersi kalmadıysa, kullanıcı kaydını da data'dan silebiliriz (opsiyonel)
+            if not user_grades:
+                del all_grades[chat_id]
+            else:
+                all_grades[chat_id] = user_grades
+            
+            save_grades(all_grades)
+            return True
+    return False

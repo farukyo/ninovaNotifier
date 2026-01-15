@@ -780,3 +780,58 @@ def get_grades(session, base_url, chat_id, username, password):
     except Exception as e:
         console.print(f"[bold red]Veri çekme hatası: {e}")
         return None
+
+
+def get_class_info(session, class_url):
+    """
+    Sınıf bilgileri sayfasından dersin bitiş tarihini çeker.
+
+    :param session: requests.Session
+    :param class_url: Dersin ana sayfası (örn: .../Sinif/123.456)
+    :return: dict {'end_date': datetime or None}
+    """
+    from common.utils import parse_turkish_date
+
+    url = f"{class_url}/SinifBilgileri"
+    try:
+        response = session.get(url, timeout=15)
+        if response.status_code != 200:
+            return {}
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        # "Bitiş Tarihi" metnini içeren hücreyi bul
+        # Genelde <td>Başlangıç Tarihi</td><td>...</td> yapısında olabilir
+        # veya <span>...
+
+        # Table içindeki td'leri tarayalım
+        end_date = None
+
+        # Tüm td veya th'leri bulup metin kontrolü yapalım
+        for cell in soup.find_all(["td", "th", "span", "div"]):
+            text = cell.get_text(strip=True)
+            if "Bitiş Tarihi" in text:
+                # Genelde değer bir sonraki kardeşte veya aynı hiyerarşideki sonraki elementte olur
+                # 1. Kardeş kontrolü (Next Sibling)
+                sibling = cell.find_next_sibling()
+                if sibling:
+                    date_str = sibling.get_text(strip=True)
+                    parsed = parse_turkish_date(date_str)
+                    if parsed:
+                        end_date = parsed
+                        break
+
+                # 2. Eğer tablo yapısı ise ve sibling yoksa (belki yanyana td'ler)
+                # Next element (parse sırasına göre)
+                next_el = cell.find_next("td")
+                if next_el:
+                    date_str = next_el.get_text(strip=True)
+                    parsed = parse_turkish_date(date_str)
+                    if parsed:
+                        end_date = parsed
+                        break
+
+        return {"end_date": end_date}
+
+    except Exception as e:
+        logger.debug(f"Sınıf bilgileri çekme hatası: {e}")
+        return {}
