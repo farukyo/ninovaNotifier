@@ -46,7 +46,9 @@ def send_welcome(message):
         "• 🚪 Ayrıl — Tüm verilerinizi siler\n\n"
         "ℹ️ <i>Yardım için klavyedeki '❓ Yardım' butonuna basabilirsiniz.</i>"
     )
-    bot.reply_to(message, help_text, parse_mode="HTML", reply_markup=build_main_keyboard())
+    bot.reply_to(
+        message, help_text, parse_mode="HTML", reply_markup=build_main_keyboard(message.chat.id)
+    )
 
 
 @bot.message_handler(func=lambda message: message.text == "⛔ İptal")
@@ -57,7 +59,7 @@ def handle_cancel_button(message):
     bot.send_message(
         chat_id,
         "❌ İşlem iptal edildi.",
-        reply_markup=build_main_keyboard(),
+        reply_markup=build_main_keyboard(chat_id),
     )
 
 
@@ -79,7 +81,7 @@ def show_menu(message):
     bot.send_message(
         message.chat.id,
         "📋 Komut menüsü açıldı. Bir komut seçin veya yazmaya başlayın.",
-        reply_markup=build_main_keyboard(),
+        reply_markup=build_main_keyboard(message.chat.id),
     )
 
 
@@ -104,7 +106,9 @@ def process_search_term(message):
     """
     chat_id = str(message.chat.id)
     if _is_cancel_text(message.text):
-        bot.send_message(chat_id, "❌ Arama iptal edildi.", reply_markup=build_main_keyboard())
+        bot.send_message(
+            chat_id, "❌ Arama iptal edildi.", reply_markup=build_main_keyboard(chat_id)
+        )
         return
 
     search_term = message.text.strip().lower()

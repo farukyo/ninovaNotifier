@@ -33,7 +33,9 @@ def set_username(message):
 def process_username(message):
     chat_id = message.chat.id
     if _is_cancel_text(message.text):
-        bot.send_message(chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard())
+        bot.send_message(
+            chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard(chat_id)
+        )
         return
 
     username = message.text.strip()
@@ -46,7 +48,7 @@ def process_username(message):
         chat_id,
         f"✅ Kullanıcı adı kaydedildi: <code>{username}</code>",
         parse_mode="HTML",
-        reply_markup=build_main_keyboard(),
+        reply_markup=build_main_keyboard(chat_id),
     )
 
 
@@ -66,7 +68,9 @@ def set_password(message):
 def process_password(message):
     chat_id = message.chat.id
     if _is_cancel_text(message.text):
-        bot.send_message(chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard())
+        bot.send_message(
+            chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard(chat_id)
+        )
         return
 
     password = message.text.strip()
@@ -81,5 +85,5 @@ def process_password(message):
     bot.send_message(
         chat_id,
         "✅ Şifreniz güvenli bir şekilde kaydedildi.",
-        reply_markup=build_main_keyboard(),
+        reply_markup=build_main_keyboard(chat_id),
     )

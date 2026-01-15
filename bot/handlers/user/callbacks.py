@@ -571,7 +571,7 @@ def process_manual_add(message):
         bot.send_message(
             message.chat.id,
             "❌ Ders ekleme iptal edildi.",
-            reply_markup=build_main_keyboard(),
+            reply_markup=build_main_keyboard(message.chat.id),
         )
         return
 
@@ -579,7 +579,7 @@ def process_manual_add(message):
         bot.send_message(
             message.chat.id,
             "❌ Geçerli bir değer girmediniz.",
-            reply_markup=build_main_keyboard(),
+            reply_markup=build_main_keyboard(message.chat.id),
         )
         return
 

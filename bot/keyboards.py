@@ -1,10 +1,13 @@
+import os
+
 from telebot import types
 
 
-def build_main_keyboard():
+def build_main_keyboard(user_id=None):
     """
     Kullanıcının ana etkileşim menüsü için klavye oluşturur.
 
+    :param user_id: İsteyen kullanıcının ID'si (Admin kontrolü için)
     :return: ReplyKeyboardMarkup nesnesi
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -12,7 +15,14 @@ def build_main_keyboard():
     kb.row("🤖 Oto Ders", "🔄 Kontrol", "📆 Akademik Takvim")
     kb.row("🔍 Ara", "📋 Durum", "❓ Yardım")
     kb.row("👤 Kullanıcı Adı", "🔐 Şifre")
-    kb.row("👑 Admin", "🚪 Ayrıl")
+
+    # Sadece admin ise Admin butonunu ekle
+    admin_id = os.getenv("ADMIN_TELEGRAM_ID")
+    if user_id and str(user_id) == str(admin_id):
+        kb.row("👑 Admin", "🚪 Ayrıl")
+    else:
+        kb.row("🚪 Ayrıl")
+
     return kb
 
 
