@@ -20,7 +20,7 @@ venv/
 env/
 
 # Environment & Secrets
-secrets/
+secrets/*
 !secrets/.env.example
 *.env
 *.env.local

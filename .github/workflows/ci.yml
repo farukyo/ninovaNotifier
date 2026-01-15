@@ -24,3 +24,6 @@ jobs:
 
       - name: Run Ruff format check
         run: uv run ruff format --check .
+
+      - name: Run Secret scan
+        run: uv run detect-secrets scan --baseline .secrets.baseline
