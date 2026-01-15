@@ -29,6 +29,12 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 - **Gelişmiş Dosya Gezgini:** Karmaşık ve iç içe geçmiş klasör yapılarını destekler.
 - **Doğrudan İndirme:** Kullanıcıların ders materyallerini doğrudan Telegram üzerinden indirmesine olanak tanır.
 
+### 🍴 Yemekhane Menü Duyuruları
+
+- **Otomatik Duyurular:** Her gün **11:00** (Öğle Yemeği) ve **16:30** (Akşam Yemeği) saatlerinde İTÜ SKS yemekhane menüsünü otomatik olarak paylaşır.
+- **Dinamik Veri Çekme:** Menü verilerini doğrudan İTÜ BIBD API üzerinden çekerek güncel ve temiz veri sağlar.
+- **Akıllı Durum Yönetimi:** Duyuruların her gün ve her öğün için sadece bir kez gönderilmesini sağlar.
+
 ---
 
 ## 🛠 Teknik Yığın
@@ -69,6 +75,9 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 │   │   ├── scraper.py
 │   │   ├── scanner.py
 │   │   └── file_utils.py
+│   ├── sks/                         # Yemekhane menü servisi
+│   │   ├── scraper.py
+│   │   └── announcer.py
 │   └── calendar/                    # Akademik takvim
 ├── common/
 │   ├── config.py                    # Yapılandırma ve sabitler

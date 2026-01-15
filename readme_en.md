@@ -29,6 +29,12 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 - **Advanced File Explorer:** Supports complex and nested folder structures.
 - **Direct Downloads:** Allows users to download course materials directly via Telegram.
 
+### 🍴 Dining Hall Menu Announcements
+
+- **Automatic Announcements:** Automatically shares the ITU SKS dining hall menu every day at **11:00** (Lunch) and **16:30** (Dinner).
+- **Dynamic Data Fetching:** Fetches menu data directly via ITU BIBD API for up-to-date and clean data.
+- **Smart State Management:** Ensures announcements are sent only once per day per meal.
+
 ---
 
 ## 🛠 Technical Stack
@@ -69,6 +75,9 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 │   │   ├── scraper.py
 │   │   ├── scanner.py
 │   │   └── file_utils.py
+│   ├── sks/                         # Dining hall menu service
+│   │   ├── scraper.py
+│   │   └── announcer.py
 │   └── calendar/                    # Academic calendar
 ├── common/
 │   ├── config.py                    # Configuration and constants

@@ -38,6 +38,7 @@ from common.utils import (
     send_telegram_message,
 )
 from services.ninova import LoginFailedError, get_announcement_detail, get_grades
+from services.sks.announcer import check_and_announce_sks_menu
 
 # Logging yapılandırması - Sadece dosyaya
 logging.basicConfig(
@@ -865,6 +866,7 @@ if __name__ == "__main__":
                         )
                     time.sleep(1)
             # Live kapandıktan sonra kontrol yap
+            check_and_announce_sks_menu()
             check_for_updates()
     except KeyboardInterrupt:
         console.print("\n[bold red]Program kullanıcı tarafından durduruldu.")
