@@ -88,8 +88,22 @@ def auto_add_courses(message):
                     bot.send_message(chat_id, "❌ Hiç aktif ders bulunamadı veya bir hata oluştu.")
                     return
 
-                # all_grades and user_grades not needed here
+                # --- Cleanup orphaned data for this user ---
+                all_grades = load_saved_grades()
+                user_grades = all_grades.get(chat_id, {})
                 current_urls = set(user_info.get("urls", []))
+
+                # Remove courses from data.json if they are not in user's url list
+                courses_to_remove = [url for url in user_grades if url not in current_urls]
+                if courses_to_remove:
+                    for url in courses_to_remove:
+                        del user_grades[url]
+                    all_grades[chat_id] = user_grades
+
+                    from common.utils import save_grades
+
+                    save_grades(all_grades)
+                # --- End cleanup ---
 
                 already_in_data = []
                 active_to_add = []

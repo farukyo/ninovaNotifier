@@ -19,9 +19,11 @@ from common.config import (
 )
 from common.utils import (
     decrypt_password,
+    load_saved_grades,
+    save_grades,
     update_user_data,
 )
-from services.ninova import get_user_courses, login_to_ninova
+from services.ninova import get_class_info, get_user_courses, login_to_ninova
 
 from .helpers import admin_states, is_admin
 from .services import (
@@ -280,10 +282,10 @@ def admin_force_check_cmd(message):
 
 def admin_force_otoders_cmd(message):
     """
-    Tüm kullanıcıların ders listesini zorla günceller.
+    Tüm kullanıcıların ders listesini akıllıca günceller.
 
-    Her kullanıcı için Ninova'ya bağlanıp tüm dersleri yeniden çeker
-    ve mevcut ders listesini günceller. Eski dersler temizlenir.
+    1. ninova_data.json içindeki yetim verileri (users.json'da olmayan) temizler.
+    2. Kullanıcıların derslerini tarar ve sadece aktif (tarihi geçmemiş) olanları ekler.
 
     :param message: Admin'den gelen /force_otoders komutu
     """
@@ -297,63 +299,124 @@ def admin_force_otoders_cmd(message):
 
     bot.reply_to(
         message,
-        f"🔄 {len(users)} kullanıcı için ders taraması başlatılıyor...",
+        f"🔄 {len(users)} kullanıcı için VERİ TEMİZLİĞİ ve DERS TARAMASI başlatılıyor...\nBu işlem uzun sürebilir.",
     )
 
-    updated = 0
-    failed = 0
+    # --- 1. CLEANUP ORPHANED DATA ---
+    try:
+        all_grades = load_saved_grades()
+        cleaned_courses_count = 0
+        cleaned_users_count = 0
+
+        # Remove users from grades if they don't exist in users.json
+        users_to_remove = [uid for uid in all_grades if uid not in users]
+        for uid in users_to_remove:
+            del all_grades[uid]
+            cleaned_users_count += 1
+
+        # Remove courses from grades if they are not in user's url list
+        for chat_id, user_grades_data in list(all_grades.items()):
+            if chat_id not in users:
+                continue
+
+            user_urls = set(users[chat_id].get("urls", []))
+            courses_to_remove = [url for url in user_grades_data if url not in user_urls]
+
+            for url in courses_to_remove:
+                del user_grades_data[url]
+                cleaned_courses_count += 1
+
+        if cleaned_users_count > 0 or cleaned_courses_count > 0:
+            save_grades(all_grades)
+            bot.send_message(
+                message.chat.id,
+                f"🧹 <b>Veri Temizliği Tamamlandı</b>\n"
+                f"- Silinen Eski Kullanıcı Verisi: {cleaned_users_count}\n"
+                f"- Silinen Yetim Ders Verisi: {cleaned_courses_count}",
+                parse_mode="HTML",
+            )
+    except Exception as e:
+        bot.send_message(message.chat.id, f"⚠️ Veri temizliği sırasında hata: {str(e)}")
+
+    # --- 2. SMART AUTO ADD ---
+    from datetime import datetime
+
+    updated_users = 0
+    failed_users = 0
+    total_added_courses = 0
 
     for chat_id, user_data in users.items():
         username = user_data.get("username")
         password = decrypt_password(user_data.get("password", ""))
 
         if not username or not password:
-            failed += 1
+            failed_users += 1
             continue
 
         try:
-            # Yeni oturum oluştur (eski oturumu sıfırla)
-            USER_SESSIONS[chat_id] = requests.Session()
-            USER_SESSIONS[chat_id].headers.update(HEADERS)
+            # Yeni oturum oluştur
+            if chat_id not in USER_SESSIONS:
+                USER_SESSIONS[chat_id] = requests.Session()
+                USER_SESSIONS[chat_id].headers.update(HEADERS)
 
             session = USER_SESSIONS[chat_id]
 
             if not login_to_ninova(session, chat_id, username, password):
-                failed += 1
+                failed_users += 1
                 continue
 
             # Tüm dersleri çek
             courses = get_user_courses(session)
             if not courses:
-                failed += 1
-                continue
+                continue  # Ders yoksa işlem yapma
 
-            # Eski dersleri temizle ve yenilerini ekle
-            new_urls = [course["url"] for course in courses]
-            update_user_data(chat_id, "urls", new_urls)
+            current_urls = set(user_data.get("urls", []))
+            new_urls_list = list(current_urls)
+            added_for_this_user = 0
 
-            # Kullanıcıya bildir
-            course_list = "\n".join([f"📚 {c['name']}" for c in courses[:10]])
-            if len(courses) > 10:
-                course_list += f"\n... ve {len(courses) - 10} daha"
+            now = datetime.now()
 
-            bot.send_message(
-                chat_id,
-                f"✅ <b>Ders Listesi Güncellendi</b>\n\n{course_list}\n\n<b>Toplam: {len(courses)} ders</b>",
-                parse_mode="HTML",
-            )
+            for course in courses:
+                url = course["url"]
 
-            updated += 1
+                if url in current_urls:
+                    continue
+
+                # Yeni ders, tarih kontrolü yap
+                class_info = get_class_info(session, url)
+                end_date = class_info.get("end_date")
+
+                is_expired = False
+                if end_date and end_date < now:
+                    is_expired = True
+
+                if not is_expired:
+                    new_urls_list.append(url)
+                    added_for_this_user += 1
+
+            # Eğer değişiklik varsa kaydet
+            if added_for_this_user > 0:
+                update_user_data(chat_id, "urls", new_urls_list)
+                total_added_courses += added_for_this_user
+
+                bot.send_message(
+                    chat_id,
+                    f"🤖 <b>Admin Otomatik Güncelleme</b>\n"
+                    f"{added_for_this_user} yeni aktif ders listenize eklendi.",
+                    parse_mode="HTML",
+                )
+                updated_users += 1
 
         except Exception:
-            failed += 1
+            failed_users += 1
             continue
 
     # Admin'e özet bildir
     summary = (
-        f"✅ <b>Force Otoders Tamamlandı</b>\n\n"
-        f"✔️ Başarılı: {updated} kullanıcı\n"
-        f"❌ Başarısız: {failed} kullanıcı\n\n"
+        f"✅ <b>Force Otoders (Akıllı Mod) Tamamlandı</b>\n\n"
+        f"✔️ Güncellenen Kullanıcı: {updated_users}\n"
+        f"📚 Toplam Eklenen Yeni Ders: {total_added_courses}\n"
+        f"❌ Hata/Eksik Bilgi: {failed_users} kullanıcı\n\n"
         f"🔄 Kontrol başlatılıyor..."
     )
 
