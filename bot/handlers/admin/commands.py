@@ -54,6 +54,7 @@ def admin_panel(message):
     :param message: Admin'den gelen /admin komutu
     """
     if not is_admin(message):
+        bot.reply_to(message, "⛔ Bu paneli görüntüleme yetkiniz yok.")
         return
 
     markup = types.InlineKeyboardMarkup(row_width=2)

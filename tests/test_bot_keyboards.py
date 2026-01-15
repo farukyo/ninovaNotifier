@@ -52,30 +52,6 @@ class TestBuildMainKeyboard:
         assert any("Dersler" in str(t) for t in all_texts)
         assert any("Yardım" in str(t) for t in all_texts)
 
-    def test_admin_button_visibility(self):
-        """Test admin button visibility based on user_id."""
-        from unittest.mock import patch
-
-        from bot.keyboards import build_main_keyboard
-
-        # Case 1: Matching Admin ID
-        with patch.dict(os.environ, {"ADMIN_TELEGRAM_ID": "12345"}):
-            kb = build_main_keyboard(user_id="12345")
-            all_texts = [str(b) for row in kb.keyboard for b in row]
-            assert any("Admin" in t for t in all_texts)
-
-        # Case 2: Non-matching ID
-        with patch.dict(os.environ, {"ADMIN_TELEGRAM_ID": "12345"}):
-            kb = build_main_keyboard(user_id="99999")
-            all_texts = [str(b) for row in kb.keyboard for b in row]
-            assert not any("Admin" in t for t in all_texts)
-
-        # Case 3: No ID provided
-        with patch.dict(os.environ, {"ADMIN_TELEGRAM_ID": "12345"}):
-            kb = build_main_keyboard()
-            all_texts = [str(b) for row in kb.keyboard for b in row]
-            assert not any("Admin" in t for t in all_texts)
-
 
 class TestBuildManualMenu:
     """Tests for build_manual_menu function."""

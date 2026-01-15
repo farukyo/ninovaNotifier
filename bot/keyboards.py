@@ -1,9 +1,7 @@
-import os
-
 from telebot import types
 
 
-def build_main_keyboard(user_id=None):
+def build_main_keyboard():
     """
     Kullanıcının ana etkileşim menüsü için klavye oluşturur.
 
@@ -15,13 +13,7 @@ def build_main_keyboard(user_id=None):
     kb.row("🤖 Oto Ders", "🔄 Kontrol", "📆 Akademik Takvim")
     kb.row("🔍 Ara", "📋 Durum", "❓ Yardım")
     kb.row("👤 Kullanıcı Adı", "🔐 Şifre")
-
-    # Sadece admin ise Admin butonunu ekle
-    admin_id = os.getenv("ADMIN_TELEGRAM_ID")
-    if user_id and str(user_id) == str(admin_id):
-        kb.row("👑 Admin", "🚪 Ayrıl")
-    else:
-        kb.row("🚪 Ayrıl")
+    kb.row("👑 Admin", "🚪 Ayrıl")
 
     return kb
 
