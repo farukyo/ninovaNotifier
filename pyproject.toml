@@ -12,6 +12,9 @@ dependencies = [
     "requests>=2.32.5",
     "rich>=14.2.0",
     "cryptography>=41.0.0",
+    "matplotlib>=3.10.8",
+    "scipy>=1.17.0",
+    "numpy>=2.4.1",
 ]
 
 [dependency-groups]

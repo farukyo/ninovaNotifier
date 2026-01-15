@@ -224,6 +224,19 @@ def handle_course_detail(call):
                 response += "\n----------------------------\n"
                 response += f"📊 <b>Ortalamanız: {u_avg}</b> | Sınıf geneli: Ort: {c_avg}, Std: {c_std} (%{total_weight:g} veriye göre)\n"
 
+            # Add Visualization Button
+            # We check if there's any grade with stats to justify showing the button
+            has_any_stats = any(
+                "class_avg" in v.get("detaylar", {}) and "std_dev" in v.get("detaylar", {})
+                for v in grades.values()
+            )
+            if has_any_stats:
+                markup.add(
+                    types.InlineKeyboardButton(
+                        "📈 Grafikleştir", callback_data=f"graph_{course_idx}"
+                    )
+                )
+
     elif detail_type == "odev":
         response += "📅 <b>Ödevler:</b>\n"
         assignments = data.get("assignments", [])
@@ -262,6 +275,52 @@ def handle_course_detail(call):
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("graph_"))
+def handle_course_graph(call):
+    """
+    Generates and sends a bell curve graph for the selected course.
+    """
+    chat_id = str(call.message.chat.id)
+    course_idx = int(call.data.split("_")[1])
+
+    all_grades = load_saved_grades()
+    user_grades = all_grades.get(chat_id, {})
+    urls = list(user_grades.keys())
+
+    if course_idx >= len(urls):
+        bot.answer_callback_query(call.id, "Ders bulunamadı.")
+        return
+
+    url = urls[course_idx]
+    data = user_grades[url]
+    course_name = data.get("course_name", "Bilinmeyen Ders")
+    grades = data.get("grades", {})
+
+    bot.answer_callback_query(call.id, "Grafik oluşturuluyor...", show_alert=False)
+    bot.send_chat_action(chat_id, "upload_photo")
+
+    try:
+        from services.visualization import generate_bell_curve
+
+        image_buffer = generate_bell_curve(grades)
+
+        if image_buffer:
+            bot.send_photo(
+                chat_id,
+                image_buffer,
+                caption=f"📈 <b>{course_name}</b> - Başarı Dağılımı",
+                parse_mode="HTML",
+            )
+            image_buffer.close()
+        else:
+            bot.send_message(chat_id, "⚠️ Bu ders için yeterli istatistik verisi bulunamadı.")
+
+    except ImportError:
+        bot.send_message(chat_id, "⚠️ Görselleştirme modülü yüklenemedi.")
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ Grafik oluşturulurken hata oluştu: {str(e)}")
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
