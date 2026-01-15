@@ -1,7 +1,9 @@
 import urllib.parse
+
 from telebot import types
+
 from bot.instance import bot_instance as bot
-from common.utils import load_saved_grades, get_file_icon, escape_html
+from common.utils import escape_html, get_file_icon, load_saved_grades
 
 
 def encode_path(path_segments):
@@ -51,9 +53,7 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
     if not files:
         markup = types.InlineKeyboardMarkup()
         markup.add(
-            types.InlineKeyboardButton(
-                "↩️ Ders menüsüne dön", callback_data=f"crs_{course_idx}"
-            )
+            types.InlineKeyboardButton("↩️ Ders menüsüne dön", callback_data=f"crs_{course_idx}")
         )
         bot.edit_message_text(
             chat_id=chat_id,
@@ -88,9 +88,7 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
     for folder in sorted(folders):
         encoded = encode_path(path_segments + [folder])
         markup.add(
-            types.InlineKeyboardButton(
-                f"📁 {folder}", callback_data=f"dir_{course_idx}_{encoded}"
-            )
+            types.InlineKeyboardButton(f"📁 {folder}", callback_data=f"dir_{course_idx}_{encoded}")
         )
 
     for real_idx, file in file_entries:
@@ -105,16 +103,10 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
     if path_segments:
         parent = encode_path(path_segments[:-1])
         markup.add(
-            types.InlineKeyboardButton(
-                "↩️ Üst klasör", callback_data=f"dir_{course_idx}_{parent}"
-            )
+            types.InlineKeyboardButton("↩️ Üst klasör", callback_data=f"dir_{course_idx}_{parent}")
         )
 
-    markup.add(
-        types.InlineKeyboardButton(
-            "↩️ Ders menüsüne dön", callback_data=f"crs_{course_idx}"
-        )
-    )
+    markup.add(types.InlineKeyboardButton("↩️ Ders menüsüne dön", callback_data=f"crs_{course_idx}"))
 
     path_label = "/" + "/".join(path_segments) if path_segments else "/"
     response = (

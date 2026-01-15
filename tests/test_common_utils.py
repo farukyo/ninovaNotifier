@@ -2,11 +2,11 @@
 Tests for common/utils.py module.
 """
 
-from datetime import datetime
-from unittest.mock import patch, MagicMock
-from io import BytesIO
 import os
 import sys
+from datetime import datetime
+from io import BytesIO
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -97,7 +97,7 @@ class TestEncryptDecryptPassword:
 
     def test_encrypt_decrypt_roundtrip(self):
         """Test that encrypting and decrypting returns original password."""
-        from common.utils import encrypt_password, decrypt_password
+        from common.utils import decrypt_password, encrypt_password
 
         original = "my_secret_password123"
         encrypted = encrypt_password(original)
@@ -136,7 +136,7 @@ class TestEncryptDecryptPassword:
 
     def test_encrypt_unicode_password(self):
         """Test encrypting password with Turkish characters."""
-        from common.utils import encrypt_password, decrypt_password
+        from common.utils import decrypt_password, encrypt_password
 
         original = "şifre_türkçe_öğrenci123"
         encrypted = encrypt_password(original)
@@ -146,7 +146,7 @@ class TestEncryptDecryptPassword:
 
     def test_encrypt_long_password(self):
         """Test encrypting a very long password."""
-        from common.utils import encrypt_password, decrypt_password
+        from common.utils import decrypt_password, encrypt_password
 
         original = "a" * 1000
         encrypted = encrypt_password(original)
@@ -575,8 +575,9 @@ class TestUpdateUserData:
     def test_update_existing_user(self, temp_dir):
         """Test updating an existing user's data."""
         import json
-        import common.utils
+
         import common.config
+        import common.utils
 
         users_file = os.path.join(temp_dir, "users.json")
         initial_users = {"12345": {"username": "old_user", "password": "", "urls": []}}
@@ -594,8 +595,9 @@ class TestUpdateUserData:
     def test_update_new_user(self, temp_dir):
         """Test updating creates new user if not exists."""
         import json
-        import common.utils
+
         import common.config
+        import common.utils
 
         users_file = os.path.join(temp_dir, "users.json")
         with open(users_file, "w", encoding="utf-8") as f:
@@ -612,8 +614,9 @@ class TestUpdateUserData:
     def test_update_password_encrypts(self, temp_dir):
         """Test that updating password encrypts it."""
         import json
-        import common.utils
+
         import common.config
+        import common.utils
 
         users_file = os.path.join(temp_dir, "users.json")
         with open(users_file, "w", encoding="utf-8") as f:

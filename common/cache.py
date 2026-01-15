@@ -1,5 +1,6 @@
 import json
 import os
+
 from common.config import console
 
 CACHE_FILE = "file_cache.json"
@@ -11,7 +12,7 @@ def load_file_cache():
     if not os.path.exists(CACHE_FILE):
         return {}
     try:
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        with open(CACHE_FILE, encoding="utf-8") as f:
             _FILE_CACHE = json.load(f)
     except Exception as e:
         console.print(f"[red]Cache yükleme hatası: {e}")

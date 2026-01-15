@@ -5,27 +5,29 @@ Tüm kullanıcılar için ders verilerini tarar ve güncellemeleri kontrol eder.
 Yeni not, duyuru, ödev veya dosya varsa bildirim gönderir.
 """
 
-import time
 import logging
-import requests
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-from rich.panel import Panel
+import time
 
-from common.config import console, load_all_users, HEADERS, USER_SESSIONS
+import requests
+from rich.panel import Panel
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+from bot import update_last_check_time
+from common.config import HEADERS, USER_SESSIONS, console, load_all_users
 from common.utils import (
+    decrypt_password,
+    escape_html,
+    get_file_icon,
     load_saved_grades,
     save_grades,
     send_telegram_message,
-    escape_html,
-    get_file_icon,
-    decrypt_password,
 )
-from .scraper import (
-    get_grades,
-    get_announcement_detail,
-)
+
 from .auth import LoginFailedError, login_to_ninova
-from bot import update_last_check_time
+from .scraper import (
+    get_announcement_detail,
+    get_grades,
+)
 
 logger = logging.getLogger("ninova")
 
@@ -44,9 +46,7 @@ def _check_grade_changes(current_grades: dict, saved_grades: dict) -> list:
     for key, entry in current_grades.items():
         new_val = entry["not"]
         if key not in saved_grades:
-            changes.append(
-                f"📝 <b>YENİ NOT:</b> {escape_html(key)} -> {escape_html(new_val)}"
-            )
+            changes.append(f"📝 <b>YENİ NOT:</b> {escape_html(key)} -> {escape_html(new_val)}")
             console_logs.append(f"YENİ NOT: {key} -> {new_val}")
         else:
             old_val = (
@@ -63,9 +63,7 @@ def _check_grade_changes(current_grades: dict, saved_grades: dict) -> list:
     return changes, console_logs
 
 
-def _check_assignment_changes(
-    current_assignments: list, saved_assignments: list
-) -> list:
+def _check_assignment_changes(current_assignments: list, saved_assignments: list) -> list:
     """
     Ödev değişikliklerini kontrol eder.
 
@@ -93,9 +91,7 @@ def _check_assignment_changes(
                 )
             if saved_assign.get("is_submitted") != assign.get("is_submitted"):
                 status_str = (
-                    "✅ TESLİMEDİLDİ"
-                    if assign.get("is_submitted")
-                    else "❌ TESLİM GERİ ÇEKİLDİ"
+                    "✅ TESLİMEDİLDİ" if assign.get("is_submitted") else "❌ TESLİM GERİ ÇEKİLDİ"
                 )
                 changes.append(
                     f"🔄 <b>ÖDEV DURUMU GÜNCELLENDİ:</b> {escape_html(assign['name'])}\nDurum: {status_str}"
@@ -190,9 +186,7 @@ def _process_user_courses(user_session, urls, chat_id, username, password):
                     all_current_grades[base_url] = grades
             except LoginFailedError:
                 error_msg = "⚠️ <b>Giriş Başarısız!</b>\n\nNinova'ya giriş yapılamıyor (Oturum hatası). Kontrol şu an için durduruldu."
-                console.print(
-                    f"[bold red]Oturum açma hatası ({chat_id})! Diğer dersler atlanıyor."
-                )
+                console.print(f"[bold red]Oturum açma hatası ({chat_id})! Diğer dersler atlanıyor.")
                 send_telegram_message(chat_id, error_msg, is_error=True)
                 return None
 
@@ -235,9 +229,7 @@ def _compare_and_notify(chat_id, all_current_grades, user_saved_grades, user_ses
         sections_changes = []
 
         # Not kontrolü
-        grade_changes, grade_logs = _check_grade_changes(
-            current_course_grades, saved_course_grades
-        )
+        grade_changes, grade_logs = _check_grade_changes(current_course_grades, saved_course_grades)
         sections_changes.extend(grade_changes)
         for log in grade_logs:
             changes.append(f"[bold green][{course_name}] {log}")
@@ -288,9 +280,8 @@ def _compare_and_notify(chat_id, all_current_grades, user_saved_grades, user_ses
             send_telegram_message(chat_id, t_msg)
             time.sleep(1)
         return user_saved_grades, True
-    else:
-        console.print(f"[dim]Değişiklik yok ({chat_id})")
-        return user_saved_grades, False
+    console.print(f"[dim]Değişiklik yok ({chat_id})")
+    return user_saved_grades, False
 
 
 def check_for_updates():
@@ -315,9 +306,7 @@ def check_for_updates():
         encrypted_password = user_data.get("password")
 
         if not username or not encrypted_password:
-            console.print(
-                f"[yellow]Kullanıcı bilgileri eksik ({chat_id}), pas geçiliyor."
-            )
+            console.print(f"[yellow]Kullanıcı bilgileri eksik ({chat_id}), pas geçiliyor.")
             continue
 
         password = decrypt_password(encrypted_password)
@@ -328,18 +317,14 @@ def check_for_updates():
             USER_SESSIONS[chat_id] = requests.Session()
             USER_SESSIONS[chat_id].headers.update(HEADERS)
             console.print(f"[cyan][{chat_id}] Yeni oturum başlatılıyor...")
-            if not login_to_ninova(
-                USER_SESSIONS[chat_id], chat_id, username, password, quiet=True
-            ):
+            if not login_to_ninova(USER_SESSIONS[chat_id], chat_id, username, password, quiet=True):
                 console.print(f"[bold red][{chat_id}] İlk giriş başarısız oldu!")
                 continue
 
         user_session = USER_SESSIONS[chat_id]
 
         # Dersleri tara
-        all_current_grades = _process_user_courses(
-            user_session, urls, chat_id, username, password
-        )
+        all_current_grades = _process_user_courses(user_session, urls, chat_id, username, password)
         if all_current_grades is None or not all_current_grades:
             continue
 

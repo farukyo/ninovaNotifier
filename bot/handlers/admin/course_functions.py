@@ -2,7 +2,10 @@
 Admin ders yönetimi yardımcı fonksiyonları.
 """
 
+import contextlib
+
 from telebot import types
+
 from bot.instance import bot_instance as bot
 from common.config import load_all_users
 from common.utils import (
@@ -75,16 +78,12 @@ def show_user_courses(chat_id, target_user_id):
 
     markup = types.InlineKeyboardMarkup()
     markup.add(
-        types.InlineKeyboardButton(
-            "❌ Ders Sil", callback_data=f"adm_delcourse_{target_user_id}"
-        ),
+        types.InlineKeyboardButton("❌ Ders Sil", callback_data=f"adm_delcourse_{target_user_id}"),
         types.InlineKeyboardButton(
             "🔄 Tümünü Sıfırla", callback_data=f"adm_clearcourses_{target_user_id}"
         ),
     )
-    markup.add(
-        types.InlineKeyboardButton("🔙 Geri", callback_data="adm_manage_courses")
-    )
+    markup.add(types.InlineKeyboardButton("🔙 Geri", callback_data="adm_manage_courses"))
 
     if len(response) > 4000:
         response = response[:4000] + "\n... (çok sayıda ders)"
@@ -116,9 +115,7 @@ def delete_single_course(chat_id, target_user_id):
     markup = types.InlineKeyboardMarkup()
     for i, url in enumerate(urls):
         course_name = user_grades.get(url, {}).get("course_name", "Bilinmeyen Ders")
-        display_text = (
-            course_name if len(course_name) <= 40 else course_name[:37] + "..."
-        )
+        display_text = course_name if len(course_name) <= 40 else course_name[:37] + "..."
         markup.add(
             types.InlineKeyboardButton(
                 f"❌ {display_text}", callback_data=f"adm_delconf_{target_user_id}_{i}"
@@ -126,9 +123,7 @@ def delete_single_course(chat_id, target_user_id):
         )
 
     markup.add(
-        types.InlineKeyboardButton(
-            "🔙 Geri", callback_data=f"adm_coursemgmt_{target_user_id}"
-        )
+        types.InlineKeyboardButton("🔙 Geri", callback_data=f"adm_coursemgmt_{target_user_id}")
     )
 
     bot.send_message(
@@ -158,9 +153,7 @@ def clear_all_courses(chat_id, target_user_id):
         types.InlineKeyboardButton(
             "✅ Evet, Sil", callback_data=f"adm_clearcourses_conf_{target_user_id}"
         ),
-        types.InlineKeyboardButton(
-            "❌ Vazgeç", callback_data=f"adm_coursemgmt_{target_user_id}"
-        ),
+        types.InlineKeyboardButton("❌ Vazgeç", callback_data=f"adm_coursemgmt_{target_user_id}"),
     )
 
     bot.send_message(
@@ -197,10 +190,8 @@ def confirm_delete_course(call, target_user_id, course_index):
 
     bot.answer_callback_query(call.id, "✅ Ders silindi!")
 
-    try:
+    with contextlib.suppress(Exception):
         bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
 
     all_grades = load_saved_grades()
     user_grades = all_grades.get(target_user_id, {})
@@ -215,7 +206,7 @@ def confirm_delete_course(call, target_user_id, course_index):
         parse_mode="HTML",
     )
 
-    try:
+    with contextlib.suppress(Exception):
         bot.send_message(
             target_user_id,
             f"⚠️ <b>Ders Kaldırıldı</b>\n\n"
@@ -224,8 +215,6 @@ def confirm_delete_course(call, target_user_id, course_index):
             f"📚 Kalan Dersler: {len(urls)}",
             parse_mode="HTML",
         )
-    except Exception:
-        pass
 
     return True
 
@@ -249,10 +238,8 @@ def confirm_clear_all_courses(call, target_user_id):
 
     bot.answer_callback_query(call.id, f"✅ {url_count} ders silindi!")
 
-    try:
+    with contextlib.suppress(Exception):
         bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
 
     bot.send_message(
         call.message.chat.id,
@@ -262,7 +249,7 @@ def confirm_clear_all_courses(call, target_user_id):
         parse_mode="HTML",
     )
 
-    try:
+    with contextlib.suppress(Exception):
         bot.send_message(
             target_user_id,
             f"⚠️ <b>Tüm Dersler Kaldırıldı</b>\n\n"
@@ -270,5 +257,3 @@ def confirm_clear_all_courses(call, target_user_id):
             f"/otoders komutu ile yeni dersleri ekleyebilirsiniz.",
             parse_mode="HTML",
         )
-    except Exception:
-        pass

@@ -1,17 +1,20 @@
+import contextlib
 import json
 import os
 import re
+from datetime import datetime
+
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
+
 from common.config import (
-    TELEGRAM_TOKEN,
     DATA_FILE,
+    TELEGRAM_TOKEN,
+    cipher_suite,
     console,
     load_all_users,
     save_all_users,
-    cipher_suite,
 )
-from datetime import datetime
 
 DATE_MONTHS = {
     "ocak": 1,
@@ -209,8 +212,7 @@ def sanitize_html_for_telegram(html_content):
 
         result = "".join(process_node(c) for c in soup.contents).strip()
         # Clean up excessive whitespace/newlines
-        result = re.sub(r"\n{3,}", "\n\n", result)
-        return result
+        return re.sub(r"\n{3,}", "\n\n", result)
     except Exception as e:
         console.print(f"[yellow]HTML Sanitization Error: {e}[/yellow]")
         # Fallback: simple text extract
@@ -398,9 +400,7 @@ def send_telegram_message(chat_id, message, is_error=False):
             response = requests.post(url, json=payload, timeout=10)
             if response.status_code == 200:
                 clean_msg = re.sub(r"<[^>]*>", "", msg.splitlines()[0])
-                console.print(
-                    f"[green][Telegram] Mesaj gönderildi ({chat_id}): {clean_msg}"
-                )
+                console.print(f"[green][Telegram] Mesaj gönderildi ({chat_id}): {clean_msg}")
             else:
                 console.print(f"[red][Telegram] Hata ({chat_id}): {response.text}")
         except Exception as e:
@@ -446,10 +446,8 @@ def send_telegram_document(
                 response = requests.post(url, data=data, files=files, timeout=60)
 
             # Delete temp file if it was a path
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(document)
-            except OSError:
-                pass
 
         # 3. Send by BytesIO / Buffer
         else:
@@ -469,9 +467,7 @@ def send_telegram_document(
 
             console.print(f"[green][Telegram] Dosya gönderildi ({chat_id}): {filename}")
         else:
-            console.print(
-                f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {response.text}"
-            )
+            console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {response.text}")
 
     except Exception as e:
         console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {e}")
@@ -487,7 +483,7 @@ def load_saved_grades():
     """
     if os.path.exists(DATA_FILE):
         try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
+            with open(DATA_FILE, encoding="utf-8") as f:
                 return json.load(f)
         except json.JSONDecodeError:
             return {}

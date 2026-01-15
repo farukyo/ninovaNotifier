@@ -4,15 +4,17 @@ Admin yardımcı fonksiyonları.
 
 import os
 from datetime import datetime
+
 from bot.instance import bot_instance as bot
 from common.config import (
-    load_all_users,
-    USER_SESSIONS,
     DATA_FILE,
-    USERS_FILE,
     LOGS_DIR,
+    USER_SESSIONS,
+    USERS_FILE,
+    load_all_users,
 )
-from .helpers import is_admin, admin_states, get_uptime
+
+from .helpers import admin_states, get_uptime, is_admin
 
 
 def show_stats(chat_id):
@@ -34,9 +36,7 @@ def show_stats(chat_id):
     users_size = os.path.getsize(USERS_FILE) / 1024 if os.path.exists(USERS_FILE) else 0
     data_size = os.path.getsize(DATA_FILE) / 1024 if os.path.exists(DATA_FILE) else 0
     log_file_path = os.path.join(LOGS_DIR, "app.log")
-    log_size = (
-        os.path.getsize(log_file_path) / 1024 if os.path.exists(log_file_path) else 0
-    )
+    log_size = os.path.getsize(log_file_path) / 1024 if os.path.exists(log_file_path) else 0
 
     stats = (
         "📊 <b>Sistem İstatistikleri</b>\n\n"
@@ -111,7 +111,7 @@ def show_logs(chat_id, lines=30):
 
     # Küçük dosyanın son satırlarını göster
     try:
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(log_file, encoding="utf-8") as f:
             all_lines = f.readlines()
             last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
             log_text = "".join(last_lines)
@@ -175,7 +175,7 @@ def send_broadcast(admin_chat_id, message_text):
 
     broadcast_msg = f"📢 <b>Sistem Duyurusu</b>\n\n{message_text}"
 
-    for uid in users.keys():
+    for uid in users:
         try:
             bot.send_message(uid, broadcast_msg, parse_mode="HTML")
             success_count += 1
@@ -184,9 +184,7 @@ def send_broadcast(admin_chat_id, message_text):
 
     bot.send_message(
         admin_chat_id,
-        f"📢 <b>Duyuru Gönderildi</b>\n\n"
-        f"✅ Başarılı: {success_count}\n"
-        f"❌ Başarısız: {fail_count}",
+        f"📢 <b>Duyuru Gönderildi</b>\n\n✅ Başarılı: {success_count}\n❌ Başarısız: {fail_count}",
         parse_mode="HTML",
     )
 

@@ -1,8 +1,9 @@
-import os
 import json
+import os
+
+from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from rich.console import Console
-from cryptography.fernet import Fernet
 
 load_dotenv()
 console = Console()
@@ -28,9 +29,7 @@ if not ENCRYPTION_KEY:
         ENCRYPTION_KEY = Fernet.generate_key()
         with open(KEY_FILE, "wb") as f:
             f.write(ENCRYPTION_KEY)
-        console.print(
-            "[yellow]⚠️ Yeni şifreleme anahtarı oluşturuldu: .encryption_key[/yellow]"
-        )
+        console.print("[yellow]⚠️ Yeni şifreleme anahtarı oluşturuldu: .encryption_key[/yellow]")
 
 cipher_suite = Fernet(ENCRYPTION_KEY)
 
@@ -43,7 +42,7 @@ def load_all_users():
     """
     if os.path.exists(USERS_FILE):
         try:
-            with open(USERS_FILE, "r", encoding="utf-8") as f:
+            with open(USERS_FILE, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}

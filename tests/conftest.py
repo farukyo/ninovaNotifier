@@ -2,12 +2,13 @@
 Pytest configuration and shared fixtures for ninovaNotifier tests.
 """
 
+import json
 import os
 import sys
-import json
 import tempfile
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -72,8 +73,7 @@ def mock_cache_file(temp_dir):
 @pytest.fixture
 def mock_session():
     """Create a mock requests.Session."""
-    session = MagicMock()
-    return session
+    return MagicMock()
 
 
 @pytest.fixture

@@ -1,14 +1,19 @@
 # Bot modülü
-from bot.instance import bot_instance as bot, set_check_callback, update_last_check_time
-
-# Handler'ları import et (register için gerekli)
-from bot.handlers.user import callbacks, commands  # noqa: F401
+from bot.handlers.admin import (
+    callbacks as admin_callbacks,
+)
+from bot.handlers.admin import (
+    commands as admin_commands,
+)
 from bot.handlers.admin import (
     course_management,
     services,
-    commands as admin_commands,
-    callbacks as admin_callbacks,
 )  # noqa: F401
+
+# Handler'ları import et (register için gerekli)
+from bot.handlers.user import callbacks, commands  # noqa: F401
+from bot.instance import bot_instance as bot
+from bot.instance import set_check_callback, update_last_check_time
 
 __all__ = [
     "bot",

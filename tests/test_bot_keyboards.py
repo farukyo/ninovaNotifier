@@ -13,8 +13,9 @@ class TestBuildMainKeyboard:
 
     def test_returns_keyboard_markup(self):
         """Test that function returns ReplyKeyboardMarkup."""
-        from bot.keyboards import build_main_keyboard
         from telebot import types
+
+        from bot.keyboards import build_main_keyboard
 
         result = build_main_keyboard()
         assert isinstance(result, types.ReplyKeyboardMarkup)
@@ -43,9 +44,7 @@ class TestBuildMainKeyboard:
         all_texts = []
         for row in result.keyboard:
             for button in row:
-                all_texts.append(
-                    button.text if hasattr(button, "text") else str(button)
-                )
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
 
         # Check for key buttons
         assert any("Notlar" in str(t) for t in all_texts)
@@ -59,8 +58,9 @@ class TestBuildManualMenu:
 
     def test_returns_inline_keyboard(self):
         """Test that function returns InlineKeyboardMarkup."""
-        from bot.keyboards import build_manual_menu
         from telebot import types
+
+        from bot.keyboards import build_manual_menu
 
         result = build_manual_menu()
         assert isinstance(result, types.InlineKeyboardMarkup)
@@ -111,8 +111,9 @@ class TestBuildCancelKeyboard:
 
     def test_returns_keyboard_markup(self):
         """Test that function returns ReplyKeyboardMarkup."""
-        from bot.keyboards import build_cancel_keyboard
         from telebot import types
+
+        from bot.keyboards import build_cancel_keyboard
 
         result = build_cancel_keyboard()
         assert isinstance(result, types.ReplyKeyboardMarkup)
@@ -141,8 +142,6 @@ class TestBuildCancelKeyboard:
         all_texts = []
         for row in result.keyboard:
             for button in row:
-                all_texts.append(
-                    button.text if hasattr(button, "text") else str(button)
-                )
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
 
         assert any("İptal" in str(t) for t in all_texts)

@@ -1,7 +1,7 @@
+from dataclasses import dataclass
+
 import requests
 from bs4 import BeautifulSoup
-from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
@@ -15,30 +15,28 @@ class CalendarEvent:
 @dataclass
 class CalendarSection:
     title: str
-    events: List[CalendarEvent]
+    events: list[CalendarEvent]
 
 
 class ITUCalendarService:
     url = "https://www.takvim.sis.itu.edu.tr/AkademikTakvim/TR/akademik-takvim/AkademikTakvimTablo.php"
 
     @staticmethod
-    def fetch_calendar() -> List[CalendarSection]:
+    def fetch_calendar() -> list[CalendarSection]:
         try:
             response = requests.get(ITUCalendarService.url, timeout=10)
             response.raise_for_status()
             response.encoding = "utf-8"  # Ensure correct encoding for Turkish chars
 
             soup = BeautifulSoup(response.text, "html.parser")
-            table = soup.find(
-                "table", class_="table table-bordered table-striped table-hover"
-            )
+            table = soup.find("table", class_="table table-bordered table-striped table-hover")
 
             if not table:
                 return []
 
-            sections: List[CalendarSection] = []
+            sections: list[CalendarSection] = []
             current_section_title = "Genel"
-            current_events: List[CalendarEvent] = []
+            current_events: list[CalendarEvent] = []
 
             rows = table.find_all("tr")
 
@@ -55,9 +53,7 @@ class ITUCalendarService:
                     # Save previous section if exists
                     if current_events:
                         sections.append(
-                            CalendarSection(
-                                title=current_section_title, events=current_events
-                            )
+                            CalendarSection(title=current_section_title, events=current_events)
                         )
                         current_events = []
 
@@ -84,9 +80,7 @@ class ITUCalendarService:
 
             # Append the last section
             if current_events:
-                sections.append(
-                    CalendarSection(title=current_section_title, events=current_events)
-                )
+                sections.append(CalendarSection(title=current_section_title, events=current_events))
 
             return sections
 
@@ -164,9 +158,7 @@ class ITUCalendarService:
                     output.append("")
 
         output.append("━━━━━━━━━━━━━━━━━━━━━")
-        output.append(
-            f"🔗 <a href='{ITUCalendarService.url}'>Detaylı Takvim için Tıklayın</a>"
-        )
+        output.append(f"🔗 <a href='{ITUCalendarService.url}'>Detaylı Takvim için Tıklayın</a>")
         return "\n".join(output)
 
 

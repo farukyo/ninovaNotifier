@@ -2,30 +2,35 @@
 Admin komutları.
 """
 
+import contextlib
 import os
-import requests
 import sys
 import threading
+
+import requests
 from telebot import types
-from bot.instance import bot_instance as bot, get_check_callback
+
+from bot.instance import bot_instance as bot
+from bot.instance import get_check_callback
 from common.config import (
-    load_all_users,
-    USER_SESSIONS,
     HEADERS,
+    USER_SESSIONS,
+    load_all_users,
 )
 from common.utils import (
-    update_user_data,
     decrypt_password,
+    update_user_data,
 )
-from services.ninova import login_to_ninova, get_user_courses
-from .helpers import is_admin, admin_states
+from services.ninova import get_user_courses, login_to_ninova
+
+from .helpers import admin_states, is_admin
 from .services import (
+    send_backup,
     send_broadcast,
     send_direct_message,
+    show_logs,
     show_stats,
     show_user_details,
-    show_logs,
-    send_backup,
 )
 
 
@@ -60,9 +65,7 @@ def admin_panel(message):
         types.InlineKeyboardButton("🔄 Force Check", callback_data="adm_force"),
         types.InlineKeyboardButton("📚 Force Otoders", callback_data="adm_forceoto"),
         types.InlineKeyboardButton("🚪 Kullanıcı Sil", callback_data="adm_optout"),
-        types.InlineKeyboardButton(
-            "📚 User Ders Yönetimi", callback_data="adm_manage_courses"
-        ),
+        types.InlineKeyboardButton("📚 User Ders Yönetimi", callback_data="adm_manage_courses"),
         types.InlineKeyboardButton("📂 Loglar", callback_data="adm_logs"),
         types.InlineKeyboardButton("💾 Backup", callback_data="adm_backup"),
         types.InlineKeyboardButton("🔄 Restart", callback_data="adm_restart"),
@@ -154,13 +157,11 @@ def admin_restart_cmd(message):
     # Tüm kullanıcılara bildir
     users_dict = load_all_users()
     for uid in users_dict:
-        try:
+        with contextlib.suppress(Exception):
             bot.send_message(
                 uid,
                 "🔄 Sistem güncellendi ve yeniden başlatılıyor... Lütfen bekleyiniz.",
             )
-        except Exception:
-            pass
 
     bot.reply_to(message, "🔄 Bot yeniden başlatılıyor...")
 
@@ -170,10 +171,8 @@ def admin_restart_cmd(message):
         import time
 
         time.sleep(2)  # Mesajların gitmesini bekle
-        try:
+        with contextlib.suppress(Exception):
             bot.stop_polling()
-        except Exception:
-            pass
         # os._exit(0) yerine execv ile yeniden başlat
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -362,7 +361,5 @@ def admin_force_otoders_cmd(message):
     # Kontrol başlat
     cb = get_check_callback()
     if cb:
-        try:
+        with contextlib.suppress(Exception):
             cb()
-        except Exception:
-            pass

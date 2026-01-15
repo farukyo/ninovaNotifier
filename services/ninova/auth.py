@@ -1,7 +1,10 @@
+import contextlib
 import logging
 import threading
+
 from bs4 import BeautifulSoup
 from plyer import notification
+
 from common.config import console
 from common.utils import send_telegram_message
 
@@ -38,9 +41,7 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
     """
     with get_user_lock(chat_id):
         if not username or not password:
-            console.print(
-                f"[bold red]Hata ({chat_id}): Kullanıcı adı veya şifre eksik!"
-            )
+            console.print(f"[bold red]Hata ({chat_id}): Kullanıcı adı veya şifre eksik!")
             return False
 
         try:
@@ -87,15 +88,13 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                 console.print(f"[bold green]Giriş başarılı! ({chat_id})")
                 send_telegram_message(chat_id, msg)
 
-                try:
+                with contextlib.suppress(Exception):
                     notification.notify(
                         title="Ninova Takip",
                         message=f"Oturum açıldı ({chat_id})",
                         app_name="Ninova Takip",
                         timeout=5,
                     )
-                except Exception:
-                    pass
 
             return True
         except Exception as e:

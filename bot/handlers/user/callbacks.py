@@ -1,21 +1,24 @@
+import contextlib
+
 import requests
 from telebot import types
+
 from bot.instance import bot_instance as bot
+from bot.keyboards import build_cancel_keyboard, build_main_keyboard, build_manual_menu
 from bot.utils import show_file_browser
-from bot.keyboards import build_manual_menu, build_cancel_keyboard, build_main_keyboard
-from common.config import load_all_users, save_all_users, HEADERS, USER_SESSIONS
+from common.cache import get_cached_file_id, set_cached_file_id
+from common.config import HEADERS, USER_SESSIONS, load_all_users, save_all_users
 from common.utils import (
-    load_saved_grades,
-    save_grades,
-    update_user_data,
-    send_telegram_document,
-    get_file_icon,
-    escape_html,
     decrypt_password,
+    escape_html,
+    get_file_icon,
+    load_saved_grades,
     sanitize_html_for_telegram,
+    save_grades,
+    send_telegram_document,
+    update_user_data,
 )
 from services.ninova import download_file
-from common.cache import get_cached_file_id, set_cached_file_id
 
 
 def _is_cancel_text(text: str) -> bool:
@@ -50,21 +53,11 @@ def handle_course_selection(call):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("📊 Notlar", callback_data=f"det_{course_idx}_not"),
-        types.InlineKeyboardButton(
-            "📅 Ödevler", callback_data=f"det_{course_idx}_odev"
-        ),
-        types.InlineKeyboardButton(
-            "📁 Dosyalar", callback_data=f"det_{course_idx}_dosya"
-        ),
-        types.InlineKeyboardButton(
-            "📣 Duyurular", callback_data=f"det_{course_idx}_duyuru"
-        ),
+        types.InlineKeyboardButton("📅 Ödevler", callback_data=f"det_{course_idx}_odev"),
+        types.InlineKeyboardButton("📁 Dosyalar", callback_data=f"det_{course_idx}_dosya"),
+        types.InlineKeyboardButton("📣 Duyurular", callback_data=f"det_{course_idx}_duyuru"),
     )
-    markup.add(
-        types.InlineKeyboardButton(
-            "🔄 Kontrol Et", callback_data=f"kontrol_{course_idx}"
-        )
-    )
+    markup.add(types.InlineKeyboardButton("🔄 Kontrol Et", callback_data=f"kontrol_{course_idx}"))
     markup.add(types.InlineKeyboardButton("↩️ Ana Menü", callback_data="main_menu"))
 
     bot.edit_message_text(
@@ -105,9 +98,7 @@ def handle_announcement_detail(call):
     ann = announcements[ann_idx]
 
     markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("🔙 Geri", callback_data=f"det_{course_idx}_duyuru")
-    )
+    markup.add(types.InlineKeyboardButton("🔙 Geri", callback_data=f"det_{course_idx}_duyuru"))
 
     # Sanitize content before sending to Telegram
     raw_content = ann.get("content", "İçerik yüklenemedi.")
@@ -205,14 +196,10 @@ def handle_course_detail(call):
                 if len(title) > 25:
                     title = title[:25] + "..."
                 markup.add(
-                    types.InlineKeyboardButton(
-                        f"🔹 {title}", callback_data=f"ann_{course_idx}_{i}"
-                    )
+                    types.InlineKeyboardButton(f"🔹 {title}", callback_data=f"ann_{course_idx}_{i}")
                 )
 
-    markup.add(
-        types.InlineKeyboardButton("↩️ Geri Dön", callback_data=f"crs_{course_idx}")
-    )
+    markup.add(types.InlineKeyboardButton("↩️ Geri Dön", callback_data=f"crs_{course_idx}"))
     bot.edit_message_text(
         chat_id=chat_id,
         message_id=call.message.message_id,
@@ -236,7 +223,7 @@ def handle_main_menu(call):
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
     markup = types.InlineKeyboardMarkup()
-    for i, (url, data) in enumerate(user_grades.items()):
+    for i, (_url, data) in enumerate(user_grades.items()):
         markup.add(
             types.InlineKeyboardButton(
                 f"📚 {data.get('course_name', 'Bilinmeyen Ders')}",
@@ -245,11 +232,7 @@ def handle_main_menu(call):
         )
 
     # Add general control button
-    markup.add(
-        types.InlineKeyboardButton(
-            "🔄 Tümünü Kontrol Et", callback_data="global_kontrol"
-        )
-    )
+    markup.add(types.InlineKeyboardButton("🔄 Tümünü Kontrol Et", callback_data="global_kontrol"))
 
     bot.edit_message_text(
         chat_id=chat_id,
@@ -286,9 +269,7 @@ def handle_file_download(call):
     file_data = files[file_idx]
     file_url = file_data["url"]
     file_name = (
-        file_data["name"]
-        if "/" not in file_data["name"]
-        else file_data["name"].split("/")[-1]
+        file_data["name"] if "/" not in file_data["name"] else file_data["name"].split("/")[-1]
     )
 
     # 1. Check Cache
@@ -365,9 +346,7 @@ def handle_directory_navigation(call):
     course_idx = int(parts[1])
     path_str = parts[2] if len(parts) > 2 else ""
 
-    show_file_browser(
-        str(call.message.chat.id), call.message.message_id, course_idx, path_str
-    )
+    show_file_browser(str(call.message.chat.id), call.message.message_id, course_idx, path_str)
 
 
 def handle_folder_navigation(call):
@@ -376,9 +355,7 @@ def handle_folder_navigation(call):
     course_idx = int(parts[1])
     path_str = parts[2] if len(parts) > 2 else ""
     bot.answer_callback_query(call.id)
-    show_file_browser(
-        str(call.message.chat.id), call.message.message_id, course_idx, path_str
-    )
+    show_file_browser(str(call.message.chat.id), call.message.message_id, course_idx, path_str)
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "leave_confirm")
@@ -517,14 +494,8 @@ def handle_manual_delete(call):
     markup = types.InlineKeyboardMarkup()
     for i, url in enumerate(urls):
         course_name = user_grades.get(url, {}).get("course_name", f"Ders {i + 1}")
-        display_text = (
-            course_name if len(course_name) <= 40 else course_name[:37] + "..."
-        )
-        markup.add(
-            types.InlineKeyboardButton(
-                f"🗑️ {display_text}", callback_data=f"del_req_{i}"
-            )
-        )
+        display_text = course_name if len(course_name) <= 40 else course_name[:37] + "..."
+        markup.add(types.InlineKeyboardButton(f"🗑️ {display_text}", callback_data=f"del_req_{i}"))
 
     markup.add(types.InlineKeyboardButton("↩️ Geri", callback_data="manual_back"))
 
@@ -659,10 +630,8 @@ def handle_kontrol(call):
     chat_id = str(call.message.chat.id)
     course_idx = None
     if call.data.startswith("kontrol_"):
-        try:
+        with contextlib.suppress(IndexError, ValueError):
             course_idx = int(call.data.split("_")[1])
-        except (IndexError, ValueError):
-            pass
 
     bot.answer_callback_query(call.id, "Kontrol başlatıldı, lütfen bekleyin...")
 
@@ -731,11 +700,7 @@ def handle_kontrol(call):
                             callback_data=f"kontrol_{course_idx}",
                         )
                     )
-                    markup.add(
-                        types.InlineKeyboardButton(
-                            "↩️ Ana Menü", callback_data="main_menu"
-                        )
-                    )
+                    markup.add(types.InlineKeyboardButton("↩️ Ana Menü", callback_data="main_menu"))
 
                     try:
                         bot.edit_message_text(
@@ -759,7 +724,7 @@ def handle_kontrol(call):
             all_grades = load_saved_grades()
             user_grades = all_grades.get(chat_id, {})
             markup = types.InlineKeyboardMarkup()
-            for i, (url, data) in enumerate(user_grades.items()):
+            for i, (_url, data) in enumerate(user_grades.items()):
                 markup.add(
                     types.InlineKeyboardButton(
                         f"📚 {data.get('course_name', 'Bilinmeyen Ders')}",
@@ -767,9 +732,7 @@ def handle_kontrol(call):
                     )
                 )
             markup.add(
-                types.InlineKeyboardButton(
-                    "🔄 Tümünü Kontrol Et", callback_data="global_kontrol"
-                )
+                types.InlineKeyboardButton("🔄 Tümünü Kontrol Et", callback_data="global_kontrol")
             )
 
             try:

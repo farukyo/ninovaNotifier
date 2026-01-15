@@ -2,16 +2,19 @@
 Admin ders yönetimi callback'leri.
 """
 
+import contextlib
+
 from bot.instance import bot_instance as bot
-from .helpers import is_admin
+
 from .course_functions import (
+    clear_all_courses,
+    confirm_clear_all_courses,
+    confirm_delete_course,
+    delete_single_course,
     select_user_for_course_management,
     show_user_courses,
-    delete_single_course,
-    clear_all_courses,
-    confirm_delete_course,
-    confirm_clear_all_courses,
 )
+from .helpers import is_admin
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "adm_manage_courses")
@@ -41,10 +44,8 @@ def handle_user_course_select(call):
     target_user_id = call.data.split("_", 2)[-1]
     bot.answer_callback_query(call.id)
 
-    try:
+    with contextlib.suppress(Exception):
         bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
 
     show_user_courses(str(call.message.chat.id), target_user_id)
 
@@ -62,10 +63,8 @@ def handle_delete_course_select(call):
     target_user_id = call.data.split("_", 2)[-1]
     bot.answer_callback_query(call.id)
 
-    try:
+    with contextlib.suppress(Exception):
         bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
 
     delete_single_course(str(call.message.chat.id), target_user_id)
 
@@ -106,17 +105,13 @@ def handle_clear_courses(call):
     target_user_id = call.data.split("_", 2)[-1]
     bot.answer_callback_query(call.id)
 
-    try:
+    with contextlib.suppress(Exception):
         bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
 
     clear_all_courses(str(call.message.chat.id), target_user_id)
 
 
-@bot.callback_query_handler(
-    func=lambda call: call.data.startswith("adm_clearcourses_conf_")
-)
+@bot.callback_query_handler(func=lambda call: call.data.startswith("adm_clearcourses_conf_"))
 def handle_clear_courses_confirm(call):
     """
     Tüm dersleri silme onayını işler.

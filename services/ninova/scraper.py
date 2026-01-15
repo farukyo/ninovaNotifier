@@ -1,8 +1,11 @@
-import re
 import logging
+import re
+
 from bs4 import BeautifulSoup
+
 from common.config import console
 from common.utils import sanitize_html_for_telegram
+
 from .auth import LoginFailedError, login_to_ninova
 
 logger = logging.getLogger("ninova")
@@ -52,9 +55,7 @@ def get_announcements(session, base_url):
 
                 title = a_tag.get_text(strip=True)
                 href = a_tag.get("href", "")
-                link = (
-                    f"https://ninova.itu.edu.tr{href}" if href.startswith("/") else href
-                )
+                link = f"https://ninova.itu.edu.tr{href}" if href.startswith("/") else href
                 ann_id = href.split("/")[-1] if href else ""
 
                 # Tarih ve yazar (tarih div'leri)
@@ -74,9 +75,7 @@ def get_announcements(session, base_url):
 
                 # İçerik önizlemesi
                 content_div = ann_div.find("div", class_="icerik")
-                content_preview = (
-                    content_div.get_text(strip=True) if content_div else ""
-                )
+                content_preview = content_div.get_text(strip=True) if content_div else ""
 
                 announcements.append(
                     {
@@ -137,9 +136,7 @@ def get_announcement_detail(session, url):
                     return sanitize_html_for_telegram(str(content_div))
 
             # Eski format için yedek
-            content_div = soup.find(
-                "div", {"id": "ctl00_ContentPlaceHolder1_divIcerik"}
-            )
+            content_div = soup.find("div", {"id": "ctl00_ContentPlaceHolder1_divIcerik"})
             if content_div:
                 for junk in content_div.find_all(["script", "style"]):
                     junk.decompose()
@@ -193,9 +190,7 @@ def get_assignment_detail(session, url):
                 value = data_span.get_text(strip=True)
                 if "başlangıç" in title_text or "start" in title_text:
                     result["start_date"] = value
-                elif (
-                    "bitiş" in title_text or "end" in title_text or "due" in title_text
-                ):
+                elif "bitiş" in title_text or "end" in title_text or "due" in title_text:
                     result["end_date"] = value
 
         # Teslim durumunu kontrol et
@@ -221,10 +216,7 @@ def get_assignment_detail(session, url):
         if any(submitted_indicators) and not any(not_submitted_indicators):
             result["is_submitted"] = True
         # Eğer not_submitted göstergesi varsa -> not submitted
-        elif any(not_submitted_indicators):
-            result["is_submitted"] = False
-        # Her ikisi de varsa, OdevGonder'a öncelik ver (henüz yüklememiş)
-        elif any(not_submitted_indicators):
+        elif any(not_submitted_indicators) or any(not_submitted_indicators):
             result["is_submitted"] = False
 
         return result
@@ -288,9 +280,7 @@ def get_assignments(session, base_url):
                         if "/Odev/" in href:
                             name = a_tag.get_text(strip=True)
                             assign_url = (
-                                f"https://ninova.itu.edu.tr{href}"
-                                if href.startswith("/")
-                                else href
+                                f"https://ninova.itu.edu.tr{href}" if href.startswith("/") else href
                             )
                             assign_id = href.split("/")[-1] if href else ""
 
@@ -300,18 +290,19 @@ def get_assignments(session, base_url):
                         href = a_tag.get("href", "")
                         if "/Odev/" in href and "/OdevGonder" not in href:
                             text = a_tag.get_text(strip=True)
-                            if text.lower() not in [
-                                "ödevi görüntüle",
-                                "görüntüle",
-                                "view",
-                                "detay",
-                            ]:
-                                if not name:
-                                    name = text
+                            if (
+                                text.lower()
+                                not in [
+                                    "ödevi görüntüle",
+                                    "görüntüle",
+                                    "view",
+                                    "detay",
+                                ]
+                                and not name
+                            ):
+                                name = text
                             assign_url = (
-                                f"https://ninova.itu.edu.tr{href}"
-                                if href.startswith("/")
-                                else href
+                                f"https://ninova.itu.edu.tr{href}" if href.startswith("/") else href
                             )
                             assign_id = href.split("/")[-1] if href else ""
                             break
@@ -356,16 +347,10 @@ def get_assignments(session, base_url):
                     is_submitted = submitted_count > 0
                 else:
                     # Alternatif kontroller
-                    if (
-                        "yüklediniz" in cell_text.lower()
-                        and "0 adedini" not in cell_text
-                    ):
+                    if "yüklediniz" in cell_text.lower() and "0 adedini" not in cell_text:
                         # "sisteme yüklediniz" var ama "0 adedini" yok
                         is_submitted = True
-                    elif (
-                        "teslim edildi" in cell_text.lower()
-                        or "gönderildi" in cell_text.lower()
-                    ):
+                    elif "teslim edildi" in cell_text.lower() or "gönderildi" in cell_text.lower():
                         is_submitted = True
 
                 # OdevGonder linki varsa kontrol et (teslim edilmemiş olabilir)
@@ -409,9 +394,7 @@ def get_assignments(session, base_url):
         return []
 
 
-def get_class_files(
-    session, base_url, sub_url=None, folder_prefix="", file_type="SinifDosyalari"
-):
+def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type="SinifDosyalari"):
     """Sınıf veya ders dosyalarını çeker.
 
     HTML yapısı:
@@ -428,10 +411,7 @@ def get_class_files(
         </tr>
     </table>
     """
-    if sub_url:
-        url = sub_url
-    else:
-        url = f"{base_url}/{file_type}"
+    url = sub_url or f"{base_url}/{file_type}"
 
     try:
         response = session.get(url, timeout=15)
@@ -555,9 +535,7 @@ def get_user_courses(session):
     try:
         # Kampus sayfasına git (Kampus1'e redirect oluyor)
         # NOT: timestamp eklemeyin, 404 veriyor!
-        resp = session.get(
-            "https://ninova.itu.edu.tr/Kampus", timeout=15, allow_redirects=True
-        )
+        resp = session.get("https://ninova.itu.edu.tr/Kampus", timeout=15, allow_redirects=True)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         tree_div = soup.find("div", {"class": "menuErisimAgaci"})
@@ -565,9 +543,7 @@ def get_user_courses(session):
         if not tree_div:
             # Belki login sayfası geri geldi?
             if "Login.aspx" in resp.url or "Giriş" in resp.text:
-                logger.error(
-                    "Ders listesi çekilirken oturumun kapalı olduğu fark edildi."
-                )
+                logger.error("Ders listesi çekilirken oturumun kapalı olduğu fark edildi.")
             return []
 
         courses = []
@@ -727,10 +703,7 @@ def get_grades(session, base_url, chat_id, username, password):
                 # Not Adı
                 # <span id="eas109760">Midterm Exam</span>
                 name_span = name_col.find("span", id=re.compile(r"^eas\d+"))
-                if name_span:
-                    key = name_span.get_text(strip=True)
-                else:
-                    key = name_col.get_text(strip=True)
+                key = name_span.get_text(strip=True) if name_span else name_col.get_text(strip=True)
 
                 # Not Değeri
                 value = grade_col.get_text(strip=True)

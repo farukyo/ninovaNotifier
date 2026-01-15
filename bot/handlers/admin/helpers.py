@@ -4,6 +4,7 @@ Admin yardımcı fonksiyonları.
 
 import os
 from datetime import datetime
+
 from bot.instance import START_TIME
 
 # Admin ID - ENV'den alınır
@@ -22,7 +23,7 @@ def is_admin(message_or_call):
     """
     if hasattr(message_or_call, "chat"):
         return str(message_or_call.chat.id) == ADMIN_ID
-    elif hasattr(message_or_call, "message"):
+    if hasattr(message_or_call, "message"):
         return str(message_or_call.message.chat.id) == ADMIN_ID
     return False
 

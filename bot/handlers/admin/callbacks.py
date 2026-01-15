@@ -2,27 +2,32 @@
 Admin callback handler'ları.
 """
 
+import contextlib
 import os
-import requests
 import sys
 import threading
+
+import requests
 from telebot import types
-from bot.instance import bot_instance as bot, get_check_callback
+
+from bot.instance import bot_instance as bot
+from bot.instance import get_check_callback
 from common.config import (
+    HEADERS,
+    USER_SESSIONS,
     load_all_users,
     save_all_users,
-    USER_SESSIONS,
-    HEADERS,
 )
 from common.utils import (
+    decrypt_password,
     load_saved_grades,
     save_grades,
     update_user_data,
-    decrypt_password,
 )
-from services.ninova import login_to_ninova, get_user_courses
-from .helpers import is_admin, admin_states
-from .services import show_stats, show_user_details, show_logs, send_backup
+from services.ninova import get_user_courses, login_to_ninova
+
+from .helpers import admin_states, is_admin
+from .services import send_backup, show_logs, show_stats, show_user_details
 
 
 @bot.callback_query_handler(
@@ -230,9 +235,7 @@ def handle_admin_callbacks(call):
                 cb()
                 bot.send_message(chat_id, "✅ Kontrol tamamlandı.", parse_mode="HTML")
             except Exception as e:
-                bot.send_message(
-                    chat_id, f"⚠️ Kontrol hatası: {str(e)}", parse_mode="HTML"
-                )
+                bot.send_message(chat_id, f"⚠️ Kontrol hatası: {str(e)}", parse_mode="HTML")
 
     elif action == "logs":
         show_logs(chat_id)
@@ -265,13 +268,11 @@ def handle_admin_callbacks(call):
         # Tüm kullanıcılara bildir
         users_dict = load_all_users()
         for uid in users_dict:
-            try:
+            with contextlib.suppress(Exception):
                 bot.send_message(
                     uid,
                     "🔄 Sistem güncellendi ve yeniden başlatılıyor... Lütfen bekleyiniz.",
                 )
-            except Exception:
-                pass
 
         bot.send_message(chat_id, "🔄 Bot yeniden başlatılıyor...")
 
@@ -280,10 +281,8 @@ def handle_admin_callbacks(call):
             import time
 
             time.sleep(2)
-            try:
+            with contextlib.suppress(Exception):
                 bot.stop_polling()
-            except Exception:
-                pass
             # os._exit(0) yerine execv ile yeniden başlat
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -328,9 +327,7 @@ def handle_optout_user(call):
     # Onay iste
     markup = types.InlineKeyboardMarkup()
     markup.add(
-        types.InlineKeyboardButton(
-            "✅ Evet, Sil", callback_data=f"optconf_{target_id}"
-        ),
+        types.InlineKeyboardButton("✅ Evet, Sil", callback_data=f"optconf_{target_id}"),
         types.InlineKeyboardButton("❌ Vazgeç", callback_data="optcancel"),
     )
 

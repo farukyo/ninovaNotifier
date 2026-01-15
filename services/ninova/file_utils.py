@@ -1,9 +1,9 @@
-import os
-from common.config import console
-from .auth import login_to_ninova
-
-
 import io
+import os
+
+from common.config import console
+
+from .auth import login_to_ninova
 
 
 def download_file(
@@ -25,9 +25,7 @@ def download_file(
         response = session.get(url, stream=True, timeout=30, allow_redirects=False)
         if response.status_code == 302:
             if login_to_ninova(session, chat_id, username, password):
-                response = session.get(
-                    url, stream=True, timeout=30, allow_redirects=False
-                )
+                response = session.get(url, stream=True, timeout=30, allow_redirects=False)
             else:
                 return None
 
@@ -40,9 +38,7 @@ def download_file(
                     filename = cd.split("filename=")[1].split(";")[0].strip()
 
             # Clean filename
-            filename = "".join(
-                [c for c in filename if c.isalnum() or c in "._- "]
-            ).strip()
+            filename = "".join([c for c in filename if c.isalnum() or c in "._- "]).strip()
 
             if to_buffer:
                 buffer = io.BytesIO()
@@ -50,12 +46,11 @@ def download_file(
                     buffer.write(chunk)
                 buffer.seek(0)
                 return buffer, filename
-            else:
-                filepath = os.path.join(os.getcwd(), filename)
-                with open(filepath, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                return filepath
+            filepath = os.path.join(os.getcwd(), filename)
+            with open(filepath, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return filepath
 
     except Exception as e:
         console.print(f"[bold red]Dosya indirme hatası: {e}")

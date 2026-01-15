@@ -1,6 +1,6 @@
 # 🎓 Ninova Grade & Academic Tracking Bot
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)  [Türkçe Versiyon](README.md)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html) [![CI](https://github.com/farukyo/ninovaNotifier/actions/workflows/ci.yml/badge.svg)](https://github.com/farukyo/ninovaNotifier/actions) [Türkçe Versiyon](README.md)
 
 An academic assistant bot that monitors your grades, assignments, announcements, and course files on ITU Ninova in real-time and sends notifications via Telegram.
 
@@ -29,35 +29,53 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 - **Advanced File Explorer:** Supports complex and nested folder structures.
 - **Direct Downloads:** Allows users to download course materials directly via Telegram.
 
-### 🤖 Automation and Developer Tools
-
-- **Comprehensive Testing:** Over 90% test coverage using `pytest`.
-- **Rich Terminal UI:** Displays live statistics and progress bars for admins via a dashboard.
-
 ---
 
 ## 🛠 Technical Stack
 
-The project is built with a modular structure using modern Python practices:
-
 - **Language:** Python 3.14+
-- **Bot Framework:** `pytelegrambotapi` (Async-ready usage)
+- **Bot Framework:** `pytelegrambotapi`
 - **Scraping Engine:** `requests` & `BeautifulSoup4`
 - **Security:** `cryptography` (Fernet)
 - **Testing:** `pytest` & `pytest-cov`
 - **Package Manager:** `uv`
+- **Linting:** `ruff`
 
 ### Project Structure
 
 ```text
-├── main.py              # Application entry point and Dashboard
-├── bot/                 # Telegram bot logic and handlers
-├── services/            # Ninova scraping and authentication
-├── common/              # Common utilities (encryption, cache, etc.)
-├── scripts/             # Developer utilities (versioning script)
-├── tests/               # Unit and integration tests
-├── data/                # Data storage (JSON - ignored)
-└── logs/                # System logs (ignored)
+├── main.py                          # Application entry point and Dashboard
+├── bot/
+│   ├── instance.py                  # Bot instance and global variables
+│   ├── keyboards.py                 # Reply keyboards
+│   ├── utils.py                     # Bot utilities
+│   └── handlers/
+│       ├── admin/                   # Admin commands and callbacks
+│       │   ├── commands.py
+│       │   ├── callbacks.py
+│       │   ├── course_management.py
+│       │   ├── course_functions.py  # Course management helpers
+│       │   └── ...
+│       └── user/                    # User commands and callbacks
+│           ├── commands.py          # Main import file
+│           ├── auth_commands.py     # Username/password
+│           ├── course_commands.py   # Course management
+│           ├── grade_commands.py    # Grade/assignment listing
+│           ├── general_commands.py  # Help, status, search
+│           └── callbacks.py         # Inline callback handlers
+├── services/
+│   ├── ninova/                      # Ninova scraping services
+│   │   ├── auth.py
+│   │   ├── scraper.py
+│   │   ├── scanner.py
+│   │   └── file_utils.py
+│   └── calendar/                    # Academic calendar
+├── common/
+│   ├── config.py                    # Configuration and constants
+│   ├── cache.py                     # File caching
+│   └── utils.py                     # General utilities
+├── tests/                           # Unit and integration tests
+└── .github/workflows/ci.yml         # GitHub Actions CI
 ```
 
 ---
@@ -66,7 +84,8 @@ The project is built with a modular structure using modern Python practices:
 
 ### 1. Prerequisites
 
-You must have Python 3.14+ and [uv](https://github.com/astral-sh/uv) installed on your system.
+- Python 3.14+
+- [uv](https://github.com/astral-sh/uv) package manager
 
 ### 2. Install Dependencies
 
@@ -76,18 +95,90 @@ uv sync
 
 ### 3. Configuration
 
-Duplicate the `.env.example` file as `.env` and fill in the required information:
+Copy `.env.example` to `.env`:
 
-- `TELEGRAM_TOKEN`: Your API token from BotFather.
-- `ADMIN_ID`: Your Telegram Chat ID for administrative tasks.
+```bash
+cp .env.example .env
+```
+
+Required variables:
+- `TELEGRAM_TOKEN`: Your API token from BotFather
+- `ADMIN_ID`: Your Telegram Chat ID for administrative tasks
 
 ### 4. Run the Bot
-
-To start the system:
 
 ```bash
 uv run main.py
 ```
+
+---
+
+## 🧑‍💻 Developer Guide
+
+### Development Environment Setup
+
+```bash
+# Install dependencies including dev tools
+uv sync --dev
+
+# Enable pre-commit hooks
+uv run pre-commit install
+```
+
+### Code Quality Tools
+
+```bash
+# Linting
+uv run ruff check .
+
+# Auto-fix issues
+uv run ruff check . --fix
+
+# Formatting
+uv run ruff format .
+```
+
+### Running Tests
+
+```bash
+# All tests
+uv run pytest tests/ -v
+
+# Coverage report
+uv run pytest tests/ --cov=. --cov-report=html
+```
+
+### Pre-commit Hooks
+
+The project has the following pre-commit hooks configured:
+
+- **ruff**: Linting and auto-fix
+- **ruff-format**: Code formatting
+- **trailing-whitespace**: Remove trailing whitespace
+- **end-of-file-fixer**: Ensure newline at end of file
+- **detect-private-key**: Private key detection
+
+### Ruff Rules
+
+Active lint rules (`pyproject.toml`):
+
+| Code | Description |
+|------|-------------|
+| E, W | pycodestyle errors and warnings |
+| F | pyflakes (unused imports, etc.) |
+| I | isort (import sorting) |
+| B | flake8-bugbear (common bug patterns) |
+| C4 | flake8-comprehensions |
+| UP | pyupgrade (Python modernization) |
+| RET | flake8-return |
+| ARG | flake8-unused-arguments |
+
+### CI/CD
+
+GitHub Actions automatically runs on every push and PR:
+- Ruff lint check
+- Ruff format check
+- All pytest tests
 
 ---
 

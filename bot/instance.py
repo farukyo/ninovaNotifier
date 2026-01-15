@@ -1,5 +1,7 @@
-import telebot
 from datetime import datetime
+
+import telebot
+
 from common.config import TELEGRAM_TOKEN
 
 bot_instance = telebot.TeleBot(TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
