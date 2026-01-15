@@ -27,3 +27,12 @@
 - [ ] **🚌 Ring Saatleri**
   - İTÜ kampüs içi ve kampüsler arası ring sefer saatleri.
   - (Opsiyonel) Canlı konum entegrasyonu (mümkünse).
+
+- [ ] **🔔 Akademik Takvim Bildirimleri**
+  - Önemli akademiktakvim tarihlerini (ders kaydı, dersten çekilme vb.) 1 gün ve 1 hafta önceden otomatik bildirme.
+  - Takvimdeki değişiklikleri periyodik kontrol ederek kullanıcıya duyurma.
+
+- [ ] **🏹 SIS Kayıt Yardımcısı & Kontenjan Takibi**
+  - **Ders Planı Analizi:** `https://obs.itu.edu.tr/public/DersPlan/` üzerinden alınmış/alınmamış derslerin ve kredilerin takibi.
+  - **CRN Takibi:** Belirlenen CRN'lerde kontenjan açıldığında (0 -> 1) anlık bildirim.
+  - **Önşart Kontrolü:** Seçilen CRN'lerin önşartlarının (ders planı verisiyle) otomatik kontrol edilmesi.
