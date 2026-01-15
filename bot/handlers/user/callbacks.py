@@ -973,6 +973,40 @@ def handle_add_expired_no(call):
     )
 
 
+@bot.callback_query_handler(func=lambda call: call.data == "show_all_calendar")
+def handle_show_all_calendar(call):
+    """
+    Kullanıcı akademik takvimde geçmiş etkinlikleri görmek istediğinde çalışır.
+    """
+    from services.calendar import ITUCalendarService
+
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="🔄 Tüm etkinlikler yükleniyor...",
+    )
+
+    try:
+        data = ITUCalendarService.get_filtered_calendar(show_all=True)
+
+        from common.utils import split_long_message
+
+        chunks = split_long_message(data)
+
+        # Delete the loading message
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+
+        # Send full calendar
+        for chunk in chunks:
+            bot.send_message(call.message.chat.id, chunk, parse_mode="HTML")
+    except Exception as e:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"❌ Hata: {str(e)}",
+        )
+
+
 # Admin callback handlers - admin/callbacks.py'de tanımlı
 # @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
 # def handle_admin_callbacks(call):

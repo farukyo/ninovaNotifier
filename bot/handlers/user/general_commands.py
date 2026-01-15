@@ -355,19 +355,39 @@ def leave_system(message):
 
 
 @bot.message_handler(func=lambda message: message.text == "📆 Akademik Takvim")
-def show_academic_calendar(message):
+def show_academic_calendar(message, show_all=False):
     """
     İTÜ Akademik Takvimden güncel bilgileri çeker ve gösterir.
-    Geçmiş 5, Gelecek 10 satır kuralına göre filtreleme yapar.
+    Varsayılan olarak geçmiş etkinlikleri gizler, buton ile tümünü gösterir.
+
+    :param message: Kullanıcıdan gelen mesaj
+    :param show_all: Geçmiş etkinlikleri de göster (default: False)
     """
     bot.reply_to(message, "🔄 Akademik takvim verileri çekiliyor...")
 
     def run_fetch():
         try:
-            data = ITUCalendarService.get_filtered_calendar()
+            from telebot import types
+
+            data = ITUCalendarService.get_filtered_calendar(show_all=show_all)
+
+            # Check if there are hidden events
+            markup = None
+            if "geçmiş etkinlik gizlendi" in data and not show_all:
+                markup = types.InlineKeyboardMarkup()
+                markup.add(
+                    types.InlineKeyboardButton(
+                        "📜 Geçmişi Göster", callback_data="show_all_calendar"
+                    )
+                )
+
             chunks = split_long_message(data)
-            for chunk in chunks:
-                bot.send_message(message.chat.id, chunk, parse_mode="HTML")
+            for i, chunk in enumerate(chunks):
+                # Only attach button to the last chunk
+                if i == len(chunks) - 1:
+                    bot.send_message(message.chat.id, chunk, parse_mode="HTML", reply_markup=markup)
+                else:
+                    bot.send_message(message.chat.id, chunk, parse_mode="HTML")
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Hata oluştu: {str(e)}")
 

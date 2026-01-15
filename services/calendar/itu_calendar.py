@@ -89,7 +89,11 @@ class ITUCalendarService:
             return []
 
     @staticmethod
-    def get_filtered_calendar() -> str:
+    def get_filtered_calendar(show_all: bool = False) -> str:
+        from datetime import datetime
+
+        from common.utils import parse_turkish_date
+
         sections = ITUCalendarService.fetch_calendar()
         if not sections:
             return "❌ Akademik takvim verisi alınamadı."
@@ -97,6 +101,9 @@ class ITUCalendarService:
         output = []
         output.append("📚 <b>İTÜ AKADEMİK TAKVİM</b>")
         output.append("━━━━━━━━━━━━━━━━━━━━━")
+
+        now = datetime.now()
+        hidden_past_count = 0
 
         for section in sections:
             # Sadece "Lisans / Önlisans Akademik Takvimi" bölümünü göster
@@ -111,40 +118,77 @@ class ITUCalendarService:
             if not events:
                 continue
 
-            # Find the transition point (first future event)
-            first_future_index = len(events)
-            for i, event in enumerate(events):
-                if not event.is_past:
-                    first_future_index = i
-                    break
+            # Categorize events
+            categorized_events = []
+            for event in events:
+                # Parse date for accurate categorization
+                parsed_date = parse_turkish_date(event.date_str)
 
-            # Calculate indices for "past 5" and "next 10"
-            start_index = max(0, first_future_index - 5)
-            end_index = min(len(events), first_future_index + 10)
+                # Determine category
+                category = "past"
+                days_until = None
 
-            filtered_events = events[start_index:end_index]
+                if event.is_past:
+                    category = "past"
+                elif "Devam ediyor" in event.status:
+                    category = "ongoing"
+                elif parsed_date:
+                    days_until = (parsed_date - now).days
+                    if days_until <= 7:
+                        category = "starting_soon"
+                    else:
+                        category = "upcoming"
+                else:
+                    # No date parsed, check status
+                    if "kaldı" in event.status:
+                        # Extract days from status
+                        parts = event.status.split()
+                        if parts and parts[0].isdigit():
+                            days_until = int(parts[0])
+                            if days_until <= 7:
+                                category = "starting_soon"
+                            else:
+                                category = "upcoming"
+                    else:
+                        category = "upcoming"
 
-            if filtered_events:
+                categorized_events.append(
+                    {"event": event, "category": category, "days_until": days_until}
+                )
+
+            # Filter events based on show_all
+            visible_events = []
+            for item in categorized_events:
+                if show_all or item["category"] != "past":
+                    visible_events.append(item)
+                else:
+                    hidden_past_count += 1
+
+            if visible_events:
                 # Section header
                 output.append("")
                 output.append(f"📅 <b>{section.title}</b>")
                 output.append("┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄")
 
-                for event in filtered_events:
-                    # Determine icon based on status
-                    icon = "✅" if event.is_past else "⏳"
+                for item in visible_events:
+                    event = item["event"]
+                    category = item["category"]
+
+                    # Determine icon based on category
+                    if category == "past":
+                        icon = "❌"
+                    elif category == "ongoing":
+                        icon = "🔥"
+                    elif category == "starting_soon":
+                        icon = "🚨"
+                    else:  # upcoming
+                        icon = "📅"
+
                     status_text = event.status
 
-                    if "Devam ediyor" in event.status:
-                        icon = "🔥"
+                    # Bold important statuses
+                    if category in ["ongoing", "starting_soon"]:
                         status_text = f"<b>{event.status}</b>"
-                    elif "kaldı" in event.status:
-                        parts = event.status.split()
-                        if parts and parts[0].isdigit():
-                            days = int(parts[0])
-                            if days <= 7:
-                                icon = "🚨"
-                                status_text = f"<b>{event.status}</b>"
 
                     # Truncate long event names
                     name = event.name
@@ -158,6 +202,11 @@ class ITUCalendarService:
                     output.append("")
 
         output.append("━━━━━━━━━━━━━━━━━━━━━")
+
+        # Add "Show All" hint if there are hidden events
+        if hidden_past_count > 0 and not show_all:
+            output.append(f"📜 <i>{hidden_past_count} geçmiş etkinlik gizlendi</i>")
+
         output.append(f"🔗 <a href='{ITUCalendarService.url}'>Detaylı Takvim için Tıklayın</a>")
         return "\n".join(output)
 
