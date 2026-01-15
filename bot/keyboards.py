@@ -45,12 +45,11 @@ def build_ari24_menu_keyboard(daily_sub_status=False):
     Status'a göre buton metni değişir.
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("🌍 Keşfet", "🔔 Abone Ol")
+    kb.row("🌍 Keşfet", "📰 Haberler")
+    kb.row("🔔 Abone Ol", "❤️ Kulüplerim")
 
     status_icon = "✅" if daily_sub_status else "❌"
-    kb.row(f"☀️ Günlük Bülten: {status_icon}")
-
-    kb.row("❤️ Kulüplerim", "🔙 Geri")
+    kb.row(f"☀️ Günlük Bülten: {status_icon}", "🔙 Geri")
     return kb
 
 

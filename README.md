@@ -30,6 +30,24 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 - **Gelişmiş Dosya Gezgini:** Karmaşık ve iç içe geçmiş klasör yapılarını destekler.
 - **Doğrudan İndirme:** Kullanıcıların ders materyallerini doğrudan Telegram üzerinden indirmesine olanak tanır.
 
+### 🐝 Arı24 Entegrasyonu
+
+- **📰 Haberler:** İTÜ ile ilgili güncel haberleri takip edin. Yeni bir haber olduğunda **tüm kullanıcılara** otomatik bildirim gönderilir.
+- **📅 Etkinlikler:** Kampüsteki tüm kulüp etkinliklerin keşfedin ve yaklaşan etkinlikleri listeleyin.
+- **🔔 Kulüp Aboneliği:** İlgilendiğiniz kulüplere abone olarak sadece onların etkinliklerinden haberdar olun.
+- **☀️ Günlük Bülten:** Her sabah 08:00'de o günün ve önümüzdeki haftanın etkinliklerini özet olarak alın.
+
+### 🔔 Akıllı Bildirim Sistemi
+
+- **Anlık Bildirimler:** Yeni not, duyuru, ödev veya dosya güncellemeleri için anında uyarı gönderir.
+- **Ödev Hatırlatıcıları:** Ödev teslim tarihinden **24 saat** ve **3 saat** önce otomatik "Son Çağrı" bildirimleri gönderir.
+- **Arı24 Bildirimleri:** Haberler ve abone olunan kulüp etkinlikleri için anlık bildirimler.
+
+### 📂 Dosya ve İçerik Erişimi
+
+- **Gelişmiş Dosya Gezgini:** Karmaşık ve iç içe geçmiş klasör yapılarını destekler.
+- **Doğrudan İndirme:** Kullanıcıların ders materyallerini doğrudan Telegram üzerinden indirmesine olanak tanır.
+
 ### 🍴 Yemekhane Menü Duyuruları
 
 - **Otomatik Duyurular:** Her gün **11:00** (Öğle Yemeği) ve **16:30** (Akşam Yemeği) saatlerinde İTÜ SKS yemekhane menüsünü otomatik olarak paylaşır.
@@ -70,6 +88,7 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 │           ├── course_commands.py   # Ders yönetimi
 │           ├── grade_commands.py    # Not/ödev listeleme
 │           ├── general_commands.py  # Yardım, durum, arama
+│           ├── ari24_commands.py    # Arı24 entegrasyonu
 │           └── callbacks.py         # Inline callback handler'lar
 ├── services/
 │   ├── ninova/                      # Ninova kazıma servisleri
@@ -80,6 +99,8 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 │   ├── sks/                         # Yemekhane menü servisi
 │   │   ├── scraper.py
 │   │   └── announcer.py
+│   ├── ari24/                       # Arı24 servisi
+│   │   └── client.py
 │   └── calendar/                    # Akademik takvim
 ├── common/
 │   ├── config.py                    # Yapılandırma ve sabitler
@@ -163,10 +184,7 @@ uv run pytest tests/ --cov=. --cov-report=html
 
 Projede aşağıdaki pre-commit hook'ları yapılandırılmıştır:
 
-- **ruff**: Linting ve otomatik düzeltme
-- **ruff-format**: Kod formatlama
-- **trailing-whitespace**: Satır sonu boşluk temizleme
-- **end-of-file-fixer**: Dosya sonu newline
+- **detect-secrets**: Gizli bilgi tarama (Token leaks vb.)
 - **detect-private-key**: Private key tespiti
 
 ### Ruff Kuralları

@@ -65,6 +65,38 @@ def discover_events(message):
     )
 
 
+@bot.message_handler(func=lambda message: message.text == "📰 Haberler")
+def show_news(message):
+    chat_id = message.chat.id
+    bot.send_message(chat_id, "🔄 Haberler çekiliyor, lütfen bekleyin...")
+
+    news = ari24_client.get_news(limit=5)
+
+    if not news:
+        bot.send_message(chat_id, "😔 Haber bulunamadı.")
+        return
+
+    for article in news:
+        caption = f"📰 <b>{article['title']}</b>\n🔗 <a href='{article['link']}'>Haberi Oku</a>"
+
+        try:
+            if article.get("image_url"):
+                bot.send_photo(chat_id, article["image_url"], caption=caption, parse_mode="HTML")
+            else:
+                bot.send_message(chat_id, caption, parse_mode="HTML")
+        except Exception:
+            bot.send_message(chat_id, caption, parse_mode="HTML")
+
+    # Refresh menu
+    users = load_all_users()
+    daily_sub = users.get(str(chat_id), {}).get("daily_subscription", False)
+    bot.send_message(
+        chat_id,
+        f"✅ Son {len(news)} haber listelendi.",
+        reply_markup=build_ari24_menu_keyboard(daily_sub),
+    )
+
+
 @bot.message_handler(func=lambda message: message.text.startswith("☀️ Günlük Bülten"))
 def toggle_daily_bulletin(message):
     chat_id = str(message.chat.id)
@@ -80,10 +112,15 @@ def toggle_daily_bulletin(message):
     save_all_users(users)
 
     status_text = "açıldı" if new_status else "kapatıldı"
+    msg = f"☀️ Günlük Bülten aboneliği <b>{status_text}</b>."
+    if new_status:
+        msg += "\nHer sabah 08:00'de güncel etkinlikleri alacaksınız."
+    else:
+        msg += "\nArtık günlük bildirim almayacaksınız."
+
     bot.send_message(
         chat_id,
-        f"☀️ Günlük Bülten aboneliği <b>{status_text}</b>.\n"
-        "Her sabah 08:00'de o günün etkinlikleri size gönderilecek.",
+        msg,
         parse_mode="HTML",
         reply_markup=build_ari24_menu_keyboard(new_status),
     )

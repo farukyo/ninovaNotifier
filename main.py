@@ -161,8 +161,41 @@ def check_ari24_updates():
 
         if new_urls:
             state["notified_urls"] = list(notified_urls.union(new_urls))[-500:]  # Keep last 500
-            with open(state_file, "w") as f:
-                json.dump(state, f)
+
+        # --- NEWS CHECK ---
+        notified_news = set(state.get("notified_news", []))
+        current_news = client.get_news(limit=5)
+        new_news_items = []
+
+        for item in current_news:
+            if item["link"] not in notified_news:
+                new_news_items.append(item)
+
+        if new_news_items:
+            # Broadcast to ALL users
+            # Reverse to send oldest new item first
+            for item in reversed(new_news_items):
+                caption = (
+                    f"📰 <b>Yeni Haber: {item['title']}</b>\n"
+                    f"🔗 <a href='{item['link']}'>Haberi Oku</a>"
+                )
+                for chat_id in users:
+                    try:
+                        if item.get("image_url"):
+                            bot.send_photo(
+                                chat_id, item["image_url"], caption=caption, parse_mode="HTML"
+                            )
+                        else:
+                            bot.send_message(chat_id, caption, parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"Failed to send news to {chat_id}: {e}")
+
+                notified_news.add(item["link"])
+
+            state["notified_news"] = list(notified_news)[-200:]  # Keep last 200
+
+        with open(state_file, "w") as f:
+            json.dump(state, f)
 
     except Exception as e:
         logger.error(f"Ari24 check error: {e}")
@@ -194,39 +227,60 @@ def check_daily_bulletin():
 
         # Send Bulletin
         client = Ari24Client()
-        events = client.get_events()  # Get all, then filter for today
+        events = client.get_weekly_events()  # Allows fetching next 14 days
 
-        todays_events = []
+        # Group events
+        today_date = now.date()
+        today_events = []
+        upcoming_events = []
+
         for ev in events:
-            if ev["date_dt"]:
-                # Check if it's today
-                if ev["date_dt"].date() == now.date():
-                    todays_events.append(ev)
+            if not ev["date_dt"]:
+                continue
 
-        if not todays_events:
-            # No events today, maybe skip message or send "No events"
-            # Let's verify sending logic.
-            # If no events, just mark as sent and return.
+            ev_date = ev["date_dt"].date()
+            if ev_date == today_date:
+                today_events.append(ev)
+            elif ev_date > today_date:
+                upcoming_events.append(ev)
+
+        if not today_events and not upcoming_events:
+            # Nothing at all?
+            # Mark sent and return
             state["last_sent_date"] = today_str
             with open(state_file, "w") as f:
                 json.dump(state, f)
             return
 
+        date_formatted = now.strftime("%d.%m.%Y")
+        bulletin_message = f"☀️ <b>GÜNLÜK BÜLTEN | {date_formatted}</b>\n\n"
+
+        if today_events:
+            bulletin_message += "📅 <b>BUGÜN:</b>\n"
+            for ev in today_events:
+                bulletin_message += (
+                    f"▫️ {ev['organizer']} - {ev['title']}\n"
+                    f"⏰ {ev['date_str']}\n"
+                    f"🔗 <a href='{ev['link']}'>İncele</a>\n\n"
+                )
+        else:
+            bulletin_message += "📅 <b>BUGÜN:</b>\n<i>Etkinlik bulunmuyor.</i>\n\n"
+
+        if upcoming_events:
+            bulletin_message += "🗓 <b>YAKLAŞANLAR (Bu hafta + Gelecek Hafta):</b>\n"
+            # Maybe limit upcoming to avoid huge messages?
+            # Limit to 10 upcoming events
+            for ev in upcoming_events[:15]:
+                bulletin_message += (
+                    f"▫️ {ev['date_str']} | {ev['organizer']}\n   <b>{ev['title']}</b>\n\n"
+                )
+            if len(upcoming_events) > 15:
+                bulletin_message += f"<i>... ve {len(upcoming_events) - 15} etkinlik daha.</i>\n"
+
         users = load_all_users()
-        bulletin_message = f"☀️ <b>Günaydın! Bugünün Etkinlikleri ({today_str})</b>\n\n"
-
-        for ev in todays_events:
-            bulletin_message += (
-                f"🕒 {ev['date_str']} | {ev['organizer']}\n"
-                f"📍 <b>{ev['title']}</b>\n"
-                f"🔗 <a href='{ev['link']}'>Detaylar</a>\n\n"
-            )
-
         for chat_id, user_data in users.items():
             if user_data.get("daily_subscription", False):
                 try:
-                    # Send potentially long message, maybe split if huge
-                    # Assuming < 4096 chars usually
                     bot.send_message(
                         chat_id, bulletin_message, parse_mode="HTML", disable_web_page_preview=True
                     )

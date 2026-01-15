@@ -30,6 +30,24 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 - **Advanced File Explorer:** Supports complex and nested folder structures.
 - **Direct Downloads:** Allows users to download course materials directly via Telegram.
 
+### 🐝 Arı24 Integration
+
+- **📰 News:** Stay updated with ITU news. Automatically sends a notification to **all users** when a new article is published.
+- **📅 Events:** Discover all club events on campus and view upcoming events.
+- **🔔 Club Subscription:** Subscribe to specific clubs to receive notifications only for their events.
+- **☀️ Daily Bulletin:** Receive a summary of today's and next week's events every morning at 08:00.
+
+### 🔔 Smart Notification System
+
+- **Instant Notifications:** Sends immediate alerts for new grades, announcements, assignments, or file updates.
+- **Assignment Reminders:** Automatically sends "Last Call" notifications **24 hours** and **3 hours** before deadlines.
+- **Arı24 Notifications:** Instant alerts for news and subscribed club events.
+
+### 📂 File and Content Access
+
+- **Advanced File Explorer:** Supports complex and nested folder structures.
+- **Direct Downloads:** Allows users to download course materials directly via Telegram.
+
 ### 🍴 Dining Hall Menu Announcements
 
 - **Automatic Announcements:** Automatically shares the ITU SKS dining hall menu every day at **11:00** (Lunch) and **16:30** (Dinner).
@@ -70,6 +88,7 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 │           ├── course_commands.py   # Course management
 │           ├── grade_commands.py    # Grade/assignment listing
 │           ├── general_commands.py  # Help, status, search
+│           ├── ari24_commands.py    # Arı24 integration
 │           └── callbacks.py         # Inline callback handlers
 ├── services/
 │   ├── ninova/                      # Ninova scraping services
@@ -80,6 +99,8 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 │   ├── sks/                         # Dining hall menu service
 │   │   ├── scraper.py
 │   │   └── announcer.py
+│   ├── ari24/                       # Arı24 service
+│   │   └── client.py
 │   └── calendar/                    # Academic calendar
 ├── common/
 │   ├── config.py                    # Configuration and constants
@@ -163,10 +184,7 @@ uv run pytest tests/ --cov=. --cov-report=html
 
 The project has the following pre-commit hooks configured:
 
-- **ruff**: Linting and auto-fix
-- **ruff-format**: Code formatting
-- **trailing-whitespace**: Remove trailing whitespace
-- **end-of-file-fixer**: Ensure newline at end of file
+- **detect-secrets**: Secret detection (Token leaks etc.)
 - **detect-private-key**: Private key detection
 
 ### Ruff Rules

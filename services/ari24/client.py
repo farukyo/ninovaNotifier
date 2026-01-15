@@ -23,6 +23,7 @@ MONTH_MAP = {
 class Ari24Client:
     BASE_URL = "https://ari24.com"
     EVENTS_URL = "https://ari24.com/etkinlikler"
+    NEWS_URL = "https://ari24.com/haberler"
 
     def __init__(self):
         self.headers = {
@@ -274,3 +275,62 @@ class Ari24Client:
         events = self.get_events()
         active_clubs = {ev["organizer"] for ev in events if ev["organizer"]}
         return sorted(set(self.STATIC_CLUBS) | active_clubs)
+
+    def get_news(self, limit=5):
+        """
+        Fetches news articles from ari24.com/haberler.
+        Returns a list of dictionaries with keys:
+        - title: News title
+        - link: Full URL to the news article
+        - image_url: URL of the news cover image (if available)
+        """
+        try:
+            response = requests.get(self.NEWS_URL, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, "html.parser")
+
+            news = []
+            # News items are links containing h2 tags
+            news_items = soup.find_all("a", href=lambda x: x and "/haber/" in x)
+
+            seen_links = set()
+            for item in news_items:
+                link = item.get("href", "")
+                if not link.startswith("http"):
+                    link = self.BASE_URL + link
+
+                # Skip duplicates
+                if link in seen_links:
+                    continue
+                seen_links.add(link)
+
+                # Get title from h2 or text
+                title_tag = item.find("h2")
+                if title_tag:
+                    title = title_tag.get_text(strip=True)
+                else:
+                    title = item.get_text(strip=True)
+
+                if not title:
+                    continue
+
+                # Try to get image
+                image_url = ""
+                figure = item.find("figure")
+                if figure:
+                    style = figure.get("style", "")
+                    match = re.search(r"url\((.*?)\)", style)
+                    if match:
+                        image_url = match.group(1).strip("'\"")
+                        if not image_url.startswith("http"):
+                            image_url = self.BASE_URL + image_url
+
+                news.append({"title": title, "link": link, "image_url": image_url})
+
+                if len(news) >= limit:
+                    break
+
+            return news
+        except Exception as e:
+            print(f"Error fetching news: {e}")
+            return []

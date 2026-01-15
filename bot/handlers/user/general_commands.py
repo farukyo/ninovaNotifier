@@ -63,18 +63,22 @@ def send_welcome(message):
     update_user_data(message.chat.id, "chat_id", str(message.chat.id))
     help_text = (
         "👋 <b>Ninova Not Takipçisi'ne Hoş Geldiniz!</b>\n\n"
-        "Notlarınızı takip edebilmek için öncelikle Ninova hesabınızı ekleyin:\n\n"
-        "1️⃣ <b>Kullanıcı Adı:</b> '👤 Kullanıcı Adı' butonu ile kullanıcı adınızı ayarlayın.\n"
-        "2️⃣ <b>Şifre:</b> '🔐 Şifre' butonu ile şifrenizi gönderin (mesaj otomatik silinir).\n"
-        "3️⃣ <b>Ders Ekleme:</b> 🤖 'Oto Ders' ile tüm dersleri ekleyin veya 📝 'Manuel Ders' ile tek tek ekleyin.\n\n"
+        "Notlarınızı ve İTÜ gündemini tek yerden takip edin:\n\n"
+        "1️⃣ <b>Hesap Kurulumu:</b>\n"
+        "   • '👤 Kullanıcı' menüsünden kullanıcı adı ve şifrenizi girin.\n"
+        "   • '🤖 Oto Ders' ile derslerinizi otomatik çekin.\n\n"
         "🔎 <b>Hızlı Menü:</b>\n"
-        "• 📊 Notlar — Kayıtlı notlarınızı gösterir\n"
-        "• 📅 Ödevler — Ödev ve teslim durumları\n"
-        "• 📖 Dersler — Ders detay menüsü\n"
-        "• 🔍 Ara — Duyurularda arama yapar\n"
-        "• 📋 Durum — Bot ve hesap durumunuz\n"
-        "• 🚪 Ayrıl — Tüm verilerinizi siler\n\n"
-        "ℹ️ <i>Yardım için klavyedeki '❓ Yardım' butonuna basabilirsiniz.</i>"
+        "• 📊 Notlar — Notlarınız, ortalamalarınız ve harf notları\n"
+        "• 📅 Ödevler — Bekleyen ödevler ve teslim tarihleri\n"
+        "• 🐝 Arı24 — <b>Haberler</b>, etkinlikler ve kulüp abonelikleri\n"
+        "• 🍽 Yemekhane — Günlük SKS yemek menüsü\n"
+        "• 📆 Akademik Takvim — İTÜ akademik takvimi\n"
+        "• 📖 Dersler — Ders bazlı detaylı görünüm\n"
+        "• 🔍 Ara — Geçmiş duyurularda arama yapar\n\n"
+        "� <b>Bildirimler:</b>\n"
+        "• Yeni not, ödev ve duyuru geldiğinde anında bildirim alırsınız.\n"
+        "• Arı24 menüsünden 'Günlük Bülten'i açarak her sabah etkinlik özeti alabilirsiniz.\n"
+        "• Abone olduğunuz kulüplerin etkinlikleri ve yeni haberler anında cebinize gelir."
     )
     bot.reply_to(message, help_text, parse_mode="HTML", reply_markup=build_main_keyboard())
 
