@@ -10,6 +10,7 @@ from .scraper import (
     get_class_files,
     get_grades,
     get_user_courses,
+    get_class_info,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "download_file",
     "get_class_files",
     "get_all_files",
+    "get_class_info",
 ]
