@@ -1,6 +1,6 @@
 # 🎓 Ninova Grade & Academic Tracking Bot
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html) [![CI](https://github.com/farukyo/ninovaNotifier/actions/workflows/ci.yml/badge.svg)](https://github.com/farukyo/ninovaNotifier/actions) [English Version](readme_en.md)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html) [![CI](https://github.com/farukyo/ninovaNotifier/actions/workflows/ci.yml/badge.svg)](https://github.com/farukyo/ninovaNotifier/actions) [English Version](README_EN.md)
 
 ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyalarınızı gerçek zamanlı izleyen ve Telegram üzerinden bildirim gönderen bir akademik asistan bottur.
 
@@ -18,6 +18,7 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 
 - **Sınıf Analizi:** Her ders için sınıf ortalamasını ve standart sapmayı otomatik olarak hesaplar.
 - **Veri Kapsamı:** Hesaplamaların hangi oranda veriye dayandığını göstererek doğruluk payını belirtir.
+- **📈 Başarı Grafiği:** Notlarınızı çan eğrisi üzerinde görselleştirerek sınıf içindeki konumunuzu (Z-Score) gösterir.
 
 ### 🔔 Akıllı Bildirim Sistemi
 
@@ -34,6 +35,7 @@ ITU Ninova'daki notlarınızı, ödevlerinizi, duyurularınızı ve ders dosyala
 - **Otomatik Duyurular:** Her gün **11:00** (Öğle Yemeği) ve **16:30** (Akşam Yemeği) saatlerinde İTÜ SKS yemekhane menüsünü otomatik olarak paylaşır.
 - **Dinamik Veri Çekme:** Menü verilerini doğrudan İTÜ BIBD API üzerinden çekerek güncel ve temiz veri sağlar.
 - **Akıllı Durum Yönetimi:** Duyuruların her gün ve her öğün için sadece bir kez gönderilmesini sağlar.
+- **🔄 Anlık Güncelleme:** Telegram üzerinden tek tuşla o anki yemek menüsünü güncelleyebilirsiniz.
 
 ---
 
@@ -191,6 +193,12 @@ GitHub Actions ile her push ve PR'da otomatik olarak:
 
 ---
 
-## 📄 Lisans
+## � Yol Haritası (TODO)
+
+Proje için planlanan gelecek özellikler ve geliştirmeler [TODO.md](TODO.md) dosyasında takip edilmektedir.
+
+---
+
+## �📄 Lisans
 
 Bu proje GNU General Public License sürüm 3 (GPLv3) altında lisanslanmıştır. Ayrıntılı lisans metni `LICENCE` dosyasında bulunmaktadır.

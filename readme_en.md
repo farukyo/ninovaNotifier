@@ -18,6 +18,7 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 
 - **Class Analysis:** Automatically calculates class average and standard deviation for each course.
 - **Data Coverage:** Indicates the percentage of data used for calculations to ensure accuracy.
+- **📈 Performance Graph:** Visualizes your grades on a bell curve to show your position (Z-Score) relative to the class.
 
 ### 🔔 Smart Notification System
 
@@ -34,6 +35,7 @@ An academic assistant bot that monitors your grades, assignments, announcements,
 - **Automatic Announcements:** Automatically shares the ITU SKS dining hall menu every day at **11:00** (Lunch) and **16:30** (Dinner).
 - **Dynamic Data Fetching:** Fetches menu data directly via ITU BIBD API for up-to-date and clean data.
 - **Smart State Management:** Ensures announcements are sent only once per day per meal.
+- **🔄 Instant Update:** Update the current meal menu with a single button via Telegram.
 
 ---
 
@@ -188,6 +190,12 @@ GitHub Actions automatically runs on every push and PR:
 - Ruff lint check
 - Ruff format check
 - All pytest tests
+
+---
+
+## 🗺 Roadmap (TODO)
+
+Planned future features and enhancements are tracked in the [TODO.md](TODO.md) file.
 
 ---
 
