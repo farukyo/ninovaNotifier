@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import random
@@ -22,11 +23,13 @@ from rich.table import Table
 from bot import bot, set_check_callback, update_last_check_time
 from common.config import (
     CHECK_INTERVAL,
+    DATA_DIR,
     HEADERS,
     LOGS_DIR,
     USER_SESSIONS,
     console,
     load_all_users,
+    save_all_users,
 )
 from common.utils import (
     decrypt_password,
@@ -37,6 +40,7 @@ from common.utils import (
     save_grades,
     send_telegram_message,
 )
+from services.ari24.client import Ari24Client
 from services.ninova import LoginFailedError, get_announcement_detail, get_grades
 from services.sks.announcer import check_and_announce_sks_menu
 
@@ -89,6 +93,153 @@ def show_users_table():
 
 
 # Dashboard layout - Future için hazırlanmış, şu an kullanılmıyor
+
+
+def check_ari24_updates():
+    """
+    Checks Arı24 events and notifies subscribed users.
+    """
+    state_file = os.path.join(DATA_DIR, "ari24_state.json")
+    try:
+        if os.path.exists(state_file):
+            with open(state_file) as f:
+                state = json.load(f)
+        else:
+            state = {"notified_urls": []}
+    except Exception:
+        state = {"notified_urls": []}
+
+    try:
+        client = Ari24Client()
+        events = client.get_upcoming_events()
+        notified_urls = set(state.get("notified_urls", []))
+        new_urls = []
+
+        users = load_all_users()
+
+        for event in events:
+            url = event["link"]
+            if url in notified_urls:
+                continue
+
+            # Filtering out past events
+            # If the event has a parsable date, and it's before today 00:00, ignore it.
+            # We use a slight buffer or just today 00:00.
+            if event["date_dt"]:
+                now = datetime.now()
+                # Compare with Today End or Beginning?
+                # User says "past events". So anything before "Now" effectively.
+                # But let's be generous and say anything before Today 00:00 is definitely past.
+                if event["date_dt"] < now.replace(hour=0, minute=0, second=0, microsecond=0):
+                    continue
+
+            club = event["organizer"]
+            new_urls.append(url)
+
+            # Notify subscribers
+            for chat_id, user_data in users.items():
+                subs = user_data.get("subscriptions", [])
+                # Partial match or exact match?
+                # Scraper returns full name. Handlers use full name.
+                # So exact match check is fine.
+                if club in subs:
+                    caption = (
+                        f"🔔 <b>Yeni Etkinlik: {club}</b>\n\n"
+                        f"📅 <b>{event['title']}</b>\n"
+                        f"🕒 {event['date_str']}\n"
+                        f"🔗 <a href='{url}'>Detaylar</a>"
+                    )
+                    try:
+                        if event["image_url"]:
+                            bot.send_photo(
+                                chat_id, event["image_url"], caption=caption, parse_mode="HTML"
+                            )
+                        else:
+                            bot.send_message(chat_id, caption, parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"Failed to send ari24 notification to {chat_id}: {e}")
+
+        if new_urls:
+            state["notified_urls"] = list(notified_urls.union(new_urls))[-500:]  # Keep last 500
+            with open(state_file, "w") as f:
+                json.dump(state, f)
+
+    except Exception as e:
+        logger.error(f"Ari24 check error: {e}")
+
+
+def check_daily_bulletin():
+    """
+    Checks if it is 08:00 AM and sends daily bulletin to subscribed users.
+    Should be called periodically (e.g. every minute or so).
+    Manages state to avoid multiple sends in the same day.
+    """
+    now = datetime.now()
+    # Check if time is 08:xx
+    if now.hour != 8:
+        return
+
+    state_file = os.path.join(DATA_DIR, "daily_bulletin_state.json")
+    today_str = now.strftime("%Y-%m-%d")
+
+    try:
+        if os.path.exists(state_file):
+            with open(state_file) as f:
+                state = json.load(f)
+        else:
+            state = {"last_sent_date": ""}
+
+        if state.get("last_sent_date") == today_str:
+            return  # Already sent today
+
+        # Send Bulletin
+        client = Ari24Client()
+        events = client.get_events()  # Get all, then filter for today
+
+        todays_events = []
+        for ev in events:
+            if ev["date_dt"]:
+                # Check if it's today
+                if ev["date_dt"].date() == now.date():
+                    todays_events.append(ev)
+
+        if not todays_events:
+            # No events today, maybe skip message or send "No events"
+            # Let's verify sending logic.
+            # If no events, just mark as sent and return.
+            state["last_sent_date"] = today_str
+            with open(state_file, "w") as f:
+                json.dump(state, f)
+            return
+
+        users = load_all_users()
+        bulletin_message = f"☀️ <b>Günaydın! Bugünün Etkinlikleri ({today_str})</b>\n\n"
+
+        for ev in todays_events:
+            bulletin_message += (
+                f"🕒 {ev['date_str']} | {ev['organizer']}\n"
+                f"📍 <b>{ev['title']}</b>\n"
+                f"🔗 <a href='{ev['link']}'>Detaylar</a>\n\n"
+            )
+
+        for chat_id, user_data in users.items():
+            if user_data.get("daily_subscription", False):
+                try:
+                    # Send potentially long message, maybe split if huge
+                    # Assuming < 4096 chars usually
+                    bot.send_message(
+                        chat_id, bulletin_message, parse_mode="HTML", disable_web_page_preview=True
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send daily bulletin to {chat_id}: {e}")
+
+        # Update state
+        state["last_sent_date"] = today_str
+        with open(state_file, "w") as f:
+            json.dump(state, f)
+
+    except Exception as e:
+        logger.error(f"Daily bulletin error: {e}")
 
 
 def check_user_updates(chat_id: str, course_idx: int = None):
@@ -346,7 +497,6 @@ def check_user_updates(chat_id: str, course_idx: int = None):
             time.sleep(1)
 
     # Kullanıcı verilerini kaydet
-    from common.config import save_all_users
 
     save_all_users(users)
 
@@ -563,6 +713,7 @@ def check_for_updates():
                     )
                     changes.append(f"[bold green][{course_name}] YENİ ÖDEV: {assign['name']}")
                     changes_table.add_row(username, course_name, f"📄 Yeni Ödev: {assign['name']}")
+
                 else:
                     # Tarih değişti mi?
                     if assign["end_date"] != saved_assign.get("end_date"):
@@ -785,7 +936,6 @@ def check_for_updates():
     console.print("[italic white]Kontrol tamamlandı.")
 
     # Kullanıcı verilerini kaydet (last_check güncellemeleri için)
-    from common.config import save_all_users
 
     save_all_users(users)
     console.print("[dim]Veriler kaydedildi.")
@@ -867,6 +1017,8 @@ if __name__ == "__main__":
                     time.sleep(1)
             # Live kapandıktan sonra kontrol yap
             check_and_announce_sks_menu()
+            check_ari24_updates()
+            check_daily_bulletin()
             check_for_updates()
     except KeyboardInterrupt:
         console.print("\n[bold red]Program kullanıcı tarafından durduruldu.")

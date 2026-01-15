@@ -10,10 +10,28 @@ from telebot import types
 import bot.instance as bc
 from bot.instance import START_TIME
 from bot.instance import bot_instance as bot
-from bot.keyboards import build_cancel_keyboard, build_main_keyboard
+from bot.keyboards import (
+    build_cancel_keyboard,
+    build_main_keyboard,
+    build_user_menu_keyboard,
+)
 from common.config import load_all_users
 from common.utils import escape_html, load_saved_grades, update_user_data
 from services.calendar.itu_calendar import ITUCalendarService
+
+# ... (omitted)
+
+
+@bot.message_handler(func=lambda message: message.text == "🔙 Geri")
+def go_back_main(message):
+    """
+    Ana menüye dönüş sağlar.
+    """
+    bot.send_message(
+        message.chat.id,
+        "Menüye dönüldü.",
+        reply_markup=build_main_keyboard(),
+    )
 
 
 def _is_cancel_text(text: str) -> bool:
@@ -22,6 +40,18 @@ def _is_cancel_text(text: str) -> bool:
         return False
     t = text.strip().lower()
     return "iptal" in t or "cancel" in t or "⛔" in text
+
+
+@bot.message_handler(func=lambda message: message.text == "👤 Kullanıcı")
+def show_user_menu(message):
+    """
+    Kullanıcı ayarları alt menüsünü gösterir.
+    """
+    bot.send_message(
+        message.chat.id,
+        "👤 Kullanıcı Menüsü:",
+        reply_markup=build_user_menu_keyboard(),
+    )
 
 
 @bot.message_handler(commands=["start", "help"])

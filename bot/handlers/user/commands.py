@@ -10,6 +10,16 @@ Modüler yapı için her kategori ayrı dosyada tanımlıdır:
 """
 
 # Import all command handlers from submodules to register them with the bot
+from .ari24_commands import (
+    callback_pagination,
+    callback_subscribe,
+    callback_unsubscribe,
+    discover_events,
+    my_clubs,
+    show_ari24_menu,
+    subscribe_menu,
+    toggle_daily_bulletin,
+)
 from .auth_commands import (
     process_password,
     process_username,
@@ -77,4 +87,13 @@ __all__ = [
     "show_status",
     "leave_system",
     "show_academic_calendar",
+    # Arı24
+    "show_ari24_menu",
+    "discover_events",
+    "subscribe_menu",
+    "callback_subscribe",
+    "my_clubs",
+    "callback_unsubscribe",
+    "toggle_daily_bulletin",
+    "callback_pagination",
 ]
