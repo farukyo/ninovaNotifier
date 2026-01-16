@@ -669,6 +669,7 @@ def get_grades(session, base_url, chat_id, username, password):
             "assignments": [],
             "files": [],
             "announcements": [],
+            "fetch_success": True,  # Network hatalarında False yapılacak
         }
 
         # Not tablosunu bul (table.data veya id'si rpGalileoNot olan spanların bulunduğu tablo)

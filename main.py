@@ -494,39 +494,41 @@ def check_user_updates(chat_id: str, course_idx: int = None, silent: bool = Fals
                 changes.append(f"YENİ DUYURU: {ann['title']}")
 
         # SİLİNMİŞ VERİLERİ KONTROL ET
+        # SADECE fetch_success True ise silme kontrolü yap
+        # (Network hatası durumunda boş veri "silindi" olarak algılanmasın)
+        if current_data.get("fetch_success", True):
+            # SİLİNMİŞ NOTLAR
+            current_grade_keys = set(current_course_grades.keys())
+            for saved_key in saved_course_grades:
+                if saved_key not in current_grade_keys:
+                    e_saved_key = escape_html(saved_key)
+                    sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
+                    changes.append(f"NOT SİLİNDİ: {saved_key}")
 
-        # SİLİNMİŞ NOTLAR
-        current_grade_keys = set(current_course_grades.keys())
-        for saved_key in saved_course_grades:
-            if saved_key not in current_grade_keys:
-                e_saved_key = escape_html(saved_key)
-                sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
-                changes.append(f"NOT SİLİNDİ: {saved_key}")
+            # SİLİNMİŞ ÖDEVLER
+            current_assign_ids = {a.get("id") for a in current_assignments}
+            for saved_assign in saved_assignments:
+                if saved_assign.get("id") not in current_assign_ids:
+                    e_assign_name = escape_html(saved_assign.get("name", "Bilinmeyen Ödev"))
+                    sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_assign_name}")
+                    changes.append(f"ÖDEV SİLİNDİ: {saved_assign.get('name')}")
 
-        # SİLİNMİŞ ÖDEVLER
-        current_assign_ids = {a.get("id") for a in current_assignments}
-        for saved_assign in saved_assignments:
-            if saved_assign.get("id") not in current_assign_ids:
-                e_assign_name = escape_html(saved_assign.get("name", "Bilinmeyen Ödev"))
-                sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_assign_name}")
-                changes.append(f"ÖDEV SİLİNDİ: {saved_assign.get('name')}")
+            # SİLİNMİŞ DOSYALAR
+            current_file_urls = {f.get("url") for f in current_files}
+            for saved_file in saved_files:
+                if saved_file.get("url") not in current_file_urls:
+                    e_file_name = escape_html(saved_file.get("name", "Bilinmeyen Dosya"))
+                    icon = get_file_icon(saved_file.get("name", "").split("/")[-1])
+                    sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_file_name}")
+                    changes.append(f"DOSYA SİLİNDİ: {saved_file.get('name')}")
 
-        # SİLİNMİŞ DOSYALAR
-        current_file_urls = {f.get("url") for f in current_files}
-        for saved_file in saved_files:
-            if saved_file.get("url") not in current_file_urls:
-                e_file_name = escape_html(saved_file.get("name", "Bilinmeyen Dosya"))
-                icon = get_file_icon(saved_file.get("name", "").split("/")[-1])
-                sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_file_name}")
-                changes.append(f"DOSYA SİLİNDİ: {saved_file.get('name')}")
-
-        # SİLİNMİŞ DUYURULAR
-        current_ann_ids = {a.get("id") for a in current_announcements}
-        for s_ann_id, s_ann in saved_ann_map.items():
-            if s_ann_id not in current_ann_ids:
-                e_ann_title = escape_html(s_ann.get("title", "Bilinmeyen Duyuru"))
-                sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_ann_title}")
-                changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
+            # SİLİNMİŞ DUYURULAR
+            current_ann_ids = {a.get("id") for a in current_announcements}
+            for s_ann_id, s_ann in saved_ann_map.items():
+                if s_ann_id not in current_ann_ids:
+                    e_ann_title = escape_html(s_ann.get("title", "Bilinmeyen Duyuru"))
+                    sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_ann_title}")
+                    changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
 
         # BİLDİRİM GÖNDERME
         if sections_changes and not silent:
@@ -915,45 +917,47 @@ def check_for_updates():
                         # Önceki tam içeriği koru
                         ann["content"] = saved_ann.get("content", "")
 
-            # Silinen Duyurular
-            for s_ann_id, s_ann in saved_ann_map.items():
-                if s_ann_id not in current_ann_ids:
-                    e_ann_title = escape_html(s_ann.get("title", "Bilinmeyen Duyuru"))
-                    sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_ann_title}")
-                    changes.append(
-                        f"[bold red][{course_name}] DUYURU SİLİNDİ: {s_ann.get('title')}"
-                    )
-
             # --- SİLİNMİŞ VERİLERİ KONTROL ET ---
+            # SADECE fetch_success True ise silme kontrolü yap
+            # (Network hatası durumunda boş veri "silindi" olarak algılanmasın)
+            if current_data.get("fetch_success", True):
+                # Silinen Duyurular
+                for s_ann_id, s_ann in saved_ann_map.items():
+                    if s_ann_id not in current_ann_ids:
+                        e_ann_title = escape_html(s_ann.get("title", "Bilinmeyen Duyuru"))
+                        sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_ann_title}")
+                        changes.append(
+                            f"[bold red][{course_name}] DUYURU SİLİNDİ: {s_ann.get('title')}"
+                        )
 
-            # SİLİNMİŞ NOTLAR
-            current_grade_keys = set(current_course_grades.keys())
-            for saved_key in saved_course_grades:
-                if saved_key not in current_grade_keys:
-                    e_saved_key = escape_html(saved_key)
-                    sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
-                    changes.append(f"[bold red][{course_name}] NOT SİLİNDİ: {saved_key}")
+                # SİLİNMİŞ NOTLAR
+                current_grade_keys = set(current_course_grades.keys())
+                for saved_key in saved_course_grades:
+                    if saved_key not in current_grade_keys:
+                        e_saved_key = escape_html(saved_key)
+                        sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
+                        changes.append(f"[bold red][{course_name}] NOT SİLİNDİ: {saved_key}")
 
-            # SİLİNMİŞ ÖDEVLER
-            current_assign_ids = {a.get("id") for a in current_assignments}
-            for saved_assign in saved_assignments:
-                if saved_assign.get("id") not in current_assign_ids:
-                    e_assign_name = escape_html(saved_assign.get("name", "Bilinmeyen Ödev"))
-                    sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_assign_name}")
-                    changes.append(
-                        f"[bold red][{course_name}] ÖDEV SİLİNDİ: {saved_assign.get('name')}"
-                    )
+                # SİLİNMİŞ ÖDEVLER
+                current_assign_ids = {a.get("id") for a in current_assignments}
+                for saved_assign in saved_assignments:
+                    if saved_assign.get("id") not in current_assign_ids:
+                        e_assign_name = escape_html(saved_assign.get("name", "Bilinmeyen Ödev"))
+                        sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_assign_name}")
+                        changes.append(
+                            f"[bold red][{course_name}] ÖDEV SİLİNDİ: {saved_assign.get('name')}"
+                        )
 
-            # SİLİNMİŞ DOSYALAR
-            current_file_urls = {f.get("url") for f in current_files}
-            for saved_file in saved_files:
-                if saved_file.get("url") not in current_file_urls:
-                    e_file_name = escape_html(saved_file.get("name", "Bilinmeyen Dosya"))
-                    icon = get_file_icon(saved_file.get("name", "").split("/")[-1])
-                    sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_file_name}")
-                    changes.append(
-                        f"[bold red][{course_name}] DOSYA SİLİNDİ: {saved_file.get('name')}"
-                    )
+                # SİLİNMİŞ DOSYALAR
+                current_file_urls = {f.get("url") for f in current_files}
+                for saved_file in saved_files:
+                    if saved_file.get("url") not in current_file_urls:
+                        e_file_name = escape_html(saved_file.get("name", "Bilinmeyen Dosya"))
+                        icon = get_file_icon(saved_file.get("name", "").split("/")[-1])
+                        sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_file_name}")
+                        changes.append(
+                            f"[bold red][{course_name}] DOSYA SİLİNDİ: {saved_file.get('name')}"
+                        )
 
             # --- BİLDİRİM GÖNDERME ---
             if sections_changes:
