@@ -145,3 +145,162 @@ class TestBuildCancelKeyboard:
                 all_texts.append(button.text if hasattr(button, "text") else str(button))
 
         assert any("İptal" in str(t) for t in all_texts)
+
+
+class TestBuildUserMenuKeyboard:
+    """Tests for build_user_menu_keyboard function."""
+
+    def test_returns_keyboard_markup(self):
+        """Test that function returns ReplyKeyboardMarkup."""
+        from telebot import types
+
+        from bot.keyboards import build_user_menu_keyboard
+
+        result = build_user_menu_keyboard()
+        assert isinstance(result, types.ReplyKeyboardMarkup)
+
+    def test_keyboard_is_resizable(self):
+        """Test that keyboard is resizable."""
+        from bot.keyboards import build_user_menu_keyboard
+
+        result = build_user_menu_keyboard()
+        assert result.resize_keyboard
+
+    def test_has_user_settings_buttons(self):
+        """Test that keyboard has user-related buttons."""
+        from bot.keyboards import build_user_menu_keyboard
+
+        result = build_user_menu_keyboard()
+
+        all_texts = []
+        for row in result.keyboard:
+            for button in row:
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
+
+        assert any("Kullanıcı" in str(t) for t in all_texts)
+        assert any("Şifre" in str(t) for t in all_texts)
+        assert any("Geri" in str(t) for t in all_texts)
+
+
+class TestBuildExtraFeaturesKeyboard:
+    """Tests for build_extra_features_keyboard function."""
+
+    def test_returns_keyboard_markup(self):
+        """Test that function returns ReplyKeyboardMarkup."""
+        from telebot import types
+
+        from bot.keyboards import build_extra_features_keyboard
+
+        result = build_extra_features_keyboard()
+        assert isinstance(result, types.ReplyKeyboardMarkup)
+
+    def test_keyboard_is_resizable(self):
+        """Test that keyboard is resizable."""
+        from bot.keyboards import build_extra_features_keyboard
+
+        result = build_extra_features_keyboard()
+        assert result.resize_keyboard
+
+    def test_has_ari24_button(self):
+        """Test that keyboard has Arı24 feature button."""
+        from bot.keyboards import build_extra_features_keyboard
+
+        result = build_extra_features_keyboard()
+
+        all_texts = []
+        for row in result.keyboard:
+            for button in row:
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
+
+        assert any("Arı24" in str(t) for t in all_texts)
+
+    def test_has_back_button(self):
+        """Test that keyboard has back button."""
+        from bot.keyboards import build_extra_features_keyboard
+
+        result = build_extra_features_keyboard()
+
+        all_texts = []
+        for row in result.keyboard:
+            for button in row:
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
+
+        assert any("Geri" in str(t) for t in all_texts)
+
+
+class TestBuildAri24MenuKeyboard:
+    """Tests for build_ari24_menu_keyboard function."""
+
+    def test_returns_keyboard_markup(self):
+        """Test that function returns ReplyKeyboardMarkup."""
+        from telebot import types
+
+        from bot.keyboards import build_ari24_menu_keyboard
+
+        result = build_ari24_menu_keyboard()
+        assert isinstance(result, types.ReplyKeyboardMarkup)
+
+    def test_keyboard_is_resizable(self):
+        """Test that keyboard is resizable."""
+        from bot.keyboards import build_ari24_menu_keyboard
+
+        result = build_ari24_menu_keyboard()
+        assert result.resize_keyboard
+
+    def test_has_explore_button(self):
+        """Test that keyboard has explore button."""
+        from bot.keyboards import build_ari24_menu_keyboard
+
+        result = build_ari24_menu_keyboard()
+
+        all_texts = []
+        for row in result.keyboard:
+            for button in row:
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
+
+        assert any("Keşfet" in str(t) for t in all_texts)
+
+    def test_has_news_button(self):
+        """Test that keyboard has news button."""
+        from bot.keyboards import build_ari24_menu_keyboard
+
+        result = build_ari24_menu_keyboard()
+
+        all_texts = []
+        for row in result.keyboard:
+            for button in row:
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
+
+        assert any("Haberler" in str(t) for t in all_texts)
+
+    def test_daily_sub_status_false_shows_x(self):
+        """Test that daily_sub_status=False shows ❌."""
+        from bot.keyboards import build_ari24_menu_keyboard
+
+        result = build_ari24_menu_keyboard(daily_sub_status=False)
+
+        all_texts = []
+        for row in result.keyboard:
+            for button in row:
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
+
+        # Find the daily bulletin button
+        bulletin_button = next((t for t in all_texts if "Bülten" in str(t)), None)
+        assert bulletin_button is not None
+        assert "❌" in str(bulletin_button)
+
+    def test_daily_sub_status_true_shows_check(self):
+        """Test that daily_sub_status=True shows ✅."""
+        from bot.keyboards import build_ari24_menu_keyboard
+
+        result = build_ari24_menu_keyboard(daily_sub_status=True)
+
+        all_texts = []
+        for row in result.keyboard:
+            for button in row:
+                all_texts.append(button.text if hasattr(button, "text") else str(button))
+
+        # Find the daily bulletin button
+        bulletin_button = next((t for t in all_texts if "Bülten" in str(t)), None)
+        assert bulletin_button is not None
+        assert "✅" in str(bulletin_button)

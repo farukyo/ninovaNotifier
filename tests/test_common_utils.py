@@ -813,3 +813,275 @@ class TestSanitizeHtmlAdvanced:
 
         result = sanitize_html_for_telegram("<del>Deleted</del>")
         assert "<s>" in result
+
+
+class TestGetAssignmentStatus:
+    """Tests for get_assignment_status function."""
+
+    def test_submitted_assignment(self):
+        """Test that submitted assignments return green check."""
+        from common.utils import get_assignment_status
+
+        assignment = {"is_submitted": True, "end_date": "15 Ocak 2026 23:59"}
+        icon, is_active = get_assignment_status(assignment)
+
+        assert icon == "✅"
+        assert is_active is False
+
+    def test_expired_not_submitted(self):
+        """Test that expired unsubmitted assignments return red X."""
+        from common.utils import get_assignment_status
+
+        # Use a date in the past
+        assignment = {"is_submitted": False, "end_date": "01 Ocak 2020 23:59"}
+        icon, is_active = get_assignment_status(assignment)
+
+        assert icon == "❌"
+        assert is_active is False
+
+    def test_upcoming_assignment_more_than_3_days(self):
+        """Test upcoming assignments with more than 3 days left."""
+        from datetime import datetime, timedelta
+
+        from common.utils import get_assignment_status
+
+        future_date = datetime.now() + timedelta(days=10)
+        date_str = future_date.strftime("%d Ocak 2026 23:59").replace("January", "Ocak")
+        # Build a valid date string
+        day = future_date.day
+        month_names = {
+            1: "Ocak",
+            2: "Şubat",
+            3: "Mart",
+            4: "Nisan",
+            5: "Mayıs",
+            6: "Haziran",
+            7: "Temmuz",
+            8: "Ağustos",
+            9: "Eylül",
+            10: "Ekim",
+            11: "Kasım",
+            12: "Aralık",
+        }
+        month = month_names[future_date.month]
+        year = future_date.year
+        date_str = f"{day:02d} {month} {year} 23:59"
+
+        assignment = {"is_submitted": False, "end_date": date_str}
+        icon, is_active = get_assignment_status(assignment)
+
+        assert icon == "🟡"
+        assert is_active is True
+
+    def test_upcoming_assignment_less_than_3_days(self):
+        """Test upcoming assignments with less than 3 days left."""
+        from datetime import datetime, timedelta
+
+        from common.utils import get_assignment_status
+
+        future_date = datetime.now() + timedelta(days=2)
+        day = future_date.day
+        month_names = {
+            1: "Ocak",
+            2: "Şubat",
+            3: "Mart",
+            4: "Nisan",
+            5: "Mayıs",
+            6: "Haziran",
+            7: "Temmuz",
+            8: "Ağustos",
+            9: "Eylül",
+            10: "Ekim",
+            11: "Kasım",
+            12: "Aralık",
+        }
+        month = month_names[future_date.month]
+        year = future_date.year
+        date_str = f"{day:02d} {month} {year} 23:59"
+
+        assignment = {"is_submitted": False, "end_date": date_str}
+        icon, is_active = get_assignment_status(assignment)
+
+        assert icon == "⚠️"
+        assert is_active is True
+
+    def test_unparseable_date(self):
+        """Test that unparseable dates return neutral status."""
+        from common.utils import get_assignment_status
+
+        assignment = {"is_submitted": False, "end_date": "invalid date"}
+        icon, is_active = get_assignment_status(assignment)
+
+        assert icon == "⚪"
+        assert is_active is True
+
+    def test_missing_end_date(self):
+        """Test handling of missing end_date."""
+        from common.utils import get_assignment_status
+
+        assignment = {"is_submitted": False}
+        icon, is_active = get_assignment_status(assignment)
+
+        assert icon == "⚪"
+        assert is_active is True
+
+
+class TestSplitLongMessage:
+    """Tests for split_long_message function."""
+
+    def test_short_message_not_split(self):
+        """Test that short messages are not split."""
+        from common.utils import split_long_message
+
+        message = "Short message"
+        result = split_long_message(message)
+
+        assert result == [message]
+
+    def test_message_under_limit(self):
+        """Test message exactly under limit."""
+        from common.utils import split_long_message
+
+        message = "A" * 3999
+        result = split_long_message(message, limit=4000)
+
+        assert len(result) == 1
+
+    def test_message_over_limit_splits(self):
+        """Test that long messages are split."""
+        from common.utils import split_long_message
+
+        message = "A" * 100 + "\n" + "B" * 100 + "\n" + "C" * 100
+        result = split_long_message(message, limit=150)
+
+        assert len(result) > 1
+        for chunk in result:
+            assert len(chunk) <= 150
+
+    def test_respects_newline_boundaries(self):
+        """Test that splits respect newline boundaries."""
+        from common.utils import split_long_message
+
+        lines = ["Line " + str(i) for i in range(20)]
+        message = "\n".join(lines)
+        result = split_long_message(message, limit=50)
+
+        # Verify each chunk ends cleanly (no broken lines at limit)
+        assert len(result) > 1
+
+    def test_single_long_line_force_split(self):
+        """Test that single very long line is force split."""
+        from common.utils import split_long_message
+
+        message = "A" * 200  # Single line over 100 limit
+        result = split_long_message(message, limit=100)
+
+        assert len(result) == 2
+        assert len(result[0]) == 100
+        assert len(result[1]) == 100
+
+    def test_empty_message(self):
+        """Test empty message returns as-is."""
+        from common.utils import split_long_message
+
+        result = split_long_message("")
+
+        assert result == [""]
+
+
+class TestDeleteCourseData:
+    """Tests for delete_course_data function."""
+
+    def test_delete_existing_course(self, temp_dir):
+        """Test deleting an existing course."""
+        import json
+
+        import common.utils
+
+        data_file = os.path.join(temp_dir, "data.json")
+        initial_data = {
+            "12345": {
+                "/Sinif/123": {"grades": {}},
+                "/Sinif/456": {"grades": {}},
+            }
+        }
+        with open(data_file, "w", encoding="utf-8") as f:
+            json.dump(initial_data, f)
+
+        original = common.utils.DATA_FILE
+        common.utils.DATA_FILE = data_file
+
+        result = common.utils.delete_course_data("12345", "/Sinif/123")
+
+        # Reload and check
+        with open(data_file, encoding="utf-8") as f:
+            saved_data = json.load(f)
+
+        common.utils.DATA_FILE = original
+
+        assert result is True
+        assert "/Sinif/123" not in saved_data["12345"]
+        assert "/Sinif/456" in saved_data["12345"]
+
+    def test_delete_last_course_removes_user(self, temp_dir):
+        """Test that deleting last course removes user entry."""
+        import json
+
+        import common.utils
+
+        data_file = os.path.join(temp_dir, "data.json")
+        initial_data = {"12345": {"/Sinif/123": {"grades": {}}}}
+        with open(data_file, "w", encoding="utf-8") as f:
+            json.dump(initial_data, f)
+
+        original = common.utils.DATA_FILE
+        common.utils.DATA_FILE = data_file
+
+        result = common.utils.delete_course_data("12345", "/Sinif/123")
+
+        with open(data_file, encoding="utf-8") as f:
+            saved_data = json.load(f)
+
+        common.utils.DATA_FILE = original
+
+        assert result is True
+        assert "12345" not in saved_data
+
+    def test_delete_nonexistent_course(self, temp_dir):
+        """Test deleting a nonexistent course returns False."""
+        import json
+
+        import common.utils
+
+        data_file = os.path.join(temp_dir, "data.json")
+        initial_data = {"12345": {"/Sinif/123": {"grades": {}}}}
+        with open(data_file, "w", encoding="utf-8") as f:
+            json.dump(initial_data, f)
+
+        original = common.utils.DATA_FILE
+        common.utils.DATA_FILE = data_file
+
+        result = common.utils.delete_course_data("12345", "/Sinif/nonexistent")
+
+        common.utils.DATA_FILE = original
+
+        assert result is False
+
+    def test_delete_nonexistent_user(self, temp_dir):
+        """Test deleting from nonexistent user returns False."""
+        import json
+
+        import common.utils
+
+        data_file = os.path.join(temp_dir, "data.json")
+        with open(data_file, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+
+        original = common.utils.DATA_FILE
+        common.utils.DATA_FILE = data_file
+
+        result = common.utils.delete_course_data("99999", "/Sinif/123")
+
+        common.utils.DATA_FILE = original
+
+        assert result is False
