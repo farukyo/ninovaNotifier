@@ -1,10 +1,10 @@
 import io
 import math
 
-import matplotlib
+import matplotlib as mpl
 
 # Use a non-interactive backend for server environments
-matplotlib.use("Agg")
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm
@@ -64,10 +64,7 @@ def generate_bell_curve(grades_data: dict) -> io.BytesIO:
     fig, axes = plt.subplots(rows, cols, figsize=(10, 4 * rows), constrained_layout=True)
 
     # Ensure axes is iterable even if single plot
-    if num_plots == 1:
-        axes = [axes]
-    else:
-        axes = axes.flatten()
+    axes = [axes] if num_plots == 1 else axes.flatten()
 
     # Style
     plt.style.use("bmh")  # 'ggplot', 'seaborn-darkgrid', 'bmh' are good options

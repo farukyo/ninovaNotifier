@@ -15,15 +15,15 @@ from .scraper import (
 
 __all__ = [
     "LoginFailedError",
-    "login_to_ninova",
-    "get_announcements",
+    "download_file",
+    "get_all_files",
     "get_announcement_detail",
-    "get_assignments",
+    "get_announcements",
     "get_assignment_detail",
+    "get_assignments",
+    "get_class_files",
+    "get_class_info",
     "get_grades",
     "get_user_courses",
-    "download_file",
-    "get_class_files",
-    "get_all_files",
-    "get_class_info",
+    "login_to_ninova",
 ]

@@ -93,6 +93,7 @@ def get_announcements(session, base_url):
 
         return announcements
     except Exception as e:
+        logger.error(f"Duyuru çekme hatası: {e}")
         console.print(f"[bold red]Duyuru çekme hatası: {e}")
         return []
 
@@ -142,6 +143,7 @@ def get_announcement_detail(session, url):
                     junk.decompose()
                 return sanitize_html_for_telegram(str(content_div))
     except Exception as e:
+        logger.error(f"Duyuru detayı çekme hatası: {e}")
         console.print(f"[bold red]Duyuru detayı çekme hatası: {e}")
     return ""
 
@@ -354,12 +356,10 @@ def get_assignments(session, base_url):
                         is_submitted = True
 
                 # OdevGonder linki varsa kontrol et (teslim edilmemiş olabilir)
-                if "OdevGonder" in cell_html:
-                    # Ama yükleme sayısı > 0 ise yine de teslim edilmiş sayılır
-                    if not submitted_match or (
-                        submitted_match and int(submitted_match.group(1)) == 0
-                    ):
-                        is_submitted = False
+                if "OdevGonder" in cell_html and (
+                    not submitted_match or (submitted_match and int(submitted_match.group(1)) == 0)
+                ):
+                    is_submitted = False
 
                 assignments.append(
                     {
@@ -390,6 +390,7 @@ def get_assignments(session, base_url):
 
         return assignments
     except Exception as e:
+        logger.error(f"Ödev çekme hatası: {e}")
         console.print(f"[bold red]Ödev çekme hatası: {e}")
         return []
 
@@ -492,6 +493,7 @@ def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type
 
         return files
     except Exception as e:
+        logger.error(f"Dosya listesi çekme hatası: {e}")
         console.print(f"[bold red]Dosya listesi çekme hatası: {e}")
         return []
 
@@ -606,6 +608,7 @@ def get_user_courses(session):
 
         return courses
     except Exception as e:
+        logger.error(f"Ders listesi çekme hatası: {e}")
         console.print(f"[bold red]Ders listesi çekme hatası: {e}")
         return []
 
@@ -779,6 +782,7 @@ def get_grades(session, base_url, chat_id, username, password):
     except LoginFailedError:
         raise
     except Exception as e:
+        logger.error(f"Veri çekme hatası (Notlar vs.): {e}")
         console.print(f"[bold red]Veri çekme hatası: {e}")
         return None
 

@@ -1,12 +1,12 @@
 import json
 import logging
-import os
 import random
 import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from pathlib import Path
 
 import requests
 from rich.live import Live
@@ -48,7 +48,7 @@ from services.sks.announcer import check_and_announce_sks_menu
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler(os.path.join(LOGS_DIR, "app.log"), encoding="utf-8")],
+    handlers=[logging.FileHandler(Path(LOGS_DIR) / "app.log", encoding="utf-8")],
 )
 logger = logging.getLogger("ninova")
 
@@ -99,10 +99,10 @@ def check_ari24_updates():
     """
     Checks Arı24 events and notifies subscribed users.
     """
-    state_file = os.path.join(DATA_DIR, "ari24_state.json")
+    state_file = Path(DATA_DIR) / "ari24_state.json"
     try:
-        if os.path.exists(state_file):
-            with open(state_file) as f:
+        if Path(state_file).exists():
+            with Path(state_file).open() as f:
                 state = json.load(f)
         else:
             state = {"notified_urls": []}
@@ -165,11 +165,7 @@ def check_ari24_updates():
         # --- NEWS CHECK ---
         notified_news = set(state.get("notified_news", []))
         current_news = client.get_news(limit=5)
-        new_news_items = []
-
-        for item in current_news:
-            if item["link"] not in notified_news:
-                new_news_items.append(item)
+        new_news_items = [item for item in current_news if item["link"] not in notified_news]
 
         if new_news_items:
             # Broadcast to ALL users
@@ -194,7 +190,7 @@ def check_ari24_updates():
 
             state["notified_news"] = list(notified_news)[-200:]  # Keep last 200
 
-        with open(state_file, "w") as f:
+        with Path(state_file).open("w") as f:
             json.dump(state, f)
 
     except Exception as e:
@@ -212,12 +208,12 @@ def check_daily_bulletin():
     if now.hour != 8:
         return
 
-    state_file = os.path.join(DATA_DIR, "daily_bulletin_state.json")
+    state_file = Path(DATA_DIR) / "daily_bulletin_state.json"
     today_str = now.strftime("%Y-%m-%d")
 
     try:
-        if os.path.exists(state_file):
-            with open(state_file) as f:
+        if Path(state_file).exists():
+            with Path(state_file).open() as f:
                 state = json.load(f)
         else:
             state = {"last_sent_date": ""}
@@ -248,7 +244,7 @@ def check_daily_bulletin():
             # Nothing at all?
             # Mark sent and return
             state["last_sent_date"] = today_str
-            with open(state_file, "w") as f:
+            with Path(state_file).open("w") as f:
                 json.dump(state, f)
             return
 
@@ -289,14 +285,265 @@ def check_daily_bulletin():
 
         # Update state
         state["last_sent_date"] = today_str
-        with open(state_file, "w") as f:
+        with Path(state_file).open("w") as f:
             json.dump(state, f)
 
     except Exception as e:
         logger.error(f"Daily bulletin error: {e}")
 
 
-def check_user_updates(chat_id: str, course_idx: int = None, silent: bool = False):
+def _compare_course_data(
+    current_data,
+    saved_data,
+    user_session,
+    course_name,
+    include_reminders=False,
+    include_console_log=False,
+    username="",
+    changes_table=None,
+):
+    """
+    Bir ders için mevcut ve kayıtlı veriyi karşılaştırıp değişiklik listesi üretir.
+
+    :param current_data: Ninova'dan çekilen güncel ders verisi
+    :param saved_data: Daha önce kaydedilmiş ders verisi
+    :param user_session: requests.Session (duyuru detayı çekmek için)
+    :param course_name: Ders adı
+    :param include_reminders: Ödev hatırlatma kontrolü yapılsın mı
+    :param include_console_log: Rich console'a log yazılsın mı
+    :param username: Kullanıcı adı (console log için)
+    :param changes_table: Rich Table nesnesi (console log için)
+    :return: (sections_changes, change_descriptions) tuple
+    """
+    if not isinstance(saved_data, dict):
+        saved_data = {}
+
+    current_grades = current_data.get("grades", {})
+    current_assignments = current_data.get("assignments", [])
+    current_files = current_data.get("files", [])
+    current_announcements = current_data.get("announcements", [])
+
+    saved_grades = saved_data.get("grades", {})
+    saved_assignments = saved_data.get("assignments", [])
+    saved_files = saved_data.get("files", [])
+    saved_announcements = saved_data.get("announcements", [])
+
+    sections_changes = []
+    changes = []
+
+    # --- 1. NOT KONTROLÜ ---
+    for key, entry in current_grades.items():
+        new_val = entry["not"]
+        e_key, e_new_val = escape_html(key), escape_html(new_val)
+
+        if key not in saved_grades:
+            not_msg = f"📝 <b>YENİ NOT:</b> {e_key} -> {e_new_val}"
+            details = entry.get("detaylar", {})
+            detail_lines = []
+            if entry.get("agirlik"):
+                detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
+            if "class_avg" in details:
+                detail_lines.append(f"Sınıf Ort: {details['class_avg']}")
+            if "std_dev" in details:
+                detail_lines.append(f"Std. Sapma: {details['std_dev']}")
+            if "student_count" in details:
+                detail_lines.append(f"Kişi Sayısı: {details['student_count']}")
+            if "rank" in details:
+                detail_lines.append(f"Sıralama: {details['rank']}")
+            if detail_lines:
+                not_msg += "\n" + " | ".join(detail_lines)
+            sections_changes.append(not_msg)
+            changes.append(f"YENİ NOT: {key} -> {new_val}")
+            if include_console_log and changes_table:
+                changes_table.add_row(username, course_name, f"📝 Yeni Not: {key} -> {new_val}")
+        else:
+            old_entry = saved_grades[key]
+            old_val = (old_entry.get("not") if isinstance(old_entry, dict) else old_entry) or "?"
+            if old_val != new_val:
+                e_old_val = escape_html(old_val)
+                upd_msg = f"🔄 <b>NOT GÜNCELLENDİ:</b> {e_key}\n{e_old_val} ➡️ {e_new_val}"
+                details = entry.get("detaylar", {})
+                detail_lines = []
+                if entry.get("agirlik"):
+                    detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
+                if "class_avg" in details:
+                    detail_lines.append(f"Ort: {details['class_avg']}")
+                if "rank" in details:
+                    detail_lines.append(f"Sıra: {details['rank']}")
+                if detail_lines:
+                    upd_msg += "\n" + " | ".join(detail_lines)
+                sections_changes.append(upd_msg)
+                changes.append(f"NOT GÜNCELLENDİ: {key} ({old_val} -> {new_val})")
+                if include_console_log and changes_table:
+                    changes_table.add_row(
+                        username, course_name, f"🔄 Not Güncellendi: {key} ({old_val} -> {new_val})"
+                    )
+
+    # --- 2. ÖDEV KONTROLÜ & HATIRLATMA ---
+    for assign in current_assignments:
+        saved_assign = next((a for a in saved_assignments if a.get("id") == assign.get("id")), None)
+        e_assign_name = escape_html(assign["name"])
+
+        if not saved_assign:
+            sections_changes.append(
+                f"📅 <b>YENİ ÖDEV:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
+                f"Son Teslim: {assign['end_date']}"
+            )
+            changes.append(f"YENİ ÖDEV: {assign['name']}")
+            if include_console_log and changes_table:
+                changes_table.add_row(username, course_name, f"📄 Yeni Ödev: {assign['name']}")
+        else:
+            if assign["end_date"] != saved_assign.get("end_date"):
+                sections_changes.append(
+                    f"🕒 <b>TESLİM TARİHİ DEĞİŞTİ:</b> {e_assign_name}\n"
+                    f"Yeni Tarih: {assign['end_date']}"
+                )
+                changes.append(f"ÖDEV TARİHİ DEĞİŞTİ: {assign['name']}")
+                if include_console_log and changes_table:
+                    changes_table.add_row(
+                        username, course_name, f"🕒 Ödev Tarihi Değişti: {assign['name']}"
+                    )
+
+            # Teslim durumu değişti mi?
+            old_status = saved_assign.get("is_submitted")
+            new_status = assign.get("is_submitted")
+            if old_status is not None and old_status != new_status:
+                status_str = "✅ TESLİM EDİLDİ" if new_status else "❌ TESLİM GERİ ÇEKİLDİ"
+                sections_changes.append(
+                    f"🔄 <b>ÖDEV DURUMU GÜNCELLENDİ:</b> {e_assign_name}\nDurum: {status_str}"
+                )
+                changes.append(f"ÖDEV DURUMU DEĞİŞTİ: {assign['name']} ({status_str})")
+
+        # Hatırlatma sistemi
+        if include_reminders and not assign.get("is_submitted", False) and assign.get("end_date"):
+            due_date = parse_turkish_date(assign["end_date"])
+            if due_date:
+                time_left = due_date - datetime.now()
+                hours_left = time_left.total_seconds() / 3600
+                sent_reminders = []
+                if saved_assign and "reminders_sent" in saved_assign:
+                    sent_reminders = saved_assign["reminders_sent"]
+                elif saved_assign:
+                    saved_assign["reminders_sent"] = []
+
+                reminder_tag = None
+                reminder_msg = ""
+                if 0 < hours_left <= 3 and "3h" not in sent_reminders:
+                    reminder_tag = "3h"
+                    reminder_msg = f"🚨 <b>SON 3 SAAT!</b> ({e_assign_name})"
+                elif 3 < hours_left <= 24 and "24h" not in sent_reminders:
+                    reminder_tag = "24h"
+                    reminder_msg = f"⏳ <b>SON 24 SAAT!</b> ({e_assign_name})"
+
+                if reminder_tag:
+                    sections_changes.append(
+                        f"{reminder_msg}\nBitiş: {assign['end_date']}\n"
+                        f"<a href='{assign['url']}'>Ödeve Git</a>"
+                    )
+                    changes.append(f"HATIRLATMA ({reminder_tag}): {assign['name']}")
+                    assign["reminders_sent"] = [*sent_reminders, reminder_tag]
+                else:
+                    assign["reminders_sent"] = sent_reminders
+            elif saved_assign:
+                assign["reminders_sent"] = saved_assign.get("reminders_sent", [])
+
+    # --- 3. DOSYA KONTROLÜ ---
+    saved_file_map = {f.get("url"): f for f in saved_files}
+    for file in current_files:
+        f_url = file["url"]
+        if f_url not in saved_file_map:
+            e_file_name = escape_html(file["name"])
+            icon = get_file_icon(file["name"].split("/")[-1])
+            sections_changes.append(
+                f"{icon} <b>YENİ DOSYA:</b> <a href='{f_url}'>{e_file_name}</a>"
+            )
+            changes.append(f"YENİ DOSYA: {file['name']}")
+            if include_console_log and changes_table:
+                changes_table.add_row(username, course_name, f"📎 Yeni Dosya: {file['name']}")
+        else:
+            saved_file = saved_file_map[f_url]
+            name_changed = file["name"] != saved_file.get("name")
+            date_changed = file["date"] != saved_file.get("date")
+            if name_changed or date_changed:
+                e_file_name = escape_html(file["name"])
+                icon = get_file_icon(file["name"].split("/")[-1])
+                change_type = "GÜNCELLENDİ" if date_changed else "ADI DEĞİŞTİ"
+                sections_changes.append(
+                    f"{icon} <b>DOSYA {change_type}:</b> <a href='{f_url}'>{e_file_name}</a>"
+                )
+                changes.append(f"DOSYA {change_type}: {file['name']}")
+
+    # --- 4. DUYURU KONTROLÜ ---
+    saved_ann_map = {a.get("id"): a for a in saved_announcements}
+    current_ann_ids = {a.get("id") for a in current_announcements}
+
+    for ann in current_announcements:
+        ann_id = ann.get("id")
+        e_ann_title = escape_html(ann["title"])
+        e_ann_author = escape_html(ann.get("author", ""))
+
+        if ann_id not in saved_ann_map:
+            full_content = get_announcement_detail(user_session, ann["url"])
+            ann["content"] = full_content
+            ann_msg = f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
+            if include_reminders and e_ann_author:
+                ann_msg += f"\n👤 {e_ann_author} | 📅 {ann['date']}\n\n{full_content}"
+            sections_changes.append(ann_msg)
+            changes.append(f"YENİ DUYURU: {ann['title']}")
+            if include_console_log and changes_table:
+                changes_table.add_row(username, course_name, f"📣 Yeni Duyuru: {ann['title']}")
+        else:
+            saved_ann = saved_ann_map[ann_id]
+            changed = (
+                ann["title"] != saved_ann.get("title")
+                or ann.get("author") != saved_ann.get("author")
+                or ann.get("date") != saved_ann.get("date")
+            )
+            if changed:
+                full_content = get_announcement_detail(user_session, ann["url"])
+                ann["content"] = full_content
+                sections_changes.append(
+                    f"🔄 <b>DUYURU GÜNCELLENDİ:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
+                    f"\n👤 {e_ann_author} | 📅 {ann.get('date', '')}\n\n{full_content}"
+                )
+                changes.append(f"DUYURU GÜNCELLENDİ: {ann['title']}")
+            else:
+                ann["content"] = saved_ann.get("content", "")
+
+    # --- 5. SİLİNMİŞ VERİLERİ KONTROL ET ---
+    if current_data.get("fetch_success", True):
+        current_grade_keys = set(current_grades.keys())
+        for saved_key in saved_grades:
+            if saved_key not in current_grade_keys:
+                e_saved_key = escape_html(saved_key)
+                sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
+                changes.append(f"NOT SİLİNDİ: {saved_key}")
+
+        current_assign_ids = {a.get("id") for a in current_assignments}
+        for sa in saved_assignments:
+            if sa.get("id") not in current_assign_ids:
+                e_name = escape_html(sa.get("name", "Bilinmeyen Ödev"))
+                sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_name}")
+                changes.append(f"ÖDEV SİLİNDİ: {sa.get('name')}")
+
+        current_file_urls = {f.get("url") for f in current_files}
+        for sf in saved_files:
+            if sf.get("url") not in current_file_urls:
+                e_name = escape_html(sf.get("name", "Bilinmeyen Dosya"))
+                icon = get_file_icon(sf.get("name", "").split("/")[-1])
+                sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_name}")
+                changes.append(f"DOSYA SİLİNDİ: {sf.get('name')}")
+
+        for s_ann_id, s_ann in saved_ann_map.items():
+            if s_ann_id not in current_ann_ids:
+                e_title = escape_html(s_ann.get("title", "Bilinmeyen Duyuru"))
+                sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_title}")
+                changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
+
+    return sections_changes, changes
+
+
+def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool = False):
     """
     Belirli bir kullanıcının notlarını kontrol eder.
 
@@ -337,6 +584,14 @@ def check_user_updates(chat_id: str, course_idx: int = None, silent: bool = Fals
         return {"success": False, "message": "Kullanıcı bilgileri eksik."}
 
     password = decrypt_password(encrypted_password)
+    if password is None:
+        send_telegram_message(
+            chat_id,
+            "⚠️ <b>Şifre Hatası</b>\n\nŞifreniz çözülemedi. Lütfen şifrenizi yeniden girin.",
+            is_error=True,
+        )
+        return {"success": False, "message": "Şifre çözme hatası."}
+
     saved_grades = load_saved_grades()
     user_saved_grades = saved_grades.get(chat_id, {})
 
@@ -347,7 +602,7 @@ def check_user_updates(chat_id: str, course_idx: int = None, silent: bool = Fals
 
     user_session = USER_SESSIONS[chat_id]
     all_current_grades = {}
-    changes = []
+    all_changes = []
     telegram_messages = []
 
     with Progress(
@@ -380,173 +635,33 @@ def check_user_updates(chat_id: str, course_idx: int = None, silent: bool = Fals
             progress.update(task, advance=1)
             time.sleep(0.2)
 
-    # Değişiklikleri kontrol et
+    # Değişiklikleri kontrol et — ortak fonksiyon kullan
     for url, current_data in all_current_grades.items():
         course_name = current_data.get("course_name", "Bilinmeyen Ders")
-        current_course_grades = current_data.get("grades", {})
-        current_assignments = current_data.get("assignments", [])
-        current_files = current_data.get("files", [])
-
         saved_data = user_saved_grades.get(url, {})
-        if not isinstance(saved_data, dict):
-            saved_data = {}
-
-        saved_course_grades = saved_data.get("grades", {})
-        saved_assignments = saved_data.get("assignments", [])
-        saved_files = saved_data.get("files", [])
-
         e_course = escape_html(course_name)
-        sections_changes = []
 
-        # NOT KONTROLÜ
-        for key, entry in current_course_grades.items():
-            new_val = entry["not"]
-            e_key, e_new_val = escape_html(key), escape_html(new_val)
+        sections_changes, changes = _compare_course_data(
+            current_data, saved_data, user_session, course_name
+        )
 
-            if key not in saved_course_grades:
-                not_msg = f"📝 <b>YENİ NOT:</b> {e_key} -> {e_new_val}"
-                details = entry.get("detaylar", {})
-                detail_lines = []
-                if entry.get("agirlik"):
-                    detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
-                if "class_avg" in details:
-                    detail_lines.append(f"Sınıf Ort: {details['class_avg']}")
-                if "std_dev" in details:
-                    detail_lines.append(f"Std. Sapma: {details['std_dev']}")
-                if "student_count" in details:
-                    detail_lines.append(f"Kişi Sayısı: {details['student_count']}")
-                if "rank" in details:
-                    detail_lines.append(f"Sıralama: {details['rank']}")
-                if detail_lines:
-                    not_msg += "\n" + " | ".join(detail_lines)
-                sections_changes.append(not_msg)
-                changes.append(f"YENİ NOT: {key} -> {new_val}")
-            else:
-                old_entry = saved_course_grades[key]
-                old_val = (
-                    old_entry.get("not") if isinstance(old_entry, dict) else old_entry
-                ) or "?"
-                if old_val != new_val:
-                    e_old_val = escape_html(old_val)
-                    upd_msg = f"🔄 <b>NOT GÜNCELLENDİ:</b> {e_key}\n{e_old_val} ➡️ {e_new_val}"
-                    details = entry.get("detaylar", {})
-                    detail_lines = []
-                    if entry.get("agirlik"):
-                        detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
-                    if "class_avg" in details:
-                        detail_lines.append(f"Ort: {details['class_avg']}")
-                    if "rank" in details:
-                        detail_lines.append(f"Sıra: {details['rank']}")
-                    if detail_lines:
-                        upd_msg += "\n" + " | ".join(detail_lines)
-                    sections_changes.append(upd_msg)
-                    changes.append(f"NOT GÜNCELLENDİ: {key} ({old_val} -> {new_val})")
+        all_changes.extend(changes)
 
-        # ÖDEV KONTROLÜ
-        for assign in current_assignments:
-            saved_assign = next(
-                (a for a in saved_assignments if a.get("id") == assign.get("id")),
-                None,
-            )
-            e_assign_name = escape_html(assign["name"])
-
-            if not saved_assign:
-                sections_changes.append(
-                    f"📅 <b>YENİ ÖDEV:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
-                    f"Son Teslim: {assign['end_date']}"
-                )
-                changes.append(f"YENİ ÖDEV: {assign['name']}")
-            else:
-                if assign["end_date"] != saved_assign.get("end_date"):
-                    sections_changes.append(
-                        f"🕒 <b>TESLİM TARİHİ DEĞİŞTİ:</b> {e_assign_name}\n"
-                        f"Yeni Tarih: {assign['end_date']}"
-                    )
-                    changes.append(f"ÖDEV TARİHİ DEĞİŞTİ: {assign['name']}")
-
-        # DOSYA KONTROLÜ
-        saved_file_map = {f.get("url"): f for f in saved_files}
-        for file in current_files:
-            f_url = file["url"]
-            if f_url not in saved_file_map:
-                e_file_name = escape_html(file["name"])
-                icon = get_file_icon(file["name"].split("/")[-1])
-                sections_changes.append(
-                    f"{icon} <b>YENİ DOSYA:</b> <a href='{f_url}'>{e_file_name}</a>"
-                )
-                changes.append(f"YENİ DOSYA: {file['name']}")
-
-        # DUYURU KONTROLÜ
-        current_announcements = current_data.get("announcements", [])
-        saved_announcements = saved_data.get("announcements", [])
-        saved_ann_map = {a.get("id"): a for a in saved_announcements}
-
-        for ann in current_announcements:
-            ann_id = ann.get("id")
-            e_ann_title = escape_html(ann["title"])
-
-            if ann_id not in saved_ann_map:
-                full_content = get_announcement_detail(user_session, ann["url"])
-                ann["content"] = full_content
-                sections_changes.append(
-                    f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
-                )
-                changes.append(f"YENİ DUYURU: {ann['title']}")
-
-        # SİLİNMİŞ VERİLERİ KONTROL ET
-        # SADECE fetch_success True ise silme kontrolü yap
-        # (Network hatası durumunda boş veri "silindi" olarak algılanmasın)
-        if current_data.get("fetch_success", True):
-            # SİLİNMİŞ NOTLAR
-            current_grade_keys = set(current_course_grades.keys())
-            for saved_key in saved_course_grades:
-                if saved_key not in current_grade_keys:
-                    e_saved_key = escape_html(saved_key)
-                    sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
-                    changes.append(f"NOT SİLİNDİ: {saved_key}")
-
-            # SİLİNMİŞ ÖDEVLER
-            current_assign_ids = {a.get("id") for a in current_assignments}
-            for saved_assign in saved_assignments:
-                if saved_assign.get("id") not in current_assign_ids:
-                    e_assign_name = escape_html(saved_assign.get("name", "Bilinmeyen Ödev"))
-                    sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_assign_name}")
-                    changes.append(f"ÖDEV SİLİNDİ: {saved_assign.get('name')}")
-
-            # SİLİNMİŞ DOSYALAR
-            current_file_urls = {f.get("url") for f in current_files}
-            for saved_file in saved_files:
-                if saved_file.get("url") not in current_file_urls:
-                    e_file_name = escape_html(saved_file.get("name", "Bilinmeyen Dosya"))
-                    icon = get_file_icon(saved_file.get("name", "").split("/")[-1])
-                    sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_file_name}")
-                    changes.append(f"DOSYA SİLİNDİ: {saved_file.get('name')}")
-
-            # SİLİNMİŞ DUYURULAR
-            current_ann_ids = {a.get("id") for a in current_announcements}
-            for s_ann_id, s_ann in saved_ann_map.items():
-                if s_ann_id not in current_ann_ids:
-                    e_ann_title = escape_html(s_ann.get("title", "Bilinmeyen Duyuru"))
-                    sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_ann_title}")
-                    changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
-
-        # BİLDİRİM GÖNDERME
         if sections_changes and not silent:
-            msg = f"📢 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
+            msg = f"� <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
             telegram_messages.append(msg)
 
-        # KAYDETME
-        new_saved_data = {
+        # Kaydet
+        user_saved_grades[url] = {
             "course_name": course_name,
-            "grades": current_course_grades,
-            "assignments": current_assignments,
-            "files": current_files,
-            "announcements": current_announcements,
+            "grades": current_data.get("grades", {}),
+            "assignments": current_data.get("assignments", []),
+            "files": current_data.get("files", []),
+            "announcements": current_data.get("announcements", []),
         }
-        user_saved_grades[url] = new_saved_data
 
     # Verileri kaydet
-    if changes:
+    if all_changes:
         saved_grades[chat_id] = user_saved_grades
         save_grades(saved_grades)
         for t_msg in telegram_messages:
@@ -554,18 +669,17 @@ def check_user_updates(chat_id: str, course_idx: int = None, silent: bool = Fals
             time.sleep(1)
 
     # Kullanıcı verilerini kaydet
-
     save_all_users(users)
 
     # Son kontrol zamanını güncelle
     global LAST_CHECK_DISPLAY_TIME
     LAST_CHECK_DISPLAY_TIME = datetime.now().strftime("%H:%M:%S")
 
-    result_msg = f"✅ Kontrol tamamlandı ({len(changes)} değişiklik)"
-    if not changes:
+    result_msg = f"✅ Kontrol tamamlandı ({len(all_changes)} değişiklik)"
+    if not all_changes:
         result_msg = "✅ Kontrol tamamlandı (değişiklik yok)"
 
-    return {"success": True, "message": result_msg, "changes": len(changes)}
+    return {"success": True, "message": result_msg, "changes": len(all_changes)}
 
 
 def check_for_updates():
@@ -610,6 +724,14 @@ def check_for_updates():
             continue
 
         password = decrypt_password(encrypted_password)
+        if password is None:
+            console.print(f"[red]Şifre çözülemedi ({chat_id}), pas geçiliyor.")
+            send_telegram_message(
+                chat_id,
+                "⚠️ <b>Şifre Hatası</b>\n\nŞifreniz çözülemedi. Lütfen şifrenizi yeniden girin.",
+                is_error=True,
+            )
+            continue
 
         console.print(f"[bold cyan]Kullanıcı kontrol ediliyor: {chat_id}")
 
@@ -668,317 +790,46 @@ def check_for_updates():
                         progress.update(task, advance=1)
 
         user_saved_grades = saved_grades.get(chat_id, {})
-        changes = []
+        all_changes = []
         telegram_messages = []
 
+        # Ortak fonksiyon ile değişiklikleri kontrol et
         for url, current_data in all_current_grades.items():
             course_name = current_data.get("course_name", "Bilinmeyen Ders")
-
-            # Verileri al
-            current_course_grades = current_data.get("grades", {})
-            current_assignments = current_data.get("assignments", [])
-            current_files = current_data.get("files", [])
-
             saved_data = user_saved_grades.get(url, {})
-            if not isinstance(saved_data, dict):
-                saved_data = {}
-
-            saved_course_grades = saved_data.get("grades", {})
-            saved_assignments = saved_data.get("assignments", [])
-            saved_files = saved_data.get("files", [])
-
             e_course = escape_html(course_name)
-            sections_changes = []
 
-            # --- 1. NOT KONTROLÜ ---
-            for key, entry in current_course_grades.items():
-                new_val = entry["not"]
-                e_key, e_new_val = escape_html(key), escape_html(new_val)
+            sections_changes, changes = _compare_course_data(
+                current_data,
+                saved_data,
+                user_session,
+                course_name,
+                include_reminders=True,
+                include_console_log=True,
+                username=username,
+                changes_table=changes_table,
+            )
 
-                if key not in saved_course_grades:
-                    # Yeni NOT mesajı
-                    not_msg = f"📝 <b>YENİ NOT:</b> {e_key} -> {e_new_val}"
+            all_changes.extend(changes)
 
-                    # Detayları ekle
-                    details = entry.get("detaylar", {})
-                    detail_lines = []
-                    if entry.get("agirlik"):
-                        detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
-                    if "class_avg" in details:
-                        detail_lines.append(f"Sınıf Ort: {details['class_avg']}")
-                    if "std_dev" in details:
-                        detail_lines.append(f"Std. Sapma: {details['std_dev']}")
-                    if "student_count" in details:
-                        detail_lines.append(f"Kişi Sayısı: {details['student_count']}")
-                    if "rank" in details:
-                        detail_lines.append(f"Sıralama: {details['rank']}")
-
-                    if detail_lines:
-                        not_msg += "\n" + " | ".join(detail_lines)
-
-                    sections_changes.append(not_msg)
-                    changes.append(f"[bold green][{course_name}] YENİ NOT: {key} -> {new_val}")
-                    changes_table.add_row(username, course_name, f"📝 Yeni Not: {key} -> {new_val}")
-                else:
-                    old_entry = saved_course_grades[key]
-                    old_val = (
-                        old_entry.get("not") if isinstance(old_entry, dict) else old_entry
-                    ) or "?"
-
-                    if old_val != new_val:
-                        e_old_val = escape_html(old_val)
-
-                        # Güncelleme mesajı
-                        upd_msg = f"🔄 <b>NOT GÜNCELLENDİ:</b> {e_key}\n{e_old_val} ➡️ {e_new_val}"
-
-                        # Detayları ekle
-                        details = entry.get("detaylar", {})
-                        detail_lines = []
-                        if entry.get("agirlik"):
-                            detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
-                        if "class_avg" in details:
-                            detail_lines.append(f"Ort: {details['class_avg']}")
-                        if "rank" in details:
-                            detail_lines.append(f"Sıra: {details['rank']}")
-
-                        if detail_lines:
-                            upd_msg += "\n" + " | ".join(detail_lines)
-
-                        sections_changes.append(upd_msg)
-                        changes.append(
-                            f"[bold yellow][{course_name}] GÜNCELLENDİ: {key} ({old_val} -> {new_val})"
-                        )
-                        changes_table.add_row(
-                            username,
-                            course_name,
-                            f"🔄 Not Güncellendi: {key} ({old_val} -> {new_val})",
-                        )
-
-            # --- 2. ÖDEV KONTROLÜ & HATIRLATMA ---
-            for assign in current_assignments:
-                # Assign ID ile eşleştir
-                saved_assign = next(
-                    (a for a in saved_assignments if a.get("id") == assign.get("id")),
-                    None,
-                )
-                e_assign_name = escape_html(assign["name"])
-
-                if not saved_assign:
-                    sections_changes.append(
-                        f"📅 <b>YENİ ÖDEV:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
-                        f"Son Teslim: {assign['end_date']}"
-                    )
-                    changes.append(f"[bold green][{course_name}] YENİ ÖDEV: {assign['name']}")
-                    changes_table.add_row(username, course_name, f"📄 Yeni Ödev: {assign['name']}")
-
-                else:
-                    # Tarih değişti mi?
-                    if assign["end_date"] != saved_assign.get("end_date"):
-                        sections_changes.append(
-                            f"🕒 <b>TESLİM TARİHİ DEĞİŞTİ:</b> {e_assign_name}\n"
-                            f"Yeni Tarih: {assign['end_date']}"
-                        )
-                        changes.append(
-                            f"[bold yellow][{course_name}] ÖDEV TARİHİ DEĞİŞTİ: {assign['name']}"
-                        )
-                        changes_table.add_row(
-                            username,
-                            course_name,
-                            f"🕒 Ödev Tarihi Değişti: {assign['name']}",
-                        )
-
-                    # Teslim durumu değişti mi? (Sadece eski veri varsa ve değişmişse)
-                    old_status = saved_assign.get("is_submitted")
-                    new_status = assign.get("is_submitted")
-                    if old_status is not None and old_status != new_status:
-                        status_str = "✅ TESLİMEDİLDİ" if new_status else "❌ TESLİM GERİ ÇEKİLDİ"
-                        sections_changes.append(
-                            f"🔄 <b>ÖDEV DURUMU GÜNCELLENDİ:</b> {e_assign_name}\nDurum: {status_str}"
-                        )
-                        changes.append(
-                            f"[bold yellow][{course_name}] ÖDEV DURUMU DEĞİŞTİ: {assign['name']} ({status_str})"
-                        )
-
-                # [REMINDER LOGIC]
-                # Sadece süresi dolmamış ve teslim edilmemiş ödevler için
-                if not assign.get("is_submitted", False) and assign.get("end_date"):
-                    due_date = parse_turkish_date(assign["end_date"])
-                    if due_date:
-                        time_left = due_date - datetime.now()
-                        hours_left = time_left.total_seconds() / 3600
-
-                        sent_reminders = []
-                        if saved_assign and "reminders_sent" in saved_assign:
-                            sent_reminders = saved_assign["reminders_sent"]
-                        elif saved_assign:
-                            saved_assign["reminders_sent"] = []
-                            sent_reminders = []
-
-                        reminder_tag = None
-                        reminder_msg = ""
-
-                        if 0 < hours_left <= 3 and "3h" not in sent_reminders:
-                            reminder_tag = "3h"
-                            reminder_msg = f"🚨 <b>SON 3 SAAT!</b> ({e_assign_name})"
-                        elif 3 < hours_left <= 24 and "24h" not in sent_reminders:
-                            reminder_tag = "24h"
-                            reminder_msg = f"⏳ <b>SON 24 SAAT!</b> ({e_assign_name})"
-
-                        if reminder_tag:
-                            sections_changes.append(
-                                f"{reminder_msg}\nBitiş: {assign['end_date']}\n<a href='{assign['url']}'>Ödeve Git</a>"
-                            )
-                            changes.append(
-                                f"[bold magenta][{course_name}] HATIRLATMA ({reminder_tag}): {assign['name']}"
-                            )
-                            assign["reminders_sent"] = sent_reminders + [reminder_tag]
-                        else:
-                            assign["reminders_sent"] = sent_reminders
-                    else:
-                        if saved_assign:
-                            assign["reminders_sent"] = saved_assign.get("reminders_sent", [])
-
-            # --- 3. DOSYA KONTROLÜ ---
-            saved_file_map = {f.get("url"): f for f in saved_files}
-            for file in current_files:
-                f_url = file["url"]
-                if f_url not in saved_file_map:
-                    e_file_name = escape_html(file["name"])
-                    icon = get_file_icon(file["name"].split("/")[-1])
-                    sections_changes.append(
-                        f"{icon} <b>YENİ DOSYA:</b> <a href='{f_url}'>{e_file_name}</a>"
-                    )
-                    changes.append(f"[bold green][{course_name}] YENİ DOSYA: {file['name']}")
-                    changes_table.add_row(username, course_name, f"📎 Yeni Dosya: {file['name']}")
-                else:
-                    saved_file = saved_file_map[f_url]
-                    # Dosya ismi veya tarihi değişti mi?
-                    name_changed = file["name"] != saved_file.get("name")
-                    date_changed = file["date"] != saved_file.get("date")
-
-                    if name_changed or date_changed:
-                        e_file_name = escape_html(file["name"])
-                        icon = get_file_icon(file["name"].split("/")[-1])
-                        change_type = "GÜNCELLENDİ" if date_changed else "ADI DEĞİŞTİ"
-
-                        sections_changes.append(
-                            f"{icon} <b>DOSYA {change_type}:</b> <a href='{f_url}'>{e_file_name}</a>"
-                        )
-                        changes.append(
-                            f"[bold yellow][{course_name}] DOSYA {change_type}: {file['name']}"
-                        )
-
-            # --- 4. DUYURU KONTROLÜ ---
-            current_announcements = current_data.get("announcements", [])
-            saved_announcements = saved_data.get("announcements", [])
-            saved_ann_map = {a.get("id"): a for a in saved_announcements}
-            current_ann_ids = {a.get("id") for a in current_announcements}
-
-            # Yeni ve Güncellenen Duyurular
-            for ann in current_announcements:
-                ann_id = ann.get("id")
-                e_ann_title = escape_html(ann["title"])
-                e_ann_author = escape_html(ann["author"])
-
-                if ann_id not in saved_ann_map:
-                    # Yeni Duyuru - Tam içeriği detay sayfasından çek
-                    full_content = get_announcement_detail(user_session, ann["url"])
-                    ann["content"] = full_content
-
-                    sections_changes.append(
-                        f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{e_ann_title}</a>\n"
-                        f"👤 {e_ann_author} | 📅 {ann['date']}\n\n"
-                        f"{full_content}"
-                    )
-                    changes.append(f"[bold green][{course_name}] YENİ DUYURU: {ann['title']}")
-                    changes_table.add_row(username, course_name, f"📣 Yeni Duyuru: {ann['title']}")
-                else:
-                    # Güncellenmiş mi kontrol et (İçerik hariç, çünkü current'ta boş)
-                    saved_ann = saved_ann_map[ann_id]
-                    changed = (
-                        ann["title"] != saved_ann.get("title")
-                        or ann["author"] != saved_ann.get("author")
-                        or ann["date"] != saved_ann.get("date")
-                    )
-
-                    if changed:
-                        full_content = get_announcement_detail(user_session, ann["url"])
-                        ann["content"] = full_content
-
-                        sections_changes.append(
-                            f"🔄 <b>DUYURU GÜNCELLENDİ:</b> <a href='{ann['url']}'>{e_ann_title}</a>\n"
-                            f"👤 {e_ann_author} | 📅 {ann['date']}\n\n"
-                            f"{full_content}"
-                        )
-                        changes.append(
-                            f"[bold yellow][{course_name}] DUYURU GÜNCELLENDİ: {ann['title']}"
-                        )
-                    else:
-                        # Önceki tam içeriği koru
-                        ann["content"] = saved_ann.get("content", "")
-
-            # --- SİLİNMİŞ VERİLERİ KONTROL ET ---
-            # SADECE fetch_success True ise silme kontrolü yap
-            # (Network hatası durumunda boş veri "silindi" olarak algılanmasın)
-            if current_data.get("fetch_success", True):
-                # Silinen Duyurular
-                for s_ann_id, s_ann in saved_ann_map.items():
-                    if s_ann_id not in current_ann_ids:
-                        e_ann_title = escape_html(s_ann.get("title", "Bilinmeyen Duyuru"))
-                        sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_ann_title}")
-                        changes.append(
-                            f"[bold red][{course_name}] DUYURU SİLİNDİ: {s_ann.get('title')}"
-                        )
-
-                # SİLİNMİŞ NOTLAR
-                current_grade_keys = set(current_course_grades.keys())
-                for saved_key in saved_course_grades:
-                    if saved_key not in current_grade_keys:
-                        e_saved_key = escape_html(saved_key)
-                        sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
-                        changes.append(f"[bold red][{course_name}] NOT SİLİNDİ: {saved_key}")
-
-                # SİLİNMİŞ ÖDEVLER
-                current_assign_ids = {a.get("id") for a in current_assignments}
-                for saved_assign in saved_assignments:
-                    if saved_assign.get("id") not in current_assign_ids:
-                        e_assign_name = escape_html(saved_assign.get("name", "Bilinmeyen Ödev"))
-                        sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_assign_name}")
-                        changes.append(
-                            f"[bold red][{course_name}] ÖDEV SİLİNDİ: {saved_assign.get('name')}"
-                        )
-
-                # SİLİNMİŞ DOSYALAR
-                current_file_urls = {f.get("url") for f in current_files}
-                for saved_file in saved_files:
-                    if saved_file.get("url") not in current_file_urls:
-                        e_file_name = escape_html(saved_file.get("name", "Bilinmeyen Dosya"))
-                        icon = get_file_icon(saved_file.get("name", "").split("/")[-1])
-                        sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_file_name}")
-                        changes.append(
-                            f"[bold red][{course_name}] DOSYA SİLİNDİ: {saved_file.get('name')}"
-                        )
-
-            # --- BİLDİRİM GÖNDERME ---
             if sections_changes:
-                msg = f"📢 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
+                msg = f"� <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
                 telegram_messages.append(msg)
 
-            # --- KAYDETME ---
-            new_saved_data = {
+            # Kaydet
+            user_saved_grades[url] = {
                 "course_name": course_name,
-                "grades": current_course_grades,
-                "assignments": current_assignments,
-                "files": current_files,
-                "announcements": current_announcements,
+                "grades": current_data.get("grades", {}),
+                "assignments": current_data.get("assignments", []),
+                "files": current_data.get("files", []),
+                "announcements": current_data.get("announcements", []),
             }
-            user_saved_grades[url] = new_saved_data
 
-        if changes:
-            logger.info(f"Değişiklik tespit edildi: {chat_id} - {len(changes)} öğe")
+        if all_changes:
+            logger.info(f"Değişiklik tespit edildi: {chat_id} - {len(all_changes)} öğe")
             console.print(
                 Panel(
-                    "\n".join(changes),
+                    "\n".join(all_changes),
                     title=f"[bold magenta]DEĞİŞİKLİK ({chat_id})",
                     border_style="magenta",
                 )
@@ -995,7 +846,6 @@ def check_for_updates():
     console.print("[italic white]Kontrol tamamlandı.")
 
     # Kullanıcı verilerini kaydet (last_check güncellemeleri için)
-
     save_all_users(users)
     console.print("[dim]Veriler kaydedildi.")
 
@@ -1085,5 +935,5 @@ if __name__ == "__main__":
         from rich.traceback import Traceback
 
         console.print(Traceback())
-        error_msg = f"Ana döngüde kritik hata: {str(e)}\n{traceback.format_exc()}"
+        error_msg = f"Ana döngüde kritik hata: {e!s}\n{traceback.format_exc()}"
         console.print(f"[bold red]{error_msg}")

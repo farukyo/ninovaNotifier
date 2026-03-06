@@ -6,7 +6,7 @@ from telebot import types
 
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard, build_manual_menu
-from bot.utils import show_file_browser
+from bot.utils import is_cancel_text, show_file_browser, validate_ninova_url
 from common.cache import get_cached_file_id, set_cached_file_id
 from common.config import HEADERS, USER_SESSIONS, load_all_users, save_all_users
 from common.utils import (
@@ -21,14 +21,6 @@ from common.utils import (
     update_user_data,
 )
 from services.ninova import download_file
-
-
-def _is_cancel_text(text: str) -> bool:
-    """Check if the message text indicates a cancel action."""
-    if not text:
-        return False
-    t = text.strip().lower()
-    return "iptal" in t or "cancel" in t or "⛔" in text
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("crs_"))
@@ -321,7 +313,7 @@ def handle_course_graph(call):
     except ImportError:
         bot.send_message(chat_id, "⚠️ Görselleştirme modülü yüklenemedi.")
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Grafik oluşturulurken hata oluştu: {str(e)}")
+        bot.send_message(chat_id, f"❌ Grafik oluşturulurken hata oluştu: {e!s}")
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
@@ -689,7 +681,7 @@ def process_manual_add(message):
     Manuel ders ekleme işlemini tamamlar.
     """
     # Allow cancellation via button or typed text
-    if _is_cancel_text(message.text):
+    if is_cancel_text(message.text):
         bot.send_message(
             message.chat.id,
             "❌ Ders ekleme iptal edildi.",
@@ -706,7 +698,7 @@ def process_manual_add(message):
         return
 
     args = message.text.split()
-    if len(args) < 1 or "ninova.itu.edu.tr" not in args[0]:
+    if len(args) < 1:
         bot.send_message(
             message.chat.id,
             "❌ Lütfen geçerli bir Ninova ders linki girin.\nÖrn: <code>https://ninova.itu.edu.tr/Sinif/123.456</code>",
@@ -714,12 +706,14 @@ def process_manual_add(message):
         )
         return
 
-    url = args[0].split("?")[0].strip()
-    # Alt sayfa varsa temizle, base URL olarak sakla
-    for suffix in ["/Notlar", "/Duyurular", "/Odevler", "/SinifDosyalari"]:
-        if url.endswith(suffix):
-            url = url[: -len(suffix)]
-            break
+    url = validate_ninova_url(args[0].strip())
+    if not url:
+        bot.send_message(
+            message.chat.id,
+            "❌ Geçersiz URL! Sadece ninova.itu.edu.tr adresleri kabul edilir.\nÖrn: <code>https://ninova.itu.edu.tr/Sinif/123.456</code>",
+            parse_mode="HTML",
+        )
+        return
 
     chat_id = str(message.chat.id)
     users = load_all_users()
@@ -874,7 +868,7 @@ def handle_kontrol(call):
                     parse_mode="HTML",
                 )
         except Exception as e:
-            bot.send_message(chat_id, f"❌ Kritik hata: {str(e)}")
+            bot.send_message(chat_id, f"❌ Kritik hata: {e!s}")
 
     import threading
 
@@ -887,10 +881,8 @@ def handle_show_all_assignments(call):
     Kullanıcı 'Tümünü Göster' dediğinde, ödev listesini filtrelemeden tekrar gönderir.
     """
     # Mevcut mesajı sil (temiz görüntü için)
-    try:
+    with contextlib.suppress(Exception):
         bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
 
     from bot.handlers.user.grade_commands import list_assignments
 
@@ -1020,7 +1012,7 @@ def handle_show_past_calendar(call):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"❌ Hata: {str(e)}",
+            text=f"❌ Hata: {e!s}",
         )
 
 
@@ -1069,7 +1061,7 @@ def handle_show_future_calendar(call):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"❌ Hata: {str(e)}",
+            text=f"❌ Hata: {e!s}",
         )
 
 

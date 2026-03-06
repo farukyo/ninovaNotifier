@@ -1,1 +1,0 @@
-# ninovaNotifier test package

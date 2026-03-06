@@ -3,18 +3,14 @@ Kullanıcı kimlik doğrulama komutları.
 """
 
 import contextlib
+import logging
 
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
+from bot.utils import is_cancel_text
 from common.utils import update_user_data
 
-
-def _is_cancel_text(text: str) -> bool:
-    """Check if the message text indicates a cancel action."""
-    if not text:
-        return False
-    t = text.strip().lower()
-    return "iptal" in t or "cancel" in t or "⛔" in text
+logger = logging.getLogger("ninova")
 
 
 @bot.message_handler(func=lambda message: message.text == "👤 Kullanıcı Adı")
@@ -32,7 +28,7 @@ def set_username(message):
 
 def process_username(message):
     chat_id = message.chat.id
-    if _is_cancel_text(message.text):
+    if is_cancel_text(message.text):
         bot.send_message(chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard())
         return
 
@@ -42,6 +38,7 @@ def process_username(message):
         return
 
     update_user_data(chat_id, "username", username)
+    logger.info(f"Kullanıcı adı güncellendi - Chat ID: {chat_id}, Kullanıcı Adı: {username}")
     bot.send_message(
         chat_id,
         f"✅ Kullanıcı adı kaydedildi: <code>{username}</code>",
@@ -65,7 +62,7 @@ def set_password(message):
 
 def process_password(message):
     chat_id = message.chat.id
-    if _is_cancel_text(message.text):
+    if is_cancel_text(message.text):
         bot.send_message(chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard())
         return
 
@@ -75,6 +72,7 @@ def process_password(message):
         return
 
     update_user_data(chat_id, "password", password)
+    logger.info(f"Şifre güncellendi - Chat ID: {chat_id}")
     with contextlib.suppress(Exception):
         bot.delete_message(chat_id, message.message_id)
 

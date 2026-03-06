@@ -2,8 +2,8 @@
 Admin yardımcı fonksiyonları.
 """
 
-import os
 from datetime import datetime
+from pathlib import Path
 
 from bot.instance import bot_instance as bot
 from common.config import (
@@ -33,10 +33,10 @@ def show_stats(chat_id):
     active_sessions = len(USER_SESSIONS)
 
     # Dosya boyutları
-    users_size = os.path.getsize(USERS_FILE) / 1024 if os.path.exists(USERS_FILE) else 0
-    data_size = os.path.getsize(DATA_FILE) / 1024 if os.path.exists(DATA_FILE) else 0
-    log_file_path = os.path.join(LOGS_DIR, "app.log")
-    log_size = os.path.getsize(log_file_path) / 1024 if os.path.exists(log_file_path) else 0
+    users_size = Path(USERS_FILE).stat().st_size / 1024 if Path(USERS_FILE).exists() else 0
+    data_size = Path(DATA_FILE).stat().st_size / 1024 if Path(DATA_FILE).exists() else 0
+    log_file_path = Path(LOGS_DIR) / "app.log"
+    log_size = log_file_path.stat().st_size / 1024 if log_file_path.exists() else 0
 
     stats = (
         "📊 <b>Sistem İstatistikleri</b>\n\n"
@@ -95,23 +95,23 @@ def show_logs(chat_id, lines=30):
     :param chat_id: Admin'in chat ID'si
     :param lines: Gösterilecek maksimum satır sayısı (varsayılan: 30)
     """
-    log_file = os.path.join(LOGS_DIR, "app.log")
+    log_file = Path(LOGS_DIR) / "app.log"
 
-    if not os.path.exists(log_file):
+    if not log_file.exists():
         bot.send_message(chat_id, "📂 Log dosyası bulunamadı.")
         return
 
-    file_size = os.path.getsize(log_file)
+    file_size = log_file.stat().st_size
 
     # Büyük dosyayı doğrudan gönder
     if file_size > 50 * 1024:  # 50KB'dan büyükse
-        with open(log_file, "rb") as f:
+        with log_file.open("rb") as f:
             bot.send_document(chat_id, f, caption="📋 app.log")
         return
 
     # Küçük dosyanın son satırlarını göster
     try:
-        with open(log_file, encoding="utf-8") as f:
+        with log_file.open(encoding="utf-8") as f:
             all_lines = f.readlines()
             last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
             log_text = "".join(last_lines)
@@ -137,9 +137,10 @@ def send_backup(chat_id):
     files_sent = 0
 
     for filename in [USERS_FILE, DATA_FILE]:
-        if os.path.exists(filename):
+        filepath = Path(filename)
+        if filepath.exists():
             try:
-                with open(filename, "rb") as f:
+                with filepath.open("rb") as f:
                     bot.send_document(
                         chat_id,
                         f,

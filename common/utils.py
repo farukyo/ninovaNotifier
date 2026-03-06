@@ -1,8 +1,9 @@
 import contextlib
 import json
-import os
+import logging
 import re
 from datetime import datetime
+from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -10,11 +11,15 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from common.config import (
     DATA_FILE,
     TELEGRAM_TOKEN,
+    _atomic_json_write,
+    _data_lock,
     cipher_suite,
     console,
     load_all_users,
     save_all_users,
 )
+
+logger = logging.getLogger("ninova")
 
 DATE_MONTHS = {
     "ocak": 1,
@@ -49,9 +54,8 @@ def parse_turkish_date(date_str):
 
             month = DATE_MONTHS.get(month_name, 1)
             return datetime(year, month, day, hour, minute)
-    except Exception:
-        # Hata ayıklama için print eklenebilir, fakat sessiz kalması tercih edilmiş.
-        pass
+    except (ValueError, IndexError, AttributeError) as e:
+        logger.debug(f"Tarih parse hatası ('{date_str}'): {e}")
     return None
 
 
@@ -73,7 +77,7 @@ def decrypt_password(encrypted_password):
     Şifrelenen şifreyi çözer.
 
     :param encrypted_password: Şifrelenen şifre string'i
-    :return: Düz metin şifre veya hata durumunda orijinal değer
+    :return: Düz metin şifre veya hata durumunda None
     """
     if not encrypted_password:
         return ""
@@ -81,7 +85,8 @@ def decrypt_password(encrypted_password):
         decrypted = cipher_suite.decrypt(encrypted_password.encode())
         return decrypted.decode()
     except Exception:
-        return encrypted_password
+        logger.error("Şifre çözme başarısız! Şifreleme anahtarı değişmiş olabilir.")
+        return None
 
 
 def update_user_data(chat_id, key, value):
@@ -401,10 +406,10 @@ def send_telegram_message(chat_id, message, is_error=False):
     full_message = prefix + message
 
     # Telegram limit: 4096 characters. Use 3500 to be safe with HTML tags.
-    LIMIT = 3500
+    limit = 3500
     messages = []
 
-    if len(full_message) <= LIMIT:
+    if len(full_message) <= limit:
         messages.append(full_message)
     else:
         # Mesajı satır bazlı böl
@@ -412,16 +417,15 @@ def send_telegram_message(chat_id, message, is_error=False):
         current_msg = ""
         for line in lines:
             # Eğer tek bir satır limitin üzerindeyse (çok nadir), onu da karakter bazlı böl
-            if len(line) > LIMIT:
+            if len(line) > limit:
                 if current_msg:
                     messages.append(current_msg)
                     current_msg = ""
                 # Satırı parçala
-                for i in range(0, len(line), LIMIT):
-                    messages.append(line[i : i + LIMIT])
+                messages.extend(line[i : i + limit] for i in range(0, len(line), limit))
                 continue
 
-            if len(current_msg) + len(line) + 1 > LIMIT:
+            if len(current_msg) + len(line) + 1 > limit:
                 if current_msg:
                     messages.append(current_msg)
                 current_msg = line
@@ -446,8 +450,10 @@ def send_telegram_message(chat_id, message, is_error=False):
                 clean_msg = re.sub(r"<[^>]*>", "", msg.splitlines()[0])
                 console.print(f"[green][Telegram] Mesaj gönderildi ({chat_id}): {clean_msg}")
             else:
+                logger.error(f"Telegram mesaj gönderme hatası ({chat_id}): {response.text}")
                 console.print(f"[red][Telegram] Hata ({chat_id}): {response.text}")
-        except Exception as e:
+        except requests.RequestException as e:
+            logger.error(f"Telegram mesaj gönderim ağ hatası ({chat_id}): {e}")
             console.print(f"[red][Telegram] Gönderim hatası ({chat_id}): {e}")
 
 
@@ -482,16 +488,16 @@ def send_telegram_document(
             response = requests.post(url, data=data, timeout=30)
 
         # 2. Send by File Path
-        elif isinstance(document, str) and os.path.exists(document):
-            filename = os.path.basename(document)
-            with open(document, "rb") as f:
+        elif isinstance(document, str) and Path(document).exists():
+            filename = Path(document).name
+            with Path(document).open("rb") as f:
                 files = {"document": (filename, f)}
                 data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
                 response = requests.post(url, data=data, files=files, timeout=60)
 
             # Delete temp file if it was a path
             with contextlib.suppress(OSError):
-                os.remove(document)
+                Path(document).unlink()
 
         # 3. Send by BytesIO / Buffer
         else:
@@ -511,9 +517,11 @@ def send_telegram_document(
 
             console.print(f"[green][Telegram] Dosya gönderildi ({chat_id}): {filename}")
         else:
+            logger.error(f"Telegram dosya gönderim hatası ({chat_id}): {response.text}")
             console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {response.text}")
 
     except Exception as e:
+        logger.error(f"Telegram dosya gönderim istisnası ({chat_id}): {e}")
         console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {e}")
 
     return sent_file_id
@@ -521,27 +529,30 @@ def send_telegram_document(
 
 def load_saved_grades():
     """
-    Kaydedilmiş notları ninova_data.json dosyasından okur.
+    Kaydedilmiş notları ninova_data.json dosyasından okur (thread-safe).
 
     :return: Not verileri sözlüğü (chat_id: grades) veya boş dict
     """
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    with _data_lock:
+        if Path(DATA_FILE).exists():
+            try:
+                with Path(DATA_FILE).open(encoding="utf-8") as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                logger.error(f"{DATA_FILE} dosyası bozuk!")
+                console.print(f"[red]⚠️ {DATA_FILE} dosyası bozuk! Boş dict döndürülüyor.")
+                return {}
+        return {}
 
 
 def save_grades(grades):
     """
-    Notları ninova_data.json dosyasına kaydeder.
+    Notları ninova_data.json dosyasına kaydeder (thread-safe, atomik).
 
     :param grades: Kaydedilecek not verileri sözlüğü
     """
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(grades, f, ensure_ascii=False, indent=4)
+    with _data_lock:
+        _atomic_json_write(DATA_FILE, grades)
 
 
 def split_long_message(text, limit=4000):
@@ -568,8 +579,7 @@ def split_long_message(text, limit=4000):
                 current_chunk = ""
 
             # Split line by chars
-            for i in range(0, len(line), limit):
-                chunks.append(line[i : i + limit])
+            chunks.extend(line[i : i + limit] for i in range(0, len(line), limit))
             continue
 
         # Check if adding this line would exceed the limit

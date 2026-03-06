@@ -1,19 +1,19 @@
 import json
-import os
+from pathlib import Path
 
 from common.config import console
 
-CACHE_FILE = os.path.join("data", "file_cache.json")
+CACHE_FILE = Path("data") / "file_cache.json"
 _FILE_CACHE = {}
 
 
 def load_file_cache():
     global _FILE_CACHE
-    if not os.path.exists(CACHE_FILE):
+    if not CACHE_FILE.exists():
         return {}
     try:
-        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
-        with open(CACHE_FILE, encoding="utf-8") as f:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with CACHE_FILE.open(encoding="utf-8") as f:
             _FILE_CACHE = json.load(f)
     except Exception as e:
         console.print(f"[red]Cache yükleme hatası: {e}")
@@ -24,8 +24,8 @@ def load_file_cache():
 def save_file_cache():
     global _FILE_CACHE
     try:
-        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with CACHE_FILE.open("w", encoding="utf-8") as f:
             json.dump(_FILE_CACHE, f, indent=4)
     except Exception as e:
         console.print(f"[red]Cache kaydetme hatası: {e}")

@@ -2,6 +2,7 @@
 Genel kullanıcı komutları.
 """
 
+import logging
 import threading
 from datetime import datetime
 
@@ -15,9 +16,12 @@ from bot.keyboards import (
     build_main_keyboard,
     build_user_menu_keyboard,
 )
+from bot.utils import is_cancel_text
 from common.config import load_all_users
 from common.utils import escape_html, load_saved_grades, split_long_message, update_user_data
 from services.calendar.itu_calendar import ITUCalendarService
+
+logger = logging.getLogger("ninova")
 
 # ... (omitted)
 
@@ -32,14 +36,6 @@ def go_back_main(message):
         "Menüye dönüldü.",
         reply_markup=build_main_keyboard(),
     )
-
-
-def _is_cancel_text(text: str) -> bool:
-    """Check if the message text indicates a cancel action."""
-    if not text:
-        return False
-    t = text.strip().lower()
-    return "iptal" in t or "cancel" in t or "⛔" in text
 
 
 @bot.message_handler(func=lambda message: message.text == "👤 Kullanıcı")
@@ -61,6 +57,7 @@ def send_welcome(message):
     Güvenlik ve şeffaflık vurgusu yapar.
     """
     update_user_data(message.chat.id, "chat_id", str(message.chat.id))
+    logger.info(f"Yeni kullanıcı /start komutunu kullandı: Chat ID: {message.chat.id}")
 
     welcome_text = (
         "👋 <b>Ninova Not Takipçisi'ne Hoş Geldiniz!</b>\n\n"
@@ -208,7 +205,7 @@ def process_search_term(message):
     Kullanıcının arama kelimesini işler ve arama yapar.
     """
     chat_id = str(message.chat.id)
-    if _is_cancel_text(message.text):
+    if is_cancel_text(message.text):
         bot.send_message(chat_id, "❌ Arama iptal edildi.", reply_markup=build_main_keyboard())
         return
 
@@ -235,7 +232,7 @@ def process_search_term(message):
     )
     results = []
 
-    for _url, data in user_grades.items():
+    for data in user_grades.values():
         course_name = data.get("course_name", "Bilinmeyen Ders")
         announcements = data.get("announcements", [])
         for announcement in announcements:
@@ -346,6 +343,7 @@ def leave_system(message):
         types.InlineKeyboardButton("Evet, Verilerimi Sil", callback_data="leave_confirm"),
         types.InlineKeyboardButton("Hayır, Vazgeç", callback_data="leave_cancel"),
     )
+    logger.info(f"Kullanıcı sistemden ayrılmak istiyor: {message.chat.id}")
     bot.reply_to(
         message,
         "⚠️ <b>DİKKAT!</b>\n\nSistemden ayrılmak üzeresiniz. Tüm kayıtlı verileriniz ve takip listeniz kalıcı olarak silinecek. Onaylıyor musunuz?",
@@ -409,6 +407,6 @@ def show_academic_calendar(message, show_past=False, show_future=False):
                 else:
                     bot.send_message(message.chat.id, chunk, parse_mode="HTML")
         except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Hata oluştu: {str(e)}")
+            bot.send_message(message.chat.id, f"❌ Hata oluştu: {e!s}")
 
     threading.Thread(target=run_fetch, daemon=True).start()

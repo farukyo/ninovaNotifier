@@ -148,10 +148,7 @@ class ITUCalendarService:
                     category = "ongoing"
                 elif parsed_date:
                     days_until = (parsed_date - now).days
-                    if days_until <= 7:
-                        category = "starting_soon"
-                    else:
-                        category = "upcoming"
+                    category = "starting_soon" if days_until <= 7 else "upcoming"
 
                     # Check if beyond 30-day window
                     if parsed_date > window_end:
@@ -163,10 +160,7 @@ class ITUCalendarService:
                         parts = event.status.split()
                         if parts and parts[0].isdigit():
                             days_until = int(parts[0])
-                            if days_until <= 7:
-                                category = "starting_soon"
-                            else:
-                                category = "upcoming"
+                            category = "starting_soon" if days_until <= 7 else "upcoming"
 
                             # Estimate if beyond window
                             if days_until > 10:
@@ -193,10 +187,11 @@ class ITUCalendarService:
                     if not show_past:
                         should_show = False
                         hidden_past_count += 1
-                elif item["is_beyond_30_days"] and item["category"] != "ongoing":
-                    if not show_future:
-                        should_show = False
-                        hidden_future_count += 1
+                elif (
+                    item["is_beyond_30_days"] and item["category"] != "ongoing" and not show_future
+                ):
+                    should_show = False
+                    hidden_future_count += 1
 
                 if should_show:
                     visible_events.append(item)

@@ -46,7 +46,9 @@ def handle_cafeteria_refresh(call):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔄 Güncelle", callback_data=f"cafeteria_refresh_{slot}"))
 
-    try:
+    import contextlib
+
+    with contextlib.suppress(Exception):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -54,7 +56,3 @@ def handle_cafeteria_refresh(call):
             reply_markup=markup,
             parse_mode="HTML",
         )
-    except Exception:
-        # If text hasn't changed, Telegram API raises an error. We can ignore it or notify.
-        # But since we added a timestamp, the text SHOULD always change.
-        pass

@@ -1,68 +1,50 @@
-import json
+import logging
 import os
+from pathlib import Path
 
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from rich.console import Console
 
-load_dotenv(os.path.join("secrets", ".env"))
+load_dotenv(Path("secrets") / ".env")
 console = Console()
+logger = logging.getLogger("ninova")
 
 # Klasör ve Dosya Yolları
 DATA_DIR = "data"
 LOGS_DIR = "logs"
 SECRETS_DIR = "secrets"
 
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(LOGS_DIR, exist_ok=True)
-os.makedirs(SECRETS_DIR, exist_ok=True)
+Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
+Path(LOGS_DIR).mkdir(parents=True, exist_ok=True)
+Path(SECRETS_DIR).mkdir(parents=True, exist_ok=True)
 
-USERS_FILE = os.path.join(DATA_DIR, "users.json")
-DATA_FILE = os.path.join(DATA_DIR, "ninova_data.json")
+# Yeni SQLite Veritabanı Yolu
+DATABASE_FILE = str(Path(DATA_DIR) / "database.sqlite")
+
+# Eski JSON yolları (sadece migration için tutulabilir, config'den kaldırıldı)
+# USERS_FILE = str(Path(DATA_DIR) / "users.json")
+# DATA_FILE = str(Path(DATA_DIR) / "ninova_data.json")
 
 # Şifreleme anahtarı (ENV'den veya varsayılan)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 if not ENCRYPTION_KEY:
-    KEY_FILE = os.path.join(SECRETS_DIR, ".encryption_key")
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, "rb") as f:
+    KEY_FILE = Path(SECRETS_DIR) / ".encryption_key"
+    if KEY_FILE.exists():
+        with KEY_FILE.open("rb") as f:
             ENCRYPTION_KEY = f.read()
     else:
         ENCRYPTION_KEY = Fernet.generate_key()
-        with open(KEY_FILE, "wb") as f:
+        with KEY_FILE.open("wb") as f:
             f.write(ENCRYPTION_KEY)
-        console.print("[yellow]⚠️ Yeni şifreleme anahtarı oluşturuldu: .encryption_key[/yellow]")
+        console.print(
+            "[yellow]⚠️ Yeni şifreleme anahtarı oluşturuldu: .encryption_key[/yellow]"
+        )
 
 cipher_suite = Fernet(ENCRYPTION_KEY)
 
 
-def load_all_users():
-    """
-    Tüm kullanıcı verilerini users.json dosyasından yükler.
-
-    :return: Kullanıcı sözlüğü (chat_id: user_data) veya boş dict
-    """
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-
-def save_all_users(users):
-    """
-    Tüm kullanıcı verilerini users.json dosyasına kaydeder.
-
-    :param users: Kaydedilecek kullanıcı sözlüğü
-    """
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=4, ensure_ascii=False)
-
-
 CHECK_INTERVAL = 300
-
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TOKEN")
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
@@ -73,3 +55,4 @@ HEADERS = {
 
 # Global oturum belleği
 USER_SESSIONS = {}
+

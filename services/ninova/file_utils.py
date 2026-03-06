@@ -1,5 +1,5 @@
 import io
-import os
+from pathlib import Path
 
 from common.config import console
 
@@ -46,8 +46,8 @@ def download_file(
                     buffer.write(chunk)
                 buffer.seek(0)
                 return buffer, filename
-            filepath = os.path.join(os.getcwd(), filename)
-            with open(filepath, "wb") as f:
+            filepath = Path.cwd() / filename
+            with Path(filepath).open("wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
             return filepath

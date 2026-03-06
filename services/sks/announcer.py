@@ -1,21 +1,21 @@
 import json
 import logging
-import os
 import time
 from datetime import datetime
+from pathlib import Path
 
 from common.config import DATA_DIR, load_all_users
 from common.utils import send_telegram_message
 from services.sks.scraper import get_meal_menu
 
 logger = logging.getLogger("ninova.sks")
-STATE_FILE = os.path.join(DATA_DIR, "sks_state.json")
+STATE_FILE = Path(DATA_DIR) / "sks_state.json"
 
 
 def load_sks_state():
-    if os.path.exists(STATE_FILE):
+    if Path(STATE_FILE).exists():
         try:
-            with open(STATE_FILE, encoding="utf-8") as f:
+            with Path(STATE_FILE).open(encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -23,7 +23,7 @@ def load_sks_state():
 
 
 def save_sks_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
+    with Path(STATE_FILE).open("w", encoding="utf-8") as f:
         json.dump(state, f, indent=4, ensure_ascii=False)
 
 
@@ -37,15 +37,15 @@ def check_and_announce_sks_menu():
     current_time = now.strftime("%H:%M")
 
     # Target slots
-    LUNCH_TIME = "11:00"
-    DINNER_TIME = "16:30"
+    lunch_time = "11:00"
+    dinner_time = "16:30"
 
     state = load_sks_state()
 
     # Check if we should send lunch menu
     # If time >= 11:00 and lunch not sent today
     if (
-        current_time >= LUNCH_TIME
+        current_time >= lunch_time
         and state.get(f"{today}_lunch") is not True
         and current_time < "15:00"
     ):
@@ -56,7 +56,7 @@ def check_and_announce_sks_menu():
     # Check if we should send dinner menu
     # If time >= 16:30 and dinner not sent today
     elif (
-        current_time >= DINNER_TIME
+        current_time >= dinner_time
         and state.get(f"{today}_dinner") is not True
         and current_time < "21:00"
     ):
@@ -81,7 +81,7 @@ def announce(date_str, slot):
         return
 
     logger.info(f"Broadcasting SKS menu to {len(users)} users.")
-    for chat_id in users.keys():
+    for chat_id in users:
         try:
             send_telegram_message(chat_id, menu_html)
             time.sleep(0.5)  # Avoid hitting Telegram rate limits

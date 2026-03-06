@@ -177,7 +177,7 @@ def admin_restart_cmd(message):
         with contextlib.suppress(Exception):
             bot.stop_polling()
         # os._exit(0) yerine execv ile yeniden başlat
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        os.execv(sys.executable, [sys.executable, *sys.argv])
 
     threading.Thread(target=do_restart, daemon=True).start()
 
@@ -336,7 +336,7 @@ def admin_force_otoders_cmd(message):
                 parse_mode="HTML",
             )
     except Exception as e:
-        bot.send_message(message.chat.id, f"⚠️ Veri temizliği sırasında hata: {str(e)}")
+        bot.send_message(message.chat.id, f"⚠️ Veri temizliği sırasında hata: {e!s}")
 
     # --- 2. SMART AUTO ADD ---
     from datetime import datetime

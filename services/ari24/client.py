@@ -1,4 +1,6 @@
+import contextlib
 import re
+import typing
 from datetime import datetime, timedelta
 
 import requests
@@ -105,10 +107,8 @@ class Ari24Client:
                             if match:
                                 day_str, month_str, year_str = match.groups()
                                 month_num = MONTH_MAP.get(month_str, 1)
-                                try:
+                                with contextlib.suppress(ValueError):
                                     date_dt = datetime(int(year_str), month_num, int(day_str))
-                                except ValueError:
-                                    pass
 
                     # Extract Image
                     # style="background-image: url(/uploads/...)"
@@ -145,7 +145,7 @@ class Ari24Client:
             print(f"Error fetching Arı24 events: {e}")
             return []
 
-    STATIC_CLUBS = [
+    STATIC_CLUBS: typing.ClassVar[list[str]] = [
         "İTÜ Mezunları Derneği Öğrenci Kulübü",
         "Sinema Kulübü",
         "Gönüllülük Kulübü",
@@ -306,10 +306,7 @@ class Ari24Client:
 
                 # Get title from h2 or text
                 title_tag = item.find("h2")
-                if title_tag:
-                    title = title_tag.get_text(strip=True)
-                else:
-                    title = item.get_text(strip=True)
+                title = title_tag.get_text(strip=True) if title_tag else item.get_text(strip=True)
 
                 if not title:
                     continue

@@ -30,7 +30,7 @@ def list_grades(message):
         return
 
     response = "📊 <b>Mevcut Notlarınız:</b>\n\n"
-    for _url, data in user_grades.items():
+    for data in user_grades.values():
         course_name = data.get("course_name", "Bilinmeyen Ders")
         grades = data.get("grades", {})
         response += f"📚 <b>{course_name}</b>\n"
@@ -135,7 +135,7 @@ def list_assignments(message, show_all=False):
     response_lines = []
 
     # Tüm dersleri gez
-    for _url, data in user_grades.items():
+    for data in user_grades.values():
         course_name = data.get("course_name", "Bilinmeyen Ders")
         assignments = data.get("assignments", [])
 

@@ -53,41 +53,41 @@ from .grade_commands import (
 )
 
 __all__ = [
-    # Auth
-    "set_username",
-    "process_username",
-    "set_password",
-    "process_password",
-    # Cafeteria
-    "send_cafeteria_menu",
+    "auto_add_courses",
+    "callback_pagination",
+    "callback_subscribe",
+    "callback_unsubscribe",
+    "discover_events",
     "handle_cafeteria_refresh",
+    "handle_cancel_button",
     # Course
     "interactive_menu",
     "interactive_menu",
-    "auto_add_courses",
+    "kontrol_command_handler",
+    "leave_system",
+    "list_assignments",
     # Grade
     "list_grades",
-    "list_assignments",
-    "kontrol_command_handler",
     "manual_check",
+    "my_clubs",
+    "process_password",
+    "process_search_term",
+    "process_username",
+    "search_announcements",
+    # Cafeteria
+    "send_cafeteria_menu",
+    "send_help_button",
+    "send_help_button",
     # General
     "send_welcome",
-    "handle_cancel_button",
-    "send_help_button",
-    "send_help_button",
-    "search_announcements",
-    "process_search_term",
-    "show_status",
-    "leave_system",
+    "set_password",
+    # Auth
+    "set_username",
     "show_academic_calendar",
-    "show_faq",
     # Arı24
     "show_ari24_menu",
-    "discover_events",
+    "show_faq",
+    "show_status",
     "subscribe_menu",
-    "callback_subscribe",
-    "my_clubs",
-    "callback_unsubscribe",
     "toggle_daily_bulletin",
-    "callback_pagination",
 ]

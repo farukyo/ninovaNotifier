@@ -235,7 +235,7 @@ def handle_admin_callbacks(call):
                 cb()
                 bot.send_message(chat_id, "✅ Kontrol tamamlandı.", parse_mode="HTML")
             except Exception as e:
-                bot.send_message(chat_id, f"⚠️ Kontrol hatası: {str(e)}", parse_mode="HTML")
+                bot.send_message(chat_id, f"⚠️ Kontrol hatası: {e!s}", parse_mode="HTML")
 
     elif action == "logs":
         show_logs(chat_id)
@@ -284,7 +284,7 @@ def handle_admin_callbacks(call):
             with contextlib.suppress(Exception):
                 bot.stop_polling()
             # os._exit(0) yerine execv ile yeniden başlat
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            os.execv(sys.executable, [sys.executable, *sys.argv])
 
         threading.Thread(target=do_restart, daemon=True).start()
 

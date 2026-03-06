@@ -6,6 +6,43 @@ from bot.instance import bot_instance as bot
 from common.utils import escape_html, get_file_icon, load_saved_grades
 
 
+def is_cancel_text(text: str) -> bool:
+    """
+    Kullanıcı mesajının iptal komutu olup olmadığını kontrol eder.
+
+    :param text: Kullanıcı mesajı
+    :return: İptal komutu ise True
+    """
+    if not text:
+        return False
+    t = text.strip().lower()
+    return "iptal" in t or "cancel" in t or "⛔" in text
+
+
+def validate_ninova_url(url: str) -> str | None:
+    """
+    Ninova URL'sini doğrular ve temizler. SSRF saldırılarını önler.
+
+    :param url: Kontrol edilecek URL
+    :return: Temizlenmiş URL veya geçersizse None
+    """
+    if not url:
+        return None
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.netloc not in ("ninova.itu.edu.tr", "www.ninova.itu.edu.tr"):
+        return None
+
+    # Query string ve alt sayfa temizliği
+    clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    for suffix in ["/Notlar", "/Duyurular", "/Odevler", "/SinifDosyalari", "/DersDosyalari"]:
+        if clean_url.endswith(suffix):
+            clean_url = clean_url[: -len(suffix)]
+            break
+
+    return clean_url
+
+
 def encode_path(path_segments):
     """
     Dosya yolu segmentlerini URL uyumlu hale getirir ve birleştirir.
@@ -86,7 +123,7 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
     markup = types.InlineKeyboardMarkup()
 
     for folder in sorted(folders):
-        encoded = encode_path(path_segments + [folder])
+        encoded = encode_path([*path_segments, folder])
         markup.add(
             types.InlineKeyboardButton(f"📁 {folder}", callback_data=f"dir_{course_idx}_{encoded}")
         )

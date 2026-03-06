@@ -3,7 +3,7 @@ name = "ninovanotifier"
 version = "0.2.2"
 description = "Telegram bot that notifies about new grades on ninova"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.14.3",
     "plyer>=2.1.0",
@@ -15,6 +15,7 @@ dependencies = [
     "matplotlib>=3.10.8",
     "scipy>=1.17.0",
     "numpy>=2.4.1",
+    "sqlalchemy>=2.0.48",
 ]
 
 [dependency-groups]
@@ -37,13 +38,42 @@ select = [
     "W",      # pycodestyle warnings
     "F",      # pyflakes
     "I",      # isort (import sorting)
-    "B",      # flake8-bugbear
-    "C4",     # flake8-comprehensions
-    "UP",     # pyupgrade
-    "RET",    # flake8-return
+    "B",      # flake8-bugbear (common pitfalls)
+    "C4",     # flake8-comprehensions (better comprehensions)
+    "UP",     # pyupgrade (modern Python syntax)
+    "RET",    # flake8-return (return statement best practices)
     "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify (code simplification)
+    "N",      # pep8-naming (naming conventions)
+    "A",      # flake8-builtins (shadowing builtins)
+    "LOG",    # flake8-logging (logging best practices)
+    "G",      # flake8-logging-format
+    "PT",     # flake8-pytest-style (test best practices)
+    "PIE",    # flake8-pie (misc. lints)
+    "ICN",    # flake8-import-conventions
+    "RUF",    # Ruff-specific rules
+    "PERF",   # Perflint (performance anti-patterns)
+    "PTH",    # flake8-use-pathlib (pathlib over os.path)
+    "RSE",    # flake8-raise (raise best practices)
+    "TCH",    # flake8-type-checking (TYPE_CHECKING imports)
+    "FURB",   # refurb (modern Python idioms)
 ]
-ignore = ["E501"]  # line too long (handled by formatter)
+ignore = [
+    "E501",     # line too long (handled by formatter)
+    "S",        # Security (Bandit)
+    "T20",      # No print statements
+    "TRY",      # Tryceratops
+    "EM",       # Error message formatting
+    "S101",     # Allow assert
+    "RUF001",   # Ambiguous unicode character (allow ı, ö, ü, vb.)
+    "RUF002",   # Ambiguous unicode character in docstring
+    "RUF003",   # Ambiguous unicode character in comment
+    "G004",     # logging-f-string
+    "FBT001",   # Boolean-typed positional argument in function definition
+    "FBT002",   # Boolean default positional argument in function definition
+    "FBT003",   # Boolean positional value in function call
+]
+
 
 [tool.ruff.format]
 quote-style = "double"

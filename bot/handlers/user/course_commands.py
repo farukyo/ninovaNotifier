@@ -2,6 +2,7 @@
 Ders yönetimi komutları.
 """
 
+import logging
 import threading
 
 import requests
@@ -11,6 +12,8 @@ from bot.instance import bot_instance as bot
 from common.config import HEADERS, USER_SESSIONS, load_all_users
 from common.utils import decrypt_password, load_saved_grades, split_long_message, update_user_data
 from services.ninova import get_user_courses, login_to_ninova
+
+logger = logging.getLogger("ninova")
 
 
 @bot.message_handler(func=lambda message: message.text == "📖 Dersler")
@@ -69,6 +72,7 @@ def auto_add_courses(message):
         )
         return
 
+    logger.info(f"Oto Ders başlatıldı - Chat ID: {chat_id}, Kullanıcı Adı: {username}")
     bot.reply_to(message, "⏳ Ninova'ya giriş yapılıyor ve dersleriniz taranıyor...")
 
     def run_auto_add():
@@ -133,9 +137,8 @@ def auto_add_courses(message):
                     end_date = class_info.get("end_date")
 
                     is_expired = False
-                    if end_date:
-                        if end_date < now:
-                            is_expired = True
+                    if end_date and end_date < now:
+                        is_expired = True
 
                     if is_expired:
                         expired_candidates.append({"name": name, "url": url})
@@ -210,11 +213,13 @@ def auto_add_courses(message):
                     )
 
             else:
+                logger.warning(f"Oto Ders giriş başarısız - Chat ID: {chat_id}")
                 bot.send_message(
                     chat_id,
                     "❌ Giriş başarısız! Lütfen kullanıcı adı ve şifrenizi kontrol edin.",
                 )
         except Exception as e:
-            bot.send_message(chat_id, f"❌ Hata oluştu: {str(e)}")
+            logger.error(f"Oto Ders sırasında hata oluştu ({chat_id}): {e}")
+            bot.send_message(chat_id, f"❌ Hata oluştu: {e!s}")
 
     threading.Thread(target=run_auto_add, daemon=True).start()
