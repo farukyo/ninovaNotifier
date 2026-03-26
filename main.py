@@ -948,7 +948,11 @@ if __name__ == "__main__":
     if bot:
         try:
             logger.info("[Bot] Webhook temizleniyor...")
-            bot.remove_webhook(drop_pending_updates=True)
+            try:
+                bot.remove_webhook(drop_pending_updates=True)
+            except TypeError:
+                # Older pytelegrambotapi versions do not support drop_pending_updates.
+                bot.remove_webhook()
             time.sleep(2)  # Telegram sunucularının senkronize olması için kısa bir bekleme
         except Exception as e:
             logger.exception(f"Webhook temizleme hatası: {e}")

@@ -12,6 +12,7 @@ from common.utils import (
 )
 
 from .data_helpers import load_admin_user_context, load_admin_users
+from .helpers import log_admin_action
 
 logger = logging.getLogger("ninova")
 
@@ -153,7 +154,7 @@ def clear_all_courses(chat_id, target_user_id):
     )
 
 
-def confirm_delete_course(call, target_user_id, course_index):
+def confirm_delete_course(call, target_user_id, course_index, request_id: str | None = None):
     """
     Ders silme onayını işler ve dersi kullanıcının listesinden kaldırır.
 
@@ -173,6 +174,14 @@ def confirm_delete_course(call, target_user_id, course_index):
     deleted_url = urls[course_index]
     urls.pop(course_index)
     update_user_data(target_user_id, "urls", urls)
+    log_admin_action(
+        str(call.message.chat.id),
+        "manage_courses_delete",
+        status="applied",
+        request_id=request_id,
+        target_id=target_user_id,
+        details=f"url={deleted_url}",
+    )
 
     bot.answer_callback_query(call.id, "✅ Ders silindi!")
 
@@ -207,7 +216,7 @@ def confirm_delete_course(call, target_user_id, course_index):
     return True
 
 
-def confirm_clear_all_courses(call, target_user_id):
+def confirm_clear_all_courses(call, target_user_id, request_id: str | None = None):
     """
     Tüm dersleri silme onayını işler.
 
@@ -221,6 +230,14 @@ def confirm_clear_all_courses(call, target_user_id):
     url_count = len(user_data.get("urls", []))
 
     update_user_data(target_user_id, "urls", [])
+    log_admin_action(
+        str(call.message.chat.id),
+        "manage_courses_clear",
+        status="applied",
+        request_id=request_id,
+        target_id=target_user_id,
+        details=f"removed={url_count}",
+    )
 
     bot.answer_callback_query(call.id, f"✅ {url_count} ders silindi!")
 

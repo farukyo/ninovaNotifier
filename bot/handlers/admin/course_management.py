@@ -15,7 +15,7 @@ from .course_functions import (
     select_user_for_course_management,
     show_user_courses,
 )
-from .helpers import is_admin
+from .helpers import is_admin, log_admin_action, new_admin_request_id
 
 logger = logging.getLogger("ninova")
 
@@ -30,7 +30,11 @@ def handle_course_management(call):
     if not is_admin(call):
         return
 
+    request_id = new_admin_request_id("cb")
     bot.answer_callback_query(call.id)
+    log_admin_action(
+        str(call.message.chat.id), "manage_courses", status="opened", request_id=request_id
+    )
     select_user_for_course_management(str(call.message.chat.id))
 
 
@@ -44,6 +48,7 @@ def handle_user_course_select(call):
     if not is_admin(call):
         return
 
+    request_id = new_admin_request_id("cb")
     parts = split_callback_data(call.data, maxsplit=2)
     target_user_id = parts[2] if len(parts) > 2 else ""
     if not target_user_id:
@@ -52,6 +57,13 @@ def handle_user_course_select(call):
         )
         return
     bot.answer_callback_query(call.id)
+    log_admin_action(
+        str(call.message.chat.id),
+        "manage_courses_view",
+        status="requested",
+        request_id=request_id,
+        target_id=target_user_id,
+    )
 
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -71,6 +83,7 @@ def handle_delete_course_select(call):
     if not is_admin(call):
         return
 
+    request_id = new_admin_request_id("cb")
     parts = split_callback_data(call.data, maxsplit=2)
     target_user_id = parts[2] if len(parts) > 2 else ""
     if not target_user_id:
@@ -79,6 +92,13 @@ def handle_delete_course_select(call):
         )
         return
     bot.answer_callback_query(call.id)
+    log_admin_action(
+        str(call.message.chat.id),
+        "manage_courses_delete_menu",
+        status="requested",
+        request_id=request_id,
+        target_id=target_user_id,
+    )
 
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -100,6 +120,7 @@ def handle_delete_course_confirm(call):
     if not is_admin(call):
         return
 
+    request_id = new_admin_request_id("cb")
     parts = split_callback_data(call.data)
     course_index = parse_int_part(parts, len(parts) - 1)
     target_user_id = "_".join(parts[2:-1]) if len(parts) > 3 else ""
@@ -109,7 +130,15 @@ def handle_delete_course_confirm(call):
         )
         return
 
-    if confirm_delete_course(call, target_user_id, course_index):
+    if confirm_delete_course(call, target_user_id, course_index, request_id=request_id):
+        log_admin_action(
+            str(call.message.chat.id),
+            "manage_courses_delete",
+            status="completed",
+            request_id=request_id,
+            target_id=target_user_id,
+            details=f"index={course_index}",
+        )
         show_user_courses(str(call.message.chat.id), target_user_id)
 
 
@@ -126,6 +155,7 @@ def handle_clear_courses(call):
     if not is_admin(call):
         return
 
+    request_id = new_admin_request_id("cb")
     parts = split_callback_data(call.data, maxsplit=2)
     target_user_id = parts[2] if len(parts) > 2 else ""
     if not target_user_id:
@@ -134,6 +164,13 @@ def handle_clear_courses(call):
         )
         return
     bot.answer_callback_query(call.id)
+    log_admin_action(
+        str(call.message.chat.id),
+        "manage_courses_clear_confirm",
+        status="requested",
+        request_id=request_id,
+        target_id=target_user_id,
+    )
 
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -156,6 +193,7 @@ def handle_clear_courses_confirm(call):
     if not is_admin(call):
         return
 
+    request_id = new_admin_request_id("cb")
     parts = split_callback_data(call.data, maxsplit=3)
     target_user_id = parts[3] if len(parts) > 3 else ""
     if not target_user_id:
@@ -163,5 +201,12 @@ def handle_clear_courses_confirm(call):
             lambda msg: bot.answer_callback_query(call.id, msg), "Gecersiz toplu silme istegi."
         )
         return
-    confirm_clear_all_courses(call, target_user_id)
+    confirm_clear_all_courses(call, target_user_id, request_id=request_id)
+    log_admin_action(
+        str(call.message.chat.id),
+        "manage_courses_clear",
+        status="completed",
+        request_id=request_id,
+        target_id=target_user_id,
+    )
     select_user_for_course_management(str(call.message.chat.id))

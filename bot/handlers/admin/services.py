@@ -14,7 +14,14 @@ from common.config import (
 )
 
 from .data_helpers import load_admin_users
-from .helpers import get_admin_state, get_uptime, has_admin_state, is_admin, pop_admin_state
+from .helpers import (
+    get_admin_state,
+    get_uptime,
+    has_admin_state,
+    is_admin,
+    log_admin_action,
+    pop_admin_state,
+)
 
 
 def show_stats(chat_id):
@@ -156,7 +163,7 @@ def send_backup(chat_id):
         bot.send_message(chat_id, f"✅ {files_sent} dosya yedeklendi.")
 
 
-def send_broadcast(admin_chat_id, message_text):
+def send_broadcast(admin_chat_id, message_text, request_id: str | None = None):
     """
     Tüm kullanıcılara duyuru mesajı gönderir.
 
@@ -166,9 +173,23 @@ def send_broadcast(admin_chat_id, message_text):
     :param message_text: Gönderilecek duyuru mesajı
     """
     users = load_admin_users()
+    log_admin_action(
+        str(admin_chat_id),
+        "broadcast",
+        status="started",
+        request_id=request_id,
+        details=f"users={len(users)}",
+    )
 
     if not users:
         bot.send_message(admin_chat_id, "❌ Kayıtlı kullanıcı yok.")
+        log_admin_action(
+            str(admin_chat_id),
+            "broadcast",
+            status="no_users",
+            request_id=request_id,
+            level="warning",
+        )
         return
 
     success_count = 0
@@ -206,9 +227,16 @@ def send_broadcast(admin_chat_id, message_text):
             response += f"• <code>{uid}</code> - {error}\n"
 
     bot.send_message(admin_chat_id, response, parse_mode="HTML")
+    log_admin_action(
+        str(admin_chat_id),
+        "broadcast",
+        status="completed",
+        request_id=request_id,
+        details=f"success={success_count};failed={fail_count}",
+    )
 
 
-def send_direct_message(admin_chat_id, target_id, message_text):
+def send_direct_message(admin_chat_id, target_id, message_text, request_id: str | None = None):
     """
     Belirli bir kullanıcıya admin mesajı gönderir.
 
@@ -217,6 +245,13 @@ def send_direct_message(admin_chat_id, target_id, message_text):
     :param message_text: Gönderilecek mesaj
     """
     try:
+        log_admin_action(
+            str(admin_chat_id),
+            "direct_message",
+            status="started",
+            request_id=request_id,
+            target_id=str(target_id),
+        )
         bot.send_message(
             target_id,
             f"💬 <b>Admin Mesajı</b>\n\n{message_text}",
@@ -227,8 +262,23 @@ def send_direct_message(admin_chat_id, target_id, message_text):
             f"✅ Mesaj <b>{target_id}</b> kullanıcısına gönderildi.",
             parse_mode="HTML",
         )
+        log_admin_action(
+            str(admin_chat_id),
+            "direct_message",
+            status="completed",
+            request_id=request_id,
+            target_id=str(target_id),
+        )
     except Exception as e:
         bot.send_message(admin_chat_id, f"❌ Mesaj gönderilemedi: {e}")
+        log_admin_action(
+            str(admin_chat_id),
+            "direct_message",
+            status="failed",
+            request_id=request_id,
+            target_id=str(target_id),
+            level="error",
+        )
 
 
 @bot.message_handler(func=lambda m: has_admin_state(str(m.chat.id)))
@@ -253,7 +303,9 @@ def handle_admin_text(message):
     pop_admin_state(chat_id)
 
     if state == "waiting_broadcast":
-        send_broadcast(chat_id, message.text)
+        request_id = f"state-{message.message_id}"
+        send_broadcast(chat_id, message.text, request_id=request_id)
     elif state.startswith("waiting_msg_"):
         target_id = state.replace("waiting_msg_", "")
-        send_direct_message(chat_id, target_id, message.text)
+        request_id = f"state-{message.message_id}"
+        send_direct_message(chat_id, target_id, message.text, request_id=request_id)

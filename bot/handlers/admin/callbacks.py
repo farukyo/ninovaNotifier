@@ -26,7 +26,7 @@ from common.utils import (
 from services.ninova import get_user_courses, login_to_ninova
 
 from .data_helpers import load_admin_grades, load_admin_users
-from .helpers import is_admin, set_admin_state
+from .helpers import is_admin, log_admin_action, new_admin_request_id, set_admin_state
 from .services import send_backup, show_logs, show_stats, show_user_details
 
 logger = logging.getLogger("ninova")
@@ -72,6 +72,8 @@ def handle_admin_callbacks(call):
 
     action = "_".join(parts[1:])
     chat_id = str(call.message.chat.id)
+    request_id = new_admin_request_id("cb")
+    log_admin_action(chat_id, f"callback:{action}", status="received", request_id=request_id)
 
     bot.answer_callback_query(call.id)
 
@@ -83,6 +85,7 @@ def handle_admin_callbacks(call):
 
     elif action == "broadcast":
         set_admin_state(chat_id, "waiting_broadcast")
+        log_admin_action(chat_id, "broadcast", status="awaiting_text", request_id=request_id)
         bot.send_message(
             chat_id,
             "📢 <b>Duyuru</b>\n\nTüm kullanıcılara gönderilecek mesajı yazın:",
@@ -91,6 +94,9 @@ def handle_admin_callbacks(call):
 
     elif action == "msg":
         users = load_admin_users()
+        log_admin_action(
+            chat_id, "direct_message", status="target_selection", request_id=request_id
+        )
         markup = types.InlineKeyboardMarkup()
         for uid, data in users.items():
             username = data.get("username", "?")
@@ -109,11 +115,20 @@ def handle_admin_callbacks(call):
     elif action == "force":
         cb = get_check_callback()
         if cb:
+            log_admin_action(chat_id, "force_check", status="started", request_id=request_id)
             bot.send_message(chat_id, "🔄 Kontrol başlatılıyor...")
             cb()
             bot.send_message(chat_id, "✅ Kontrol tamamlandı.")
+            log_admin_action(chat_id, "force_check", status="completed", request_id=request_id)
         else:
             bot.send_message(chat_id, "❌ Kontrol sistemi hazır değil.")
+            log_admin_action(
+                chat_id,
+                "force_check",
+                status="not_ready",
+                request_id=request_id,
+                level="warning",
+            )
 
     elif action == "manage_courses":
         from .course_management import select_user_for_course_management
@@ -140,7 +155,22 @@ def handle_admin_callbacks(call):
         users = load_admin_users()
         if not users:
             bot.send_message(chat_id, "❌ Kayıtlı kullanıcı yok.")
+            log_admin_action(
+                chat_id,
+                "force_otoders",
+                status="no_users",
+                request_id=request_id,
+                level="warning",
+            )
             return
+
+        log_admin_action(
+            chat_id,
+            "force_otoders",
+            status="started",
+            request_id=request_id,
+            details=f"users={len(users)}",
+        )
 
         bot.send_message(
             chat_id,
@@ -220,7 +250,8 @@ def handle_admin_callbacks(call):
                 bot.send_message(target_chat_id, response, parse_mode="HTML")
                 updated += 1
 
-            except Exception:
+            except Exception as e:
+                logger.exception(f"[admin] forceoto failed for user {target_chat_id}: {e}")
                 failed += 1
                 continue
 
@@ -234,6 +265,13 @@ def handle_admin_callbacks(call):
         )
 
         bot.send_message(chat_id, summary, parse_mode="HTML")
+        log_admin_action(
+            chat_id,
+            "force_otoders",
+            status="completed",
+            request_id=request_id,
+            details=f"updated={updated};failed={failed};new_courses={total_new_courses}",
+        )
 
         # Kontrol başlat - tüm kullanıcılar için ders bilgilerini çek
         cb = get_check_callback()
@@ -243,18 +281,32 @@ def handle_admin_callbacks(call):
                 bot.send_message(chat_id, "✅ Kontrol tamamlandı.", parse_mode="HTML")
             except Exception as e:
                 bot.send_message(chat_id, f"⚠️ Kontrol hatası: {e!s}", parse_mode="HTML")
+                log_admin_action(
+                    chat_id,
+                    "force_check_post_otoders",
+                    status="failed",
+                    request_id=request_id,
+                    level="error",
+                )
 
     elif action == "logs":
+        log_admin_action(chat_id, "show_logs", status="requested", request_id=request_id)
         show_logs(chat_id)
 
     elif action == "backup":
+        log_admin_action(chat_id, "backup", status="requested", request_id=request_id)
         send_backup(chat_id)
 
     elif action == "optout":
         users = load_admin_users()
         if not users:
             bot.send_message(chat_id, "Kayıtlı kullanıcı yok.")
+            log_admin_action(
+                chat_id, "optout", status="no_users", request_id=request_id, level="warning"
+            )
             return
+
+        log_admin_action(chat_id, "optout", status="target_selection", request_id=request_id)
 
         markup = types.InlineKeyboardMarkup()
         for uid, data in users.items():
@@ -272,6 +324,7 @@ def handle_admin_callbacks(call):
         )
 
     elif action == "restart":
+        log_admin_action(chat_id, "restart", status="started", request_id=request_id)
         # Tüm kullanıcılara bildir
         users_dict = load_admin_users()
         for uid in users_dict:
@@ -312,6 +365,13 @@ def handle_admin_callbacks(call):
 
         if not submit_background_task("admin_restart_callback", do_restart):
             bot.send_message(chat_id, "⏳ Sistem yoğun, yeniden başlatma kuyruğa alınamadı.")
+            log_admin_action(
+                chat_id,
+                "restart",
+                status="queue_full",
+                request_id=request_id,
+                level="warning",
+            )
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("msg_"))
@@ -333,6 +393,14 @@ def handle_msg_user_select(call):
         )
         return
     target_id = parts[1]
+    request_id = new_admin_request_id("cb")
+    log_admin_action(
+        str(call.message.chat.id),
+        "direct_message",
+        status="awaiting_text",
+        request_id=request_id,
+        target_id=target_id,
+    )
     set_admin_state(str(call.message.chat.id), f"waiting_msg_{target_id}")
 
     bot.answer_callback_query(call.id)
@@ -360,6 +428,14 @@ def handle_optout_user(call):
         )
         return
     target_id = parts[1]
+    request_id = new_admin_request_id("cb")
+    log_admin_action(
+        str(call.message.chat.id),
+        "optout",
+        status="confirm_requested",
+        request_id=request_id,
+        target_id=target_id,
+    )
 
     # Onay iste
     markup = types.InlineKeyboardMarkup()
@@ -397,6 +473,7 @@ def handle_optout_confirm(call):
         )
         return
     target_id = parts[1]
+    request_id = new_admin_request_id("cb")
 
     # Kullanıcıyı sil
     users = load_admin_users()
@@ -412,6 +489,13 @@ def handle_optout_confirm(call):
 
     # Close user session
     close_user_session(target_id)
+    log_admin_action(
+        str(call.message.chat.id),
+        "optout",
+        status="completed",
+        request_id=request_id,
+        target_id=target_id,
+    )
 
     bot.answer_callback_query(call.id, "Kullanıcı silindi!")
     bot.edit_message_text(
@@ -434,3 +518,5 @@ def handle_optout_cancel(call):
         message_id=call.message.message_id,
         text="❌ İşlem iptal edildi.",
     )
+    request_id = new_admin_request_id("cb")
+    log_admin_action(str(call.message.chat.id), "optout", status="cancelled", request_id=request_id)

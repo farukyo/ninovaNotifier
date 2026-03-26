@@ -25,7 +25,7 @@ from common.utils import (
 from services.ninova import get_class_info, get_user_courses, login_to_ninova
 
 from .data_helpers import load_admin_grades, load_admin_users
-from .helpers import is_admin, set_admin_state
+from .helpers import is_admin, log_admin_action, new_admin_request_id, set_admin_state
 from .services import (
     send_backup,
     send_broadcast,
@@ -76,7 +76,9 @@ def admin_panel(message):
         types.InlineKeyboardButton("🔄 Restart", callback_data="adm_restart"),
     )
 
+    request_id = new_admin_request_id("cmd")
     users = load_admin_users()
+    log_admin_action(str(message.chat.id), "admin_panel", status="opened", request_id=request_id)
     stats_summary = f"👥 {len(users)} kullanıcı | 🔗 {len(USER_SESSIONS)} oturum"
 
     bot.reply_to(
@@ -100,14 +102,19 @@ def admin_broadcast_cmd(message):
     if not is_admin(message):
         return
 
+    request_id = new_admin_request_id("cmd")
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         set_admin_state(str(message.chat.id), "waiting_broadcast")
+        log_admin_action(
+            str(message.chat.id), "broadcast", status="awaiting_text", request_id=request_id
+        )
         bot.reply_to(message, "📢 Duyuru metnini yazın:")
         return
 
     broadcast_message = parts[1]
-    send_broadcast(message.chat.id, broadcast_message)
+    log_admin_action(str(message.chat.id), "broadcast", status="started", request_id=request_id)
+    send_broadcast(message.chat.id, broadcast_message, request_id=request_id)
 
 
 def admin_msg_cmd(message):
@@ -123,10 +130,17 @@ def admin_msg_cmd(message):
     if not is_admin(message):
         return
 
+    request_id = new_admin_request_id("cmd")
     parts = message.text.split(maxsplit=2)
     if len(parts) < 3:
         # Kullanıcı listesi göster
         users = load_admin_users()
+        log_admin_action(
+            str(message.chat.id),
+            "direct_message",
+            status="target_selection",
+            request_id=request_id,
+        )
         markup = types.InlineKeyboardMarkup()
         for uid, data in users.items():
             username = data.get("username", "?")
@@ -144,7 +158,14 @@ def admin_msg_cmd(message):
         return
 
     target_id, msg_text = parts[1], parts[2]
-    send_direct_message(message.chat.id, target_id, msg_text)
+    log_admin_action(
+        str(message.chat.id),
+        "direct_message",
+        status="started",
+        request_id=request_id,
+        target_id=target_id,
+    )
+    send_direct_message(message.chat.id, target_id, msg_text, request_id=request_id)
 
 
 @bot.message_handler(commands=["restart"])
@@ -159,7 +180,9 @@ def admin_restart_cmd(message):
     if not is_admin(message):
         return
 
+    request_id = new_admin_request_id("cmd")
     # Tüm kullanıcılara bildir
+    log_admin_action(str(message.chat.id), "restart", status="started", request_id=request_id)
     users_dict = load_admin_users()
     for uid in users_dict:
         try:
@@ -200,6 +223,13 @@ def admin_restart_cmd(message):
 
     if not submit_background_task("admin_restart_cmd", do_restart):
         bot.reply_to(message, "⏳ Sistem yoğun, yeniden başlatma kuyruğa alınamadı.")
+        log_admin_action(
+            str(message.chat.id),
+            "restart",
+            status="queue_full",
+            request_id=request_id,
+            level="warning",
+        )
 
 
 def admin_stats_cmd(message):
@@ -208,8 +238,10 @@ def admin_stats_cmd(message):
 
     :param message: Admin'den gelen /stats komutu
     """
+    request_id = new_admin_request_id("cmd")
     if not is_admin(message):
         return
+    log_admin_action(str(message.chat.id), "show_stats", status="requested", request_id=request_id)
     show_stats(message.chat.id)
 
 
@@ -219,8 +251,10 @@ def admin_backup_cmd(message):
 
     :param message: Admin'den gelen /backup komutu
     """
+    request_id = new_admin_request_id("cmd")
     if not is_admin(message):
         return
+    log_admin_action(str(message.chat.id), "backup", status="requested", request_id=request_id)
     send_backup(message.chat.id)
 
 
@@ -230,8 +264,10 @@ def admin_detail_cmd(message):
 
     :param message: Admin'den gelen /detay komutu
     """
+    request_id = new_admin_request_id("cmd")
     if not is_admin(message):
         return
+    log_admin_action(str(message.chat.id), "show_users", status="requested", request_id=request_id)
     show_user_details(message.chat.id)
 
 
@@ -243,13 +279,25 @@ def admin_optout_cmd(message):
 
     :param message: Admin'den gelen /optout komutu
     """
+    request_id = new_admin_request_id("cmd")
     if not is_admin(message):
         return
 
     users = load_admin_users()
     if not users:
         bot.reply_to(message, "Kayıtlı kullanıcı yok.")
+        log_admin_action(
+            str(message.chat.id),
+            "optout",
+            status="no_users",
+            request_id=request_id,
+            level="warning",
+        )
         return
+
+    log_admin_action(
+        str(message.chat.id), "optout", status="target_selection", request_id=request_id
+    )
 
     markup = types.InlineKeyboardMarkup()
     for uid, data in users.items():
@@ -274,8 +322,10 @@ def admin_logs_cmd(message):
 
     :param message: Admin'den gelen /logs komutu
     """
+    request_id = new_admin_request_id("cmd")
     if not is_admin(message):
         return
+    log_admin_action(str(message.chat.id), "show_logs", status="requested", request_id=request_id)
     show_logs(message.chat.id)
 
 
@@ -288,16 +338,30 @@ def admin_force_check_cmd(message):
 
     :param message: Admin'den gelen /force_check komutu
     """
+    request_id = new_admin_request_id("cmd")
     if not is_admin(message):
         return
 
     cb = get_check_callback()
     if cb:
+        log_admin_action(
+            str(message.chat.id), "force_check", status="started", request_id=request_id
+        )
         bot.reply_to(message, "🔄 Tüm kullanıcılar için kontrol başlatılıyor...")
         cb()
         bot.send_message(message.chat.id, "✅ Kontrol tamamlandı.")
+        log_admin_action(
+            str(message.chat.id), "force_check", status="completed", request_id=request_id
+        )
     else:
         bot.reply_to(message, "❌ Kontrol sistemi hazır değil.")
+        log_admin_action(
+            str(message.chat.id),
+            "force_check",
+            status="not_ready",
+            request_id=request_id,
+            level="warning",
+        )
 
 
 def admin_force_otoders_cmd(message):
@@ -309,13 +373,29 @@ def admin_force_otoders_cmd(message):
 
     :param message: Admin'den gelen /force_otoders komutu
     """
+    request_id = new_admin_request_id("cmd")
     if not is_admin(message):
         return
 
     users = load_admin_users()
     if not users:
         bot.reply_to(message, "❌ Kayıtlı kullanıcı yok.")
+        log_admin_action(
+            str(message.chat.id),
+            "force_otoders",
+            status="no_users",
+            request_id=request_id,
+            level="warning",
+        )
         return
+
+    log_admin_action(
+        str(message.chat.id),
+        "force_otoders",
+        status="started",
+        request_id=request_id,
+        details=f"users={len(users)}",
+    )
 
     bot.reply_to(
         message,
@@ -427,7 +507,8 @@ def admin_force_otoders_cmd(message):
                 )
                 updated_users += 1
 
-        except Exception:
+        except Exception as e:
+            logger.exception(f"[admin] force_otoders failed for user {chat_id}: {e}")
             failed_users += 1
             continue
 
@@ -441,6 +522,13 @@ def admin_force_otoders_cmd(message):
     )
 
     bot.send_message(message.chat.id, summary, parse_mode="HTML")
+    log_admin_action(
+        str(message.chat.id),
+        "force_otoders",
+        status="completed",
+        request_id=request_id,
+        details=f"updated={updated_users};failed={failed_users};new_courses={total_added_courses}",
+    )
 
     # Kontrol başlat
     cb = get_check_callback()

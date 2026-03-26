@@ -2,8 +2,10 @@
 Admin yardımcı fonksiyonları.
 """
 
+import logging
 import os
 import time
+import uuid
 from datetime import datetime
 
 from bot.instance import START_TIME
@@ -14,6 +16,34 @@ ADMIN_ID = os.getenv("ADMIN_TELEGRAM_ID")
 # Admin state'leri (duyuru/msg için)
 ADMIN_STATE_TTL_SECONDS = 30 * 60
 admin_states: dict[str, tuple[str, float]] = {}
+logger = logging.getLogger("ninova")
+
+
+def log_admin_action(
+    actor_id: str,
+    action: str,
+    *,
+    status: str = "ok",
+    request_id: str | None = None,
+    target_id: str | None = None,
+    details: str | None = None,
+    level: str = "info",
+) -> None:
+    """Emit consistent admin audit logs."""
+    parts = [f"[admin] actor={actor_id}", f"action={action}", f"status={status}"]
+    if target_id:
+        parts.append(f"target={target_id}")
+    if request_id:
+        parts.append(f"request_id={request_id}")
+    if details:
+        parts.append(f"details={details}")
+    message = " | ".join(parts)
+    getattr(logger, level, logger.info)(message)
+
+
+def new_admin_request_id(prefix: str = "adm") -> str:
+    """Generate short request id for correlating admin logs."""
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
 def cleanup_admin_states(now: float | None = None) -> int:
