@@ -72,6 +72,11 @@ def _atomic_json_write(filepath, data):
         raise
 
 
+def atomic_json_write(filepath, data):
+    """Public wrapper for atomic JSON writes."""
+    _atomic_json_write(filepath, data)
+
+
 def load_all_users():
     """
     Tüm kullanıcı verilerini users.json dosyasından yükler (thread-safe).
@@ -163,6 +168,11 @@ def get_session_stats() -> dict:
 def get_cache_stats() -> dict:
     """Cache yöneticisi istatistikleri döndür."""
     return _cache_manager.stats()
+
+
+def sync_cache_to_disk() -> None:
+    """Flush in-memory cache entries to disk safely."""
+    _cache_manager.sync()
 
 
 # ============================================================================

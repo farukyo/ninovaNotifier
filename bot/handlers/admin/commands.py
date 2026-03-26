@@ -2,7 +2,6 @@
 Admin komutları.
 """
 
-import contextlib
 import logging
 import os
 import sys
@@ -17,16 +16,15 @@ from common.config import (
     HEADERS,
     USER_SESSIONS,
     cleanup_inactive_sessions,
-    load_all_users,
 )
 from common.utils import (
     decrypt_password,
-    load_saved_grades,
     save_grades,
     update_user_data,
 )
 from services.ninova import get_class_info, get_user_courses, login_to_ninova
 
+from .data_helpers import load_admin_grades, load_admin_users
 from .helpers import is_admin, set_admin_state
 from .services import (
     send_backup,
@@ -78,7 +76,7 @@ def admin_panel(message):
         types.InlineKeyboardButton("🔄 Restart", callback_data="adm_restart"),
     )
 
-    users = load_all_users()
+    users = load_admin_users()
     stats_summary = f"👥 {len(users)} kullanıcı | 🔗 {len(USER_SESSIONS)} oturum"
 
     bot.reply_to(
@@ -128,7 +126,7 @@ def admin_msg_cmd(message):
     parts = message.text.split(maxsplit=2)
     if len(parts) < 3:
         # Kullanıcı listesi göster
-        users = load_all_users()
+        users = load_admin_users()
         markup = types.InlineKeyboardMarkup()
         for uid, data in users.items():
             username = data.get("username", "?")
@@ -162,13 +160,15 @@ def admin_restart_cmd(message):
         return
 
     # Tüm kullanıcılara bildir
-    users_dict = load_all_users()
+    users_dict = load_admin_users()
     for uid in users_dict:
-        with contextlib.suppress(Exception):
+        try:
             bot.send_message(
                 uid,
                 "🔄 Sistem güncellendi ve yeniden başlatılıyor... Lütfen bekleyiniz.",
             )
+        except Exception as e:
+            logger.debug(f"[restart] Could not notify user {uid}: {e}")
 
     bot.reply_to(message, "🔄 Bot yeniden başlatılıyor...")
 
@@ -184,11 +184,15 @@ def admin_restart_cmd(message):
         except Exception as e:
             logger.exception(f"[restart] Session cleanup failed: {e}")
 
-        with contextlib.suppress(Exception):
+        try:
             bot.stop_polling()
+        except Exception as e:
+            logger.debug(f"[restart] stop_polling failed: {e}")
 
-        with contextlib.suppress(Exception):
+        try:
             logging.shutdown()
+        except Exception as e:
+            logger.debug(f"[restart] logging shutdown failed: {e}")
 
         # os._exit(0) yerine execv ile yeniden başlat
         logger.warning("[restart] Replacing process with os.execv")
@@ -242,7 +246,7 @@ def admin_optout_cmd(message):
     if not is_admin(message):
         return
 
-    users = load_all_users()
+    users = load_admin_users()
     if not users:
         bot.reply_to(message, "Kayıtlı kullanıcı yok.")
         return
@@ -308,7 +312,7 @@ def admin_force_otoders_cmd(message):
     if not is_admin(message):
         return
 
-    users = load_all_users()
+    users = load_admin_users()
     if not users:
         bot.reply_to(message, "❌ Kayıtlı kullanıcı yok.")
         return
@@ -320,7 +324,7 @@ def admin_force_otoders_cmd(message):
 
     # --- 1. CLEANUP ORPHANED DATA ---
     try:
-        all_grades = load_saved_grades()
+        all_grades = load_admin_grades()
         cleaned_courses_count = 0
         cleaned_users_count = 0
 
@@ -441,5 +445,7 @@ def admin_force_otoders_cmd(message):
     # Kontrol başlat
     cb = get_check_callback()
     if cb:
-        with contextlib.suppress(Exception):
+        try:
             cb()
+        except Exception as e:
+            logger.exception(f"[force_otoders] Post-sync full check failed: {e}")

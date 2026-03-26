@@ -2,16 +2,18 @@
 Admin ders yönetimi yardımcı fonksiyonları.
 """
 
-import contextlib
+import logging
 
 from telebot import types
 
 from bot.instance import bot_instance as bot
-from common.config import load_all_users
 from common.utils import (
-    load_saved_grades,
     update_user_data,
 )
+
+from .data_helpers import load_admin_user_context, load_admin_users
+
+logger = logging.getLogger("ninova")
 
 
 def select_user_for_course_management(chat_id):
@@ -23,7 +25,7 @@ def select_user_for_course_management(chat_id):
 
     :param chat_id: Admin'in chat ID'si
     """
-    users = load_all_users()
+    users = load_admin_users()
     if not users:
         bot.send_message(chat_id, "❌ Kayıtlı kullanıcı yok.")
         return
@@ -56,10 +58,7 @@ def show_user_courses(chat_id, target_user_id):
     :param chat_id: Admin'in chat ID'si
     :param target_user_id: Hedef kullanıcının chat ID'si
     """
-    users = load_all_users()
-    user_data = users.get(target_user_id, {})
-    urls = user_data.get("urls", [])
-    username = user_data.get("username", "?")
+    _users, _user_data, urls, username, user_grades = load_admin_user_context(target_user_id)
 
     if not urls:
         bot.send_message(
@@ -69,8 +68,6 @@ def show_user_courses(chat_id, target_user_id):
         )
         return
 
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(target_user_id, {})
     response = f"📚 <b>{username} ({target_user_id})</b> - Takip Ettiği Dersler:\n\n"
     for i, url in enumerate(urls, 1):
         course_name = user_grades.get(url, {}).get("course_name", f"Ders {i}")
@@ -100,17 +97,11 @@ def delete_single_course(chat_id, target_user_id):
     :param chat_id: Admin'in chat ID'si
     :param target_user_id: Hedef kullanıcının chat ID'si
     """
-    users = load_all_users()
-    user_data = users.get(target_user_id, {})
-    urls = user_data.get("urls", [])
-    username = user_data.get("username", "?")
+    _users, _user_data, urls, username, user_grades = load_admin_user_context(target_user_id)
 
     if not urls:
         bot.send_message(chat_id, "❌ Silinecek ders bulunamadı.")
         return
-
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(target_user_id, {})
 
     markup = types.InlineKeyboardMarkup()
     for i, url in enumerate(urls):
@@ -143,9 +134,7 @@ def clear_all_courses(chat_id, target_user_id):
     :param chat_id: Admin'in chat ID'si
     :param target_user_id: Hedef kullanıcının chat ID'si
     """
-    users = load_all_users()
-    user_data = users.get(target_user_id, {})
-    username = user_data.get("username", "?")
+    _users, user_data, _urls, username, _user_grades = load_admin_user_context(target_user_id)
     url_count = len(user_data.get("urls", []))
 
     markup = types.InlineKeyboardMarkup()
@@ -175,10 +164,7 @@ def confirm_delete_course(call, target_user_id, course_index):
     :param course_index: Silinecek dersin indeksi
     :return: Başarılı ise True, değilse False
     """
-    users = load_all_users()
-    user_data = users.get(target_user_id, {})
-    urls = user_data.get("urls", [])
-    username = user_data.get("username", "?")
+    _users, _user_data, urls, username, user_grades = load_admin_user_context(target_user_id)
 
     if course_index >= len(urls):
         bot.answer_callback_query(call.id, "❌ Ders bulunamadı.", show_alert=True)
@@ -190,11 +176,11 @@ def confirm_delete_course(call, target_user_id, course_index):
 
     bot.answer_callback_query(call.id, "✅ Ders silindi!")
 
-    with contextlib.suppress(Exception):
+    try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        logger.debug(f"Could not delete admin confirm-delete prompt: {e}")
 
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(target_user_id, {})
     course_name = user_grades.get(deleted_url, {}).get("course_name", deleted_url)
 
     bot.send_message(
@@ -206,7 +192,7 @@ def confirm_delete_course(call, target_user_id, course_index):
         parse_mode="HTML",
     )
 
-    with contextlib.suppress(Exception):
+    try:
         bot.send_message(
             target_user_id,
             f"⚠️ <b>Ders Kaldırıldı</b>\n\n"
@@ -215,6 +201,8 @@ def confirm_delete_course(call, target_user_id, course_index):
             f"📚 Kalan Dersler: {len(urls)}",
             parse_mode="HTML",
         )
+    except Exception as e:
+        logger.debug(f"Could not notify user {target_user_id} after course deletion: {e}")
 
     return True
 
@@ -229,17 +217,17 @@ def confirm_clear_all_courses(call, target_user_id):
     :param call: CallbackQuery nesnesi
     :param target_user_id: Hedef kullanıcının chat ID'si
     """
-    users = load_all_users()
-    user_data = users.get(target_user_id, {})
-    username = user_data.get("username", "?")
+    _users, user_data, _urls, username, _user_grades = load_admin_user_context(target_user_id)
     url_count = len(user_data.get("urls", []))
 
     update_user_data(target_user_id, "urls", [])
 
     bot.answer_callback_query(call.id, f"✅ {url_count} ders silindi!")
 
-    with contextlib.suppress(Exception):
+    try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        logger.debug(f"Could not delete admin clear-all confirmation message: {e}")
 
     bot.send_message(
         call.message.chat.id,
@@ -249,7 +237,7 @@ def confirm_clear_all_courses(call, target_user_id):
         parse_mode="HTML",
     )
 
-    with contextlib.suppress(Exception):
+    try:
         bot.send_message(
             target_user_id,
             f"⚠️ <b>Tüm Dersler Kaldırıldı</b>\n\n"
@@ -257,3 +245,5 @@ def confirm_clear_all_courses(call, target_user_id):
             f"/otoders komutu ile yeni dersleri ekleyebilirsiniz.",
             parse_mode="HTML",
         )
+    except Exception as e:
+        logger.debug(f"Could not notify user {target_user_id} after clear-all: {e}")

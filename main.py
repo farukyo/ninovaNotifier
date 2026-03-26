@@ -1,6 +1,7 @@
 import json
 import logging
 import random
+import signal
 import threading
 import time
 import traceback
@@ -25,12 +26,14 @@ from common.config import (
     DATA_DIR,
     LOGS_DIR,
     SESSION_CLEANUP_INTERVAL,
+    atomic_json_write,
     cleanup_inactive_sessions,
     console,
     get_cache_stats,
     get_user_session,
     load_all_users,
     save_all_users,
+    sync_cache_to_disk,
 )
 from common.utils import (
     decrypt_password,
@@ -60,6 +63,10 @@ LAST_CHECK_DISPLAY_TIME = None
 SHOW_VERBOSE_TERMINAL = False
 LIVE_REFRESH_PER_SECOND = 0.5
 LIVE_STATUS_UPDATE_EVERY_SECONDS = 10
+SHUTDOWN_EVENT = threading.Event()
+POLLING_THREAD: threading.Thread | None = None
+_SHUTDOWN_LOCK = threading.Lock()
+_SHUTDOWN_DONE = False
 
 
 def emit_terminal_and_log(message: str, level: str = "info") -> None:
@@ -73,6 +80,39 @@ def emit_terminal_and_log(message: str, level: str = "info") -> None:
         "critical": "[bold red]",
     }.get(level, "[cyan]")
     console.print(f"{style}{message}")
+
+
+def graceful_shutdown(reason: str) -> None:
+    """Stop polling and flush resources exactly once."""
+    global _SHUTDOWN_DONE
+    with _SHUTDOWN_LOCK:
+        if _SHUTDOWN_DONE:
+            return
+        _SHUTDOWN_DONE = True
+
+    SHUTDOWN_EVENT.set()
+    emit_terminal_and_log(f"Shutdown başlatıldı: {reason}", level="warning")
+
+    if bot:
+        try:
+            bot.stop_polling()
+        except Exception as e:
+            logger.exception(f"Polling stop failed: {e}")
+
+    global POLLING_THREAD
+    if POLLING_THREAD and POLLING_THREAD.is_alive():
+        POLLING_THREAD.join(timeout=5)
+
+    try:
+        closed = cleanup_inactive_sessions(force=True)
+        logger.info(f"Shutdown session cleanup: {closed} closed")
+    except Exception as e:
+        logger.exception(f"Shutdown session cleanup failed: {e}")
+
+    try:
+        sync_cache_to_disk()
+    except Exception as e:
+        logger.exception(f"Shutdown cache sync failed: {e}")
 
 
 def show_users_table():
@@ -214,8 +254,7 @@ def check_ari24_updates():
 
             state["notified_news"] = list(notified_news)[-200:]  # Keep last 200
 
-        with Path(state_file).open("w") as f:
-            json.dump(state, f)
+        atomic_json_write(state_file, state)
 
     except Exception as e:
         logger.error(f"Ari24 check error: {e}")
@@ -268,8 +307,7 @@ def check_daily_bulletin():
             # Nothing at all?
             # Mark sent and return
             state["last_sent_date"] = today_str
-            with Path(state_file).open("w") as f:
-                json.dump(state, f)
+            atomic_json_write(state_file, state)
             return
 
         date_formatted = now.strftime("%d.%m.%Y")
@@ -309,8 +347,7 @@ def check_daily_bulletin():
 
         # Update state
         state["last_sent_date"] = today_str
-        with Path(state_file).open("w") as f:
-            json.dump(state, f)
+        atomic_json_write(state_file, state)
 
     except Exception as e:
         logger.error(f"Daily bulletin error: {e}")
@@ -901,6 +938,13 @@ if __name__ == "__main__":
     show_users_table()
     console.print()
 
+    def _signal_handler(signum, _frame):
+        graceful_shutdown(f"signal {signum}")
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _signal_handler)
+
     if bot:
         try:
             logger.info("[Bot] Webhook temizleniyor...")
@@ -911,11 +955,12 @@ if __name__ == "__main__":
 
         # infinity_polling kendi içinde hata yönetimi yapar.
         # logger_level parametresi ile log kirliliğini azaltabiliriz.
-        threading.Thread(
+        POLLING_THREAD = threading.Thread(
             target=bot.infinity_polling,
             kwargs={"skip_pending": True, "timeout": 20},
             daemon=True,
-        ).start()
+        )
+        POLLING_THREAD.start()
         logger.info("[Bot] Telegram komut dinleyicisi başlatıldı.")
 
     try:
@@ -923,12 +968,14 @@ if __name__ == "__main__":
         checks_since_cleanup = 0
         checks_until_cleanup = SESSION_CLEANUP_INTERVAL // CHECK_INTERVAL
 
-        while True:
+        while not SHUTDOWN_EVENT.is_set():
             current_wait = CHECK_INTERVAL + random.randint(-30, 30)
             # Bekleme sırasında Live display
             users_count = len(load_all_users())  # Disk I/O'yu 1 kere yap
             with Live(console=console, refresh_per_second=LIVE_REFRESH_PER_SECOND) as live:
                 for i in range(current_wait):
+                    if SHUTDOWN_EVENT.is_set():
+                        break
                     if i % LIVE_STATUS_UPDATE_EVERY_SECONDS == 0:
                         status = "⏳ Sonraki kontrol bekleniyor...\n"
                         status += f"📊 Kullanıcı sayısı: {users_count}\n"
@@ -944,6 +991,8 @@ if __name__ == "__main__":
                             )
                         )
                     time.sleep(1)
+            if SHUTDOWN_EVENT.is_set():
+                break
             # Live kapandıktan sonra kontrol yap
             check_and_announce_sks_menu()
             check_ari24_updates()
@@ -964,10 +1013,13 @@ if __name__ == "__main__":
                 except Exception as e:
                     logger.exception(f"Session cleanup failed: {e}")
     except KeyboardInterrupt:
-        emit_terminal_and_log("Program kullanıcı tarafından durduruldu.", level="warning")
+        graceful_shutdown("keyboard interrupt")
     except Exception as e:
         from rich.traceback import Traceback
 
         console.print(Traceback())
         error_msg = f"Ana döngüde kritik hata: {e!s}\n{traceback.format_exc()}"
         emit_terminal_and_log(error_msg, level="critical")
+        graceful_shutdown("critical error")
+    finally:
+        graceful_shutdown("main exit")

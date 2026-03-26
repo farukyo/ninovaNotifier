@@ -8,9 +8,10 @@ from datetime import datetime
 
 from telebot import types
 
+from bot.handlers.user.data_helpers import load_user_grades
 from bot.instance import bot_instance as bot
 from common.background_tasks import submit_background_task
-from common.utils import load_saved_grades, split_long_message
+from common.utils import split_long_message
 
 from .course_commands import interactive_menu
 
@@ -22,8 +23,7 @@ def list_grades(message):
     Notlar, ağırlıklar, sınıf ortalaması ve performans tahmini içerir.
     """
     chat_id = str(message.chat.id)
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
+    user_grades = load_user_grades(chat_id)
 
     if not user_grades:
         bot.reply_to(message, "Henüz kayıtlı not bulunamadı.")
@@ -121,8 +121,7 @@ def list_assignments(message, show_all=False):
     Varsayılan olarak sadece 'aktif' ödevleri gösterir.
     """
     chat_id = str(message.chat.id)
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
+    user_grades = load_user_grades(chat_id)
 
     if not user_grades:
         bot.reply_to(message, "Henüz kayıtlı veri bulunamadı.")

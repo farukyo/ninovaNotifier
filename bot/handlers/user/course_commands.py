@@ -6,9 +6,10 @@ import logging
 
 from telebot import types
 
+from bot.handlers.user.data_helpers import load_user_profile, load_user_snapshot
 from bot.instance import bot_instance as bot
 from common.background_tasks import submit_background_task
-from common.config import get_user_session, load_all_users
+from common.config import get_user_session
 from common.utils import decrypt_password, load_saved_grades, split_long_message, update_user_data
 from services.ninova import get_user_courses, login_to_ninova
 
@@ -26,8 +27,7 @@ def interactive_menu(message):
     :param message: Kullanıcıdan gelen /ders veya /dersler komutu
     """
     chat_id = str(message.chat.id)
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
+    _user_data, user_grades, _urls = load_user_snapshot(chat_id, urls_source="grades")
 
     if not user_grades:
         bot.reply_to(message, "Henüz takip ettiğiniz ders yok. /otoders ile ekleyebilirsiniz.")
@@ -59,8 +59,7 @@ def auto_add_courses(message):
     Ninova'ya bağlanarak kullanıcının tüm derslerini otomatik olarak bulur ve ekler.
     """
     chat_id = str(message.chat.id)
-    users = load_all_users()
-    user_info = users.get(chat_id, {})
+    user_info = load_user_profile(chat_id)
     username = user_info.get("username")
     password = decrypt_password(user_info.get("password", ""))
 

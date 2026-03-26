@@ -1,4 +1,5 @@
 import logging
+
 from common.cache_manager import get_cache_manager
 
 logger = logging.getLogger("ninova")

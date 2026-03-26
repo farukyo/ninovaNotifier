@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def split_callback_data(data: str, *, sep: str = "_", maxsplit: int = -1) -> list[str]:

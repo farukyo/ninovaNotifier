@@ -2,8 +2,9 @@
 Admin ders yönetimi callback'leri.
 """
 
-import contextlib
+import logging
 
+from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
 from bot.instance import bot_instance as bot
 
 from .course_functions import (
@@ -15,6 +16,8 @@ from .course_functions import (
     show_user_courses,
 )
 from .helpers import is_admin
+
+logger = logging.getLogger("ninova")
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "adm_manage_courses")
@@ -41,11 +44,19 @@ def handle_user_course_select(call):
     if not is_admin(call):
         return
 
-    target_user_id = call.data.split("_", 2)[-1]
+    parts = split_callback_data(call.data, maxsplit=2)
+    target_user_id = parts[2] if len(parts) > 2 else ""
+    if not target_user_id:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Gecersiz kullanici secimi."
+        )
+        return
     bot.answer_callback_query(call.id)
 
-    with contextlib.suppress(Exception):
+    try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        logger.debug(f"Could not delete admin course management menu message: {e}")
 
     show_user_courses(str(call.message.chat.id), target_user_id)
 
@@ -60,11 +71,19 @@ def handle_delete_course_select(call):
     if not is_admin(call):
         return
 
-    target_user_id = call.data.split("_", 2)[-1]
+    parts = split_callback_data(call.data, maxsplit=2)
+    target_user_id = parts[2] if len(parts) > 2 else ""
+    if not target_user_id:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Gecersiz kullanici secimi."
+        )
+        return
     bot.answer_callback_query(call.id)
 
-    with contextlib.suppress(Exception):
+    try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        logger.debug(f"Could not delete admin delete-course menu message: {e}")
 
     delete_single_course(str(call.message.chat.id), target_user_id)
 
@@ -81,9 +100,14 @@ def handle_delete_course_confirm(call):
     if not is_admin(call):
         return
 
-    parts = call.data.split("_")
-    course_index = int(parts[-1])
-    target_user_id = "_".join(parts[2:-1])
+    parts = split_callback_data(call.data)
+    course_index = parse_int_part(parts, len(parts) - 1)
+    target_user_id = "_".join(parts[2:-1]) if len(parts) > 3 else ""
+    if course_index is None or not target_user_id:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Gecersiz ders silme istegi."
+        )
+        return
 
     if confirm_delete_course(call, target_user_id, course_index):
         show_user_courses(str(call.message.chat.id), target_user_id)
@@ -102,11 +126,19 @@ def handle_clear_courses(call):
     if not is_admin(call):
         return
 
-    target_user_id = call.data.split("_", 2)[-1]
+    parts = split_callback_data(call.data, maxsplit=2)
+    target_user_id = parts[2] if len(parts) > 2 else ""
+    if not target_user_id:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Gecersiz kullanici secimi."
+        )
+        return
     bot.answer_callback_query(call.id)
 
-    with contextlib.suppress(Exception):
+    try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        logger.debug(f"Could not delete admin clear-courses menu message: {e}")
 
     clear_all_courses(str(call.message.chat.id), target_user_id)
 
@@ -124,6 +156,12 @@ def handle_clear_courses_confirm(call):
     if not is_admin(call):
         return
 
-    target_user_id = call.data.split("_", 3)[-1]
+    parts = split_callback_data(call.data, maxsplit=3)
+    target_user_id = parts[3] if len(parts) > 3 else ""
+    if not target_user_id:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Gecersiz toplu silme istegi."
+        )
+        return
     confirm_clear_all_courses(call, target_user_id)
     select_user_for_course_management(str(call.message.chat.id))

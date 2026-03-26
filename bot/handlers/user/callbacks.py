@@ -4,11 +4,12 @@ import math
 
 from telebot import types
 
+from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
+from bot.handlers.user.data_helpers import load_user_grades, load_user_profile, load_user_snapshot
 from bot.inline_keyboards import build_manual_menu
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text, show_file_browser, validate_ninova_url
-from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
 from common.background_tasks import submit_background_task
 from common.cache_manager import get_cache_manager
 from common.config import close_user_session, load_all_users, save_all_users
@@ -39,15 +40,15 @@ def handle_course_selection(call):
     parts = split_callback_data(call.data)
     course_idx = parse_int_part(parts, 1)
     if course_idx is None:
-        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz ders seçimi.")
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz ders seçimi."
+        )
         logger.warning(f"[{chat_id}] Invalid callback payload: {call.data}")
         return
     logger.debug(f"[{chat_id}] Course selection: index={course_idx}")
 
     try:
-        all_grades = load_saved_grades()
-        user_grades = all_grades.get(chat_id, {})
-        urls = list(user_grades.keys())
+        _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
         if course_idx >= len(urls):
             logger.warning(f"[{chat_id}] Course index out of bounds: {course_idx} >= {len(urls)}")
@@ -79,14 +80,18 @@ def handle_announcement_detail(call):
     """
     Seçilen duyurunun detayını gösterir.
     """
-    parts = call.data.split("_")
-    course_idx = int(parts[1])
-    ann_idx = int(parts[2])
+    parts = split_callback_data(call.data)
+    course_idx = parse_int_part(parts, 1)
+    ann_idx = parse_int_part(parts, 2)
+    if course_idx is None or ann_idx is None:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg),
+            "Geçersiz duyuru isteği.",
+        )
+        return
 
     chat_id = str(call.message.chat.id)
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
-    urls = list(user_grades.keys())
+    _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
     if course_idx >= len(urls):
         bot.answer_callback_query(call.id, "Ders bulunamadı.")
@@ -134,12 +139,17 @@ def handle_course_detail(call):
     ilgili içeriği listeler.
     """
     chat_id = str(call.message.chat.id)
-    parts = call.data.split("_")
-    course_idx, detail_type = int(parts[1]), parts[2]
+    parts = split_callback_data(call.data)
+    course_idx = parse_int_part(parts, 1)
+    detail_type = parts[2] if len(parts) > 2 else None
+    if course_idx is None or not detail_type:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg),
+            "Geçersiz ders detay isteği.",
+        )
+        return
 
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
-    urls = list(user_grades.keys())
+    _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
     if course_idx >= len(urls):
         bot.answer_callback_query(call.id, "Ders bulunamadı.")
@@ -300,9 +310,7 @@ def handle_course_graph(call):
         logger.warning(f"[{chat_id}] Invalid graph callback payload: {call.data}")
         return
 
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
-    urls = list(user_grades.keys())
+    _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
     if course_idx >= len(urls):
         bot.answer_callback_query(call.id, "Ders bulunamadı.")
@@ -348,8 +356,7 @@ def handle_main_menu(call):
     :param call: CallbackQuery nesnesi
     """
     chat_id = str(call.message.chat.id)
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
+    user_grades = load_user_grades(chat_id)
     from bot.inline_keyboards import build_main_dashboard_keyboard
 
     markup = build_main_dashboard_keyboard(user_grades)
@@ -369,12 +376,17 @@ def handle_file_download(call):
     Dosya indirme işlemini başlatır ve dosyayı Telegram üzerinden gönderir (Hızlı).
     """
     chat_id = str(call.message.chat.id)
-    parts = call.data.split("_")
-    url_idx, file_idx = int(parts[1]), int(parts[2])
+    parts = split_callback_data(call.data)
+    url_idx = parse_int_part(parts, 1)
+    file_idx = parse_int_part(parts, 2)
+    if url_idx is None or file_idx is None:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg),
+            "Geçersiz dosya isteği.",
+        )
+        return
 
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
-    urls = list(user_grades.keys())
+    _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
     if url_idx >= len(urls):
         bot.answer_callback_query(call.id, "Kurs bulunamadı.")
@@ -409,8 +421,7 @@ def handle_file_download(call):
     bot.answer_callback_query(call.id, "Dosya indiriliyor...")
     bot.send_chat_action(chat_id, "upload_document")
 
-    users = load_all_users()
-    user_info = users.get(chat_id, {})
+    user_info = load_user_profile(chat_id)
     username = user_info.get("username")
     password = decrypt_password(user_info.get("password", ""))
 
@@ -461,8 +472,14 @@ def handle_directory_navigation(call):
     # Kalan kodun devamı olması gerekirdi ancak dosya kesik görünüyor.
     # Muhtemelen show_file_browser çağırılacak.
 
-    parts = call.data.split("_", 2)
-    course_idx = int(parts[1])
+    parts = split_callback_data(call.data, maxsplit=2)
+    course_idx = parse_int_part(parts, 1)
+    if course_idx is None:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg),
+            "Geçersiz klasor isteği.",
+        )
+        return
     path_str = parts[2] if len(parts) > 2 else ""
 
     show_file_browser(str(call.message.chat.id), call.message.message_id, course_idx, path_str)
@@ -470,8 +487,14 @@ def handle_directory_navigation(call):
 
 def handle_folder_navigation(call):
     """Handle folder navigation in the inline file browser."""
-    parts = call.data.split("_", 2)
-    course_idx = int(parts[1])
+    parts = split_callback_data(call.data, maxsplit=2)
+    course_idx = parse_int_part(parts, 1)
+    if course_idx is None:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg),
+            "Geçersiz klasor isteği.",
+        )
+        return
     path_str = parts[2] if len(parts) > 2 else ""
     bot.answer_callback_query(call.id)
     show_file_browser(str(call.message.chat.id), call.message.message_id, course_idx, path_str)
@@ -900,8 +923,10 @@ def handle_show_all_assignments(call):
     Kullanıcı 'Tümünü Göster' dediğinde, ödev listesini filtrelemeden tekrar gönderir.
     """
     # Mevcut mesajı sil (temiz görüntü için)
-    with contextlib.suppress(Exception):
+    try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        logger.debug(f"Assignment list message could not be deleted: {e}")
 
     from bot.handlers.user.grade_commands import list_assignments
 

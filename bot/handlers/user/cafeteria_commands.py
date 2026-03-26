@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from telebot import types
@@ -5,6 +6,8 @@ from telebot import types
 from bot.callback_parsing import callback_parse_fail, split_callback_data
 from bot.instance import bot_instance as bot
 from services.sks.scraper import get_meal_menu
+
+logger = logging.getLogger("ninova")
 
 
 @bot.message_handler(func=lambda message: message.text == "🍽 Yemekhane")
@@ -33,7 +36,9 @@ def handle_cafeteria_refresh(call):
     """
     parts = split_callback_data(call.data)
     if len(parts) < 3:
-        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz menü isteği.")
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz menü isteği."
+        )
         return
 
     slot = parts[2]
@@ -55,9 +60,7 @@ def handle_cafeteria_refresh(call):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔄 Güncelle", callback_data=f"cafeteria_refresh_{slot}"))
 
-    import contextlib
-
-    with contextlib.suppress(Exception):
+    try:
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -65,3 +68,5 @@ def handle_cafeteria_refresh(call):
             reply_markup=markup,
             parse_mode="HTML",
         )
+    except Exception as e:
+        logger.debug(f"Cafeteria message update skipped: {e}")

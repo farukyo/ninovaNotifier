@@ -8,17 +8,18 @@ from datetime import datetime
 from telebot import types
 
 import bot.instance as bc
+from bot.handlers.user.data_helpers import load_user_grades, load_user_profile
 from bot.instance import START_TIME
 from bot.instance import bot_instance as bot
-from common.background_tasks import submit_background_task
 from bot.keyboards import (
     build_cancel_keyboard,
     build_main_keyboard,
     build_user_menu_keyboard,
 )
 from bot.utils import is_cancel_text
+from common.background_tasks import submit_background_task
 from common.config import load_all_users
-from common.utils import escape_html, load_saved_grades, split_long_message, update_user_data
+from common.utils import escape_html, split_long_message, update_user_data
 from services.calendar.itu_calendar import ITUCalendarService
 
 logger = logging.getLogger("ninova")
@@ -218,8 +219,7 @@ def process_search_term(message):
         )
         return
 
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
+    user_grades = load_user_grades(chat_id)
 
     if not user_grades:
         bot.send_message(chat_id, "Henüz kayıtlı ders bulunamadı.")
@@ -297,7 +297,7 @@ def show_status(message):
     """
     chat_id = str(message.chat.id)
     users = load_all_users()
-    user_info = users.get(chat_id, {})
+    user_info = load_user_profile(chat_id)
 
     total_users = len(users)
     total_courses_tracked = sum(len(u.get("urls", [])) for u in users.values())

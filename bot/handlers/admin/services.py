@@ -11,9 +11,9 @@ from common.config import (
     LOGS_DIR,
     USER_SESSIONS,
     USERS_FILE,
-    load_all_users,
 )
 
+from .data_helpers import load_admin_users
 from .helpers import get_admin_state, get_uptime, has_admin_state, is_admin, pop_admin_state
 
 
@@ -26,7 +26,7 @@ def show_stats(chat_id):
 
     :param chat_id: Admin'in chat ID'si
     """
-    users = load_all_users()
+    users = load_admin_users()
 
     total_users = len(users)
     total_courses = sum(len(u.get("urls", [])) for u in users.values())
@@ -62,7 +62,7 @@ def show_user_details(chat_id):
 
     :param chat_id: Admin'in chat ID'si
     """
-    users = load_all_users()
+    users = load_admin_users()
 
     if not users:
         bot.send_message(chat_id, "Kayıtlı kullanıcı yok.")
@@ -165,7 +165,7 @@ def send_broadcast(admin_chat_id, message_text):
     :param admin_chat_id: Admin'in chat ID'si
     :param message_text: Gönderilecek duyuru mesajı
     """
-    users = load_all_users()
+    users = load_admin_users()
 
     if not users:
         bot.send_message(admin_chat_id, "❌ Kayıtlı kullanıcı yok.")

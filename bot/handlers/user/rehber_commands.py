@@ -1,5 +1,6 @@
-from telebot import types
 import time
+
+from telebot import types
 
 from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
 from bot.instance import bot_instance as bot
@@ -249,10 +250,14 @@ def handle_rehber_department_filter(call):
     else:
         idx = parse_int_part(["", action], 1)
         if idx is None:
-            callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz filtre.")
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz filtre."
+            )
             return
         if idx >= len(dept_keys):
-            callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Bölüm bulunamadı.")
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg), "Bölüm bulunamadı."
+            )
             return
         dept = dept_keys[idx]
         indices = departments[dept]

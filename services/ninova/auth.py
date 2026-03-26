@@ -1,4 +1,3 @@
-import contextlib
 import logging
 import threading
 import time
@@ -97,13 +96,15 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     msg = "🔑 <b>Yeni Oturum Açıldı</b>\n\nNinova oturumu başarıyla açıldı."
                     send_telegram_message(chat_id, msg)
 
-                    with contextlib.suppress(Exception):
+                    try:
                         notification.notify(
                             title="Ninova Takip",
                             message=f"Oturum açıldı ({chat_id})",
                             app_name="Ninova Takip",
                             timeout=5,
                         )
+                    except (OSError, RuntimeError, NotImplementedError) as e:
+                        logger.debug(f"[{chat_id}] Desktop notification skipped: {e}")
 
                 return True
 

@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from common.config import DATA_DIR, load_all_users
+from common.config import DATA_DIR, atomic_json_write, load_all_users
 from common.utils import send_telegram_message
 from services.sks.scraper import get_meal_menu
 
@@ -23,8 +23,7 @@ def load_sks_state():
 
 
 def save_sks_state(state):
-    with Path(STATE_FILE).open("w", encoding="utf-8") as f:
-        json.dump(state, f, indent=4, ensure_ascii=False)
+    atomic_json_write(STATE_FILE, state)
 
 
 def check_and_announce_sks_menu():

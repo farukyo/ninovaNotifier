@@ -2,7 +2,6 @@
 Admin callback handler'ları.
 """
 
-import contextlib
 import logging
 import os
 import sys
@@ -17,17 +16,16 @@ from common.config import (
     cleanup_inactive_sessions,
     close_user_session,
     get_user_session,
-    load_all_users,
     save_all_users,
 )
 from common.utils import (
     decrypt_password,
-    load_saved_grades,
     save_grades,
     update_user_data,
 )
 from services.ninova import get_user_courses, login_to_ninova
 
+from .data_helpers import load_admin_grades, load_admin_users
 from .helpers import is_admin, set_admin_state
 from .services import send_backup, show_logs, show_stats, show_user_details
 
@@ -66,7 +64,9 @@ def handle_admin_callbacks(call):
 
     parts = split_callback_data(call.data)
     if len(parts) < 2:
-        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz admin isteği.")
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz admin isteği."
+        )
         logger.warning(f"[admin] Invalid callback payload: {call.data}")
         return
 
@@ -90,7 +90,7 @@ def handle_admin_callbacks(call):
         )
 
     elif action == "msg":
-        users = load_all_users()
+        users = load_admin_users()
         markup = types.InlineKeyboardMarkup()
         for uid, data in users.items():
             username = data.get("username", "?")
@@ -128,7 +128,7 @@ def handle_admin_callbacks(call):
         )
 
     elif action == "system_status":
-        users = load_all_users()
+        users = load_admin_users()
         user_count = len(users)
         bot.send_message(
             chat_id,
@@ -137,7 +137,7 @@ def handle_admin_callbacks(call):
         )
 
     elif action == "forceoto":
-        users = load_all_users()
+        users = load_admin_users()
         if not users:
             bot.send_message(chat_id, "❌ Kayıtlı kullanıcı yok.")
             return
@@ -150,6 +150,7 @@ def handle_admin_callbacks(call):
         updated = 0
         failed = 0
         total_new_courses = 0
+        all_grades = load_admin_grades()
 
         for target_chat_id, user_data in users.items():
             username = user_data.get("username")
@@ -174,7 +175,6 @@ def handle_admin_callbacks(call):
                     continue
 
                 # Mevcut verileri kontrol et
-                all_grades = load_saved_grades()
                 user_grades = all_grades.get(target_chat_id, {})
                 current_urls = set(user_data.get("urls", []))
 
@@ -251,7 +251,7 @@ def handle_admin_callbacks(call):
         send_backup(chat_id)
 
     elif action == "optout":
-        users = load_all_users()
+        users = load_admin_users()
         if not users:
             bot.send_message(chat_id, "Kayıtlı kullanıcı yok.")
             return
@@ -273,13 +273,15 @@ def handle_admin_callbacks(call):
 
     elif action == "restart":
         # Tüm kullanıcılara bildir
-        users_dict = load_all_users()
+        users_dict = load_admin_users()
         for uid in users_dict:
-            with contextlib.suppress(Exception):
+            try:
                 bot.send_message(
                     uid,
                     "🔄 Sistem güncellendi ve yeniden başlatılıyor... Lütfen bekleyiniz.",
                 )
+            except Exception as e:
+                logger.debug(f"[restart] Could not notify user {uid}: {e}")
 
         bot.send_message(chat_id, "🔄 Bot yeniden başlatılıyor...")
 
@@ -294,11 +296,15 @@ def handle_admin_callbacks(call):
             except Exception as e:
                 logger.exception(f"[restart] Session cleanup failed: {e}")
 
-            with contextlib.suppress(Exception):
+            try:
                 bot.stop_polling()
+            except Exception as e:
+                logger.debug(f"[restart] stop_polling failed: {e}")
 
-            with contextlib.suppress(Exception):
+            try:
                 logging.shutdown()
+            except Exception as e:
+                logger.debug(f"[restart] logging shutdown failed: {e}")
 
             # os._exit(0) yerine execv ile yeniden başlat
             logger.warning("[restart] Replacing process with os.execv")
@@ -322,7 +328,9 @@ def handle_msg_user_select(call):
 
     parts = split_callback_data(call.data)
     if len(parts) < 2:
-        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz kullanıcı seçimi.")
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz kullanıcı seçimi."
+        )
         return
     target_id = parts[1]
     set_admin_state(str(call.message.chat.id), f"waiting_msg_{target_id}")
@@ -347,7 +355,9 @@ def handle_optout_user(call):
 
     parts = split_callback_data(call.data)
     if len(parts) < 2:
-        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz kullanıcı seçimi.")
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz kullanıcı seçimi."
+        )
         return
     target_id = parts[1]
 
@@ -382,18 +392,20 @@ def handle_optout_confirm(call):
 
     parts = split_callback_data(call.data)
     if len(parts) < 2:
-        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz silme onayı.")
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz silme onayı."
+        )
         return
     target_id = parts[1]
 
     # Kullanıcıyı sil
-    users = load_all_users()
+    users = load_admin_users()
     if target_id in users:
         del users[target_id]
         save_all_users(users)
 
     # Notları sil
-    grades = load_saved_grades()
+    grades = load_admin_grades()
     if target_id in grades:
         del grades[target_id]
         save_grades(grades)

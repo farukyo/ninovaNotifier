@@ -1,8 +1,5 @@
-"""
-Kullanıcı kimlik doğrulama komutları.
-"""
+"""Kullanıcı kimlik doğrulama komutları."""
 
-import contextlib
 import logging
 
 from bot.instance import bot_instance as bot
@@ -73,8 +70,10 @@ def process_password(message):
 
     update_user_data(chat_id, "password", password)
     logger.info(f"Şifre güncellendi - Chat ID: {chat_id}")
-    with contextlib.suppress(Exception):
+    try:
         bot.delete_message(chat_id, message.message_id)
+    except Exception as e:
+        logger.debug(f"[{chat_id}] Could not delete password message: {e}")
 
     bot.send_message(
         chat_id,
