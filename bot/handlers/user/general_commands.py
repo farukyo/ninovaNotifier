@@ -3,7 +3,6 @@ Genel kullanıcı komutları.
 """
 
 import logging
-import threading
 from datetime import datetime
 
 from telebot import types
@@ -11,6 +10,7 @@ from telebot import types
 import bot.instance as bc
 from bot.instance import START_TIME
 from bot.instance import bot_instance as bot
+from common.background_tasks import submit_background_task
 from bot.keyboards import (
     build_cancel_keyboard,
     build_main_keyboard,
@@ -409,4 +409,5 @@ def show_academic_calendar(message, show_past=False, show_future=False):
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Hata oluştu: {e!s}")
 
-    threading.Thread(target=run_fetch, daemon=True).start()
+    if not submit_background_task("academic_calendar_fetch", run_fetch):
+        bot.send_message(message.chat.id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")

@@ -2,6 +2,7 @@ from datetime import datetime
 
 from telebot import types
 
+from bot.callback_parsing import callback_parse_fail, split_callback_data
 from bot.instance import bot_instance as bot
 from services.sks.scraper import get_meal_menu
 
@@ -30,7 +31,15 @@ def handle_cafeteria_refresh(call):
     """
     Refreshes the cafeteria menu message with the latest data.
     """
-    slot = call.data.split("_")[2]
+    parts = split_callback_data(call.data)
+    if len(parts) < 3:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz menü isteği.")
+        return
+
+    slot = parts[2]
+    if slot not in {"lunch", "dinner"}:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz öğün.")
+        return
 
     # Show user that something is happening
     bot.answer_callback_query(call.id, "Menü güncelleniyor...")

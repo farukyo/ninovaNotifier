@@ -3,11 +3,11 @@ Ders yönetimi komutları.
 """
 
 import logging
-import threading
 
 from telebot import types
 
 from bot.instance import bot_instance as bot
+from common.background_tasks import submit_background_task
 from common.config import get_user_session, load_all_users
 from common.utils import decrypt_password, load_saved_grades, split_long_message, update_user_data
 from services.ninova import get_user_courses, login_to_ninova
@@ -217,4 +217,5 @@ def auto_add_courses(message):
             logger.error(f"Oto Ders sırasında hata oluştu ({chat_id}): {e}")
             bot.send_message(chat_id, f"❌ Hata oluştu: {e!s}")
 
-    threading.Thread(target=run_auto_add, daemon=True).start()
+    if not submit_background_task("auto_add_courses", run_auto_add):
+        bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")

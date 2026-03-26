@@ -14,7 +14,7 @@ from common.config import (
     load_all_users,
 )
 
-from .helpers import admin_states, get_uptime, is_admin
+from .helpers import get_admin_state, get_uptime, has_admin_state, is_admin, pop_admin_state
 
 
 def show_stats(chat_id):
@@ -231,7 +231,7 @@ def send_direct_message(admin_chat_id, target_id, message_text):
         bot.send_message(admin_chat_id, f"❌ Mesaj gönderilemedi: {e}")
 
 
-@bot.message_handler(func=lambda m: str(m.chat.id) in admin_states)
+@bot.message_handler(func=lambda m: has_admin_state(str(m.chat.id)))
 def handle_admin_text(message):
     """
     Admin duyuru ve mesaj girişlerini yakalar.
@@ -245,12 +245,12 @@ def handle_admin_text(message):
     if not is_admin(message):
         return
 
-    state = admin_states.get(chat_id)
+    state = get_admin_state(chat_id)
     if not state:
         return
 
     # State'i temizle
-    del admin_states[chat_id]
+    pop_admin_state(chat_id)
 
     if state == "waiting_broadcast":
         send_broadcast(chat_id, message.text)

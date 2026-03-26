@@ -4,12 +4,12 @@ Not ve ödev komutları.
 
 import contextlib
 import math
-import threading
 from datetime import datetime
 
 from telebot import types
 
 from bot.instance import bot_instance as bot
+from common.background_tasks import submit_background_task
 from common.utils import load_saved_grades, split_long_message
 
 from .course_commands import interactive_menu
@@ -237,7 +237,8 @@ def kontrol_command_handler(message):
                     "🚀 <b>Sistem Geneli Kontrol:</b> Tüm kullanıcılar için tarama başlatıldı...",
                     parse_mode="HTML",
                 )
-                threading.Thread(target=cb, daemon=True).start()
+                if not submit_background_task("global_force_check", cb):
+                    bot.reply_to(message, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
             else:
                 bot.reply_to(message, "❌ Kontrol fonksiyonu bulunamadı.")
         else:
@@ -269,7 +270,8 @@ def kontrol_command_handler(message):
         else:
             bot.send_message(chat_id, f"❌ <b>Hata:</b> {result.get('message')}", parse_mode="HTML")
 
-    threading.Thread(target=run_user_check, daemon=True).start()
+    if not submit_background_task("user_manual_check", run_user_check):
+        bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
 
 
 def manual_check(message):

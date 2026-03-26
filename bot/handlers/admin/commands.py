@@ -6,13 +6,13 @@ import contextlib
 import logging
 import os
 import sys
-import threading
 
 import requests
 from telebot import types
 
 from bot.instance import bot_instance as bot
 from bot.instance import get_check_callback
+from common.background_tasks import submit_background_task
 from common.config import (
     HEADERS,
     USER_SESSIONS,
@@ -27,7 +27,7 @@ from common.utils import (
 )
 from services.ninova import get_class_info, get_user_courses, login_to_ninova
 
-from .helpers import admin_states, is_admin
+from .helpers import is_admin, set_admin_state
 from .services import (
     send_backup,
     send_broadcast,
@@ -104,7 +104,7 @@ def admin_broadcast_cmd(message):
 
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        admin_states[str(message.chat.id)] = "waiting_broadcast"
+        set_admin_state(str(message.chat.id), "waiting_broadcast")
         bot.reply_to(message, "📢 Duyuru metnini yazın:")
         return
 
@@ -194,7 +194,8 @@ def admin_restart_cmd(message):
         logger.warning("[restart] Replacing process with os.execv")
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
-    threading.Thread(target=do_restart, daemon=True).start()
+    if not submit_background_task("admin_restart_cmd", do_restart):
+        bot.reply_to(message, "⏳ Sistem yoğun, yeniden başlatma kuyruğa alınamadı.")
 
 
 def admin_stats_cmd(message):

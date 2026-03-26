@@ -3,6 +3,7 @@ Admin yardımcı fonksiyonları.
 """
 
 import os
+import time
 from datetime import datetime
 
 from bot.instance import START_TIME
@@ -11,7 +12,49 @@ from bot.instance import START_TIME
 ADMIN_ID = os.getenv("ADMIN_TELEGRAM_ID")
 
 # Admin state'leri (duyuru/msg için)
-admin_states = {}
+ADMIN_STATE_TTL_SECONDS = 30 * 60
+admin_states: dict[str, tuple[str, float]] = {}
+
+
+def cleanup_admin_states(now: float | None = None) -> int:
+    """Drop expired admin states and return removed count."""
+    current_time = now or time.time()
+    expired_keys = [
+        key
+        for key, (_state, ts) in admin_states.items()
+        if current_time - ts > ADMIN_STATE_TTL_SECONDS
+    ]
+    for key in expired_keys:
+        admin_states.pop(key, None)
+    return len(expired_keys)
+
+
+def set_admin_state(chat_id: str, state: str) -> None:
+    cleanup_admin_states()
+    admin_states[str(chat_id)] = (state, time.time())
+
+
+def get_admin_state(chat_id: str) -> str | None:
+    cleanup_admin_states()
+    item = admin_states.get(str(chat_id))
+    if not item:
+        return None
+    state, _ts = item
+    return state
+
+
+def pop_admin_state(chat_id: str) -> str | None:
+    cleanup_admin_states()
+    item = admin_states.pop(str(chat_id), None)
+    if not item:
+        return None
+    state, _ts = item
+    return state
+
+
+def has_admin_state(chat_id: str) -> bool:
+    cleanup_admin_states()
+    return str(chat_id) in admin_states
 
 
 def is_admin(message_or_call):

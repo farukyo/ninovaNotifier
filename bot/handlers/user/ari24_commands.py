@@ -1,5 +1,6 @@
 from telebot import types
 
+from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_ari24_menu_keyboard
 from common.config import load_all_users, save_all_users
@@ -174,7 +175,11 @@ def show_clubs_page(chat_id, page):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("page_"))
 def callback_pagination(call):
-    page = int(call.data.split("_")[1])
+    parts = split_callback_data(call.data)
+    page = parse_int_part(parts, 1)
+    if page is None or page < 0:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz sayfa.")
+        return
     bot.delete_message(call.message.chat.id, call.message.message_id)
     show_clubs_page(call.message.chat.id, page)
 

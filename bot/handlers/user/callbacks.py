@@ -8,7 +8,9 @@ from bot.inline_keyboards import build_manual_menu
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text, show_file_browser, validate_ninova_url
-from common.cache import get_cached_file_id, set_cached_file_id
+from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
+from common.background_tasks import submit_background_task
+from common.cache_manager import get_cache_manager
 from common.config import close_user_session, load_all_users, save_all_users
 from common.utils import (
     decrypt_password,
@@ -24,6 +26,7 @@ from common.utils import (
 from services.ninova import download_file
 
 logger = logging.getLogger("ninova")
+CACHE_MANAGER = get_cache_manager()
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("crs_"))
@@ -33,7 +36,12 @@ def handle_course_selection(call):
     Ders detay menüsünü (Not, Ödev, Dosya, Duyuru) gösterir.
     """
     chat_id = str(call.message.chat.id)
-    course_idx = int(call.data.split("_")[1])
+    parts = split_callback_data(call.data)
+    course_idx = parse_int_part(parts, 1)
+    if course_idx is None:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz ders seçimi.")
+        logger.warning(f"[{chat_id}] Invalid callback payload: {call.data}")
+        return
     logger.debug(f"[{chat_id}] Course selection: index={course_idx}")
 
     try:
@@ -282,7 +290,15 @@ def handle_course_graph(call):
     Generates and sends a bell curve graph for the selected course.
     """
     chat_id = str(call.message.chat.id)
-    course_idx = int(call.data.split("_")[1])
+    parts = split_callback_data(call.data)
+    course_idx = parse_int_part(parts, 1)
+    if course_idx is None:
+        callback_parse_fail(
+            lambda msg: bot.answer_callback_query(call.id, msg),
+            "Geçersiz grafik isteği.",
+        )
+        logger.warning(f"[{chat_id}] Invalid graph callback payload: {call.data}")
+        return
 
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
@@ -377,7 +393,7 @@ def handle_file_download(call):
     )
 
     # 1. Check Cache
-    cached_id = get_cached_file_id(file_url)
+    cached_id = CACHE_MANAGER.get(file_url)
     if cached_id:
         bot.answer_callback_query(call.id, "🚀 Hızlı gönderiliyor...")
         send_telegram_document(
@@ -425,7 +441,8 @@ def handle_file_download(call):
 
         # Cache the file ID for future
         if sent_id:
-            set_cached_file_id(file_url, sent_id)
+            CACHE_MANAGER.set(file_url, sent_id)
+            CACHE_MANAGER.sync()
 
         file_buffer.close()
     else:
@@ -495,7 +512,14 @@ def handle_course_delete_any(call):
     """Handle course deletion flows (request/confirm/cancel) via callbacks."""
     # This might need refinement based on startswith logic overlaps
     if call.data.startswith("del_req_"):
-        idx = int(call.data.split("_")[2])
+        parts = split_callback_data(call.data)
+        idx = parse_int_part(parts, 2)
+        if idx is None:
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg),
+                "Geçersiz silme isteği.",
+            )
+            return
         from bot.inline_keyboards import build_confirm_keyboard
 
         markup = build_confirm_keyboard(f"del_yes_{idx}", "del_no", "Evet, Sil", "Hayır")
@@ -507,7 +531,14 @@ def handle_course_delete_any(call):
         )
     elif call.data.startswith("del_yes_"):
         chat_id = str(call.message.chat.id)
-        idx = int(call.data.split("_")[2])
+        parts = split_callback_data(call.data)
+        idx = parse_int_part(parts, 2)
+        if idx is None:
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg),
+                "Geçersiz silme onayı.",
+            )
+            return
         users = load_all_users()
         user_data = users.get(chat_id, {})
         urls = user_data.get("urls", [])
@@ -728,8 +759,15 @@ def handle_kontrol(call):
     chat_id = str(call.message.chat.id)
     course_idx = None
     if call.data.startswith("kontrol_"):
-        with contextlib.suppress(IndexError, ValueError):
-            course_idx = int(call.data.split("_")[1])
+        parts = split_callback_data(call.data)
+        course_idx = parse_int_part(parts, 1)
+        if course_idx is None:
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg),
+                "Geçersiz kontrol isteği.",
+            )
+            logger.warning(f"[{chat_id}] Invalid kontrol callback payload: {call.data}")
+            return
 
     bot.answer_callback_query(call.id, "Kontrol başlatıldı, lütfen bekleyin...")
 
@@ -852,9 +890,8 @@ def handle_kontrol(call):
         except Exception as e:
             bot.send_message(chat_id, f"❌ Kritik hata: {e!s}")
 
-    import threading
-
-    threading.Thread(target=run_check, daemon=True).start()
+    if not submit_background_task("user_inline_check", run_check):
+        bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "show_all_assignments")
@@ -923,9 +960,8 @@ def handle_add_expired_yes(call):
                 f"⚠️ Dersler eklendi ancak senkronizasyon sırasında hata oluştu: {result.get('message')}",
             )
 
-    import threading
-
-    threading.Thread(target=run_sync, daemon=True).start()
+    if not submit_background_task("add_expired_sync", run_sync):
+        bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "add_expired_no")

@@ -2,6 +2,7 @@ import contextlib
 import logging
 import threading
 import time
+import weakref
 
 from bs4 import BeautifulSoup
 from plyer import notification
@@ -15,7 +16,7 @@ from common.utils import send_telegram_message
 
 logger = logging.getLogger("ninova")
 
-_LOGIN_LOCKS = {}
+_LOGIN_LOCKS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 _GLOBAL_LOCK = threading.Lock()
 
 

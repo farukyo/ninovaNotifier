@@ -6,12 +6,13 @@ import contextlib
 import logging
 import os
 import sys
-import threading
 
 from telebot import types
 
+from bot.callback_parsing import callback_parse_fail, split_callback_data
 from bot.instance import bot_instance as bot
 from bot.instance import get_check_callback
+from common.background_tasks import submit_background_task
 from common.config import (
     cleanup_inactive_sessions,
     close_user_session,
@@ -27,7 +28,7 @@ from common.utils import (
 )
 from services.ninova import get_user_courses, login_to_ninova
 
-from .helpers import admin_states, is_admin
+from .helpers import is_admin, set_admin_state
 from .services import send_backup, show_logs, show_stats, show_user_details
 
 logger = logging.getLogger("ninova")
@@ -63,7 +64,13 @@ def handle_admin_callbacks(call):
         bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
-    action = "_".join(call.data.split("_")[1:])
+    parts = split_callback_data(call.data)
+    if len(parts) < 2:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz admin isteği.")
+        logger.warning(f"[admin] Invalid callback payload: {call.data}")
+        return
+
+    action = "_".join(parts[1:])
     chat_id = str(call.message.chat.id)
 
     bot.answer_callback_query(call.id)
@@ -75,7 +82,7 @@ def handle_admin_callbacks(call):
         show_user_details(chat_id)
 
     elif action == "broadcast":
-        admin_states[chat_id] = "waiting_broadcast"
+        set_admin_state(chat_id, "waiting_broadcast")
         bot.send_message(
             chat_id,
             "📢 <b>Duyuru</b>\n\nTüm kullanıcılara gönderilecek mesajı yazın:",
@@ -297,7 +304,8 @@ def handle_admin_callbacks(call):
             logger.warning("[restart] Replacing process with os.execv")
             os.execv(sys.executable, [sys.executable, *sys.argv])
 
-        threading.Thread(target=do_restart, daemon=True).start()
+        if not submit_background_task("admin_restart_callback", do_restart):
+            bot.send_message(chat_id, "⏳ Sistem yoğun, yeniden başlatma kuyruğa alınamadı.")
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("msg_"))
@@ -312,8 +320,12 @@ def handle_msg_user_select(call):
     if not is_admin(call):
         return
 
-    target_id = call.data.split("_")[1]
-    admin_states[str(call.message.chat.id)] = f"waiting_msg_{target_id}"
+    parts = split_callback_data(call.data)
+    if len(parts) < 2:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz kullanıcı seçimi.")
+        return
+    target_id = parts[1]
+    set_admin_state(str(call.message.chat.id), f"waiting_msg_{target_id}")
 
     bot.answer_callback_query(call.id)
     bot.send_message(
@@ -333,7 +345,11 @@ def handle_optout_user(call):
     if not is_admin(call):
         return
 
-    target_id = call.data.split("_")[1]
+    parts = split_callback_data(call.data)
+    if len(parts) < 2:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz kullanıcı seçimi.")
+        return
+    target_id = parts[1]
 
     # Onay iste
     markup = types.InlineKeyboardMarkup()
@@ -364,7 +380,11 @@ def handle_optout_confirm(call):
     if not is_admin(call):
         return
 
-    target_id = call.data.split("_")[1]
+    parts = split_callback_data(call.data)
+    if len(parts) < 2:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz silme onayı.")
+        return
+    target_id = parts[1]
 
     # Kullanıcıyı sil
     users = load_all_users()

@@ -1,5 +1,7 @@
 from telebot import types
+import time
 
+from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
 from bot.instance import bot_instance as bot
 from bot.keyboards import (
     build_main_keyboard,
@@ -13,12 +15,46 @@ from services.rehber.scraper import RehberScraper
 
 # Geçici hafıza: hangi chat_id hangi arama sonuçlarını (veya query'sini) tutuyor.
 REHBER_TEMP_DATA = {}
+REHBER_TEMP_TS = {}
+REHBER_TEMP_TTL_SECONDS = 20 * 60
+
+
+def _cleanup_rehber_temp() -> None:
+    now = time.time()
+    expired = [cid for cid, ts in REHBER_TEMP_TS.items() if now - ts > REHBER_TEMP_TTL_SECONDS]
+    for cid in expired:
+        REHBER_TEMP_DATA.pop(cid, None)
+        REHBER_TEMP_TS.pop(cid, None)
+
+
+def _set_rehber_temp(chat_id: str, data: dict) -> None:
+    _cleanup_rehber_temp()
+    REHBER_TEMP_DATA[chat_id] = data
+    REHBER_TEMP_TS[chat_id] = time.time()
+
+
+def _touch_rehber_temp(chat_id: str) -> None:
+    REHBER_TEMP_TS[chat_id] = time.time()
+
+
+def _get_rehber_temp(chat_id: str, default: dict | None = None) -> dict:
+    _cleanup_rehber_temp()
+    data = REHBER_TEMP_DATA.get(chat_id)
+    if data is None:
+        return default if default is not None else {}
+    _touch_rehber_temp(chat_id)
+    return data
+
+
+def _pop_rehber_temp(chat_id: str) -> None:
+    REHBER_TEMP_DATA.pop(chat_id, None)
+    REHBER_TEMP_TS.pop(chat_id, None)
 
 
 @bot.message_handler(func=lambda message: message.text == "📞 İTÜ Rehber")
 def handle_rehber_start(message):
     chat_id = str(message.chat.id)
-    REHBER_TEMP_DATA[chat_id] = {"ad": "", "soyad": "", "results": []}
+    _set_rehber_temp(chat_id, {"ad": "", "soyad": "", "results": []})
 
     prompt = bot.send_message(
         chat_id=message.chat.id,
@@ -31,7 +67,7 @@ def handle_rehber_start(message):
 
 def process_rehber_ad(message):
     if is_cancel_text(message.text):
-        REHBER_TEMP_DATA.pop(str(message.chat.id), None)
+        _pop_rehber_temp(str(message.chat.id))
         bot.send_message(
             message.chat.id,
             "❌ İTÜ Rehber araması iptal edildi.",
@@ -45,10 +81,9 @@ def process_rehber_ad(message):
     if ad == "Bilinmiyor":
         ad = "   "  # 3 boşluk gönderilecek
 
-    if chat_id not in REHBER_TEMP_DATA:
-        REHBER_TEMP_DATA[chat_id] = {}
-
-    REHBER_TEMP_DATA[chat_id]["ad"] = ad
+    state = _get_rehber_temp(chat_id, default={})
+    state["ad"] = ad
+    _set_rehber_temp(chat_id, state)
 
     prompt = bot.send_message(
         chat_id=message.chat.id,
@@ -61,7 +96,7 @@ def process_rehber_ad(message):
 
 def process_rehber_soyad(message):
     if is_cancel_text(message.text):
-        REHBER_TEMP_DATA.pop(str(message.chat.id), None)
+        _pop_rehber_temp(str(message.chat.id))
         bot.send_message(
             message.chat.id,
             "❌ İTÜ Rehber araması iptal edildi.",
@@ -75,11 +110,10 @@ def process_rehber_soyad(message):
     if soyad == "Bilinmiyor":
         soyad = "  "  # 2 boşluk gönderilecek
 
-    if chat_id not in REHBER_TEMP_DATA:
-        REHBER_TEMP_DATA[chat_id] = {"ad": "   "}
-
-    REHBER_TEMP_DATA[chat_id]["soyad"] = soyad
-    ad = REHBER_TEMP_DATA[chat_id]["ad"]
+    state = _get_rehber_temp(chat_id, default={"ad": "   "})
+    state["soyad"] = soyad
+    ad = state.get("ad", "")
+    _set_rehber_temp(chat_id, state)
 
     if not ad.strip() and not soyad.strip():
         bot.send_message(
@@ -117,7 +151,9 @@ def process_rehber_soyad(message):
             )
 
     results = scraper.search_person(ad, soyad)
-    REHBER_TEMP_DATA[chat_id]["results"] = results
+    state = _get_rehber_temp(chat_id, default={})
+    state["results"] = results
+    _set_rehber_temp(chat_id, state)
 
     if not results:
         bot.send_message(
@@ -184,9 +220,13 @@ def format_rehber_results(results, indices):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("rehdept_"))
 def handle_rehber_department_filter(call):
     chat_id = str(call.message.chat.id)
-    action = call.data.split("_")[1]
+    parts = split_callback_data(call.data)
+    if len(parts) < 2:
+        callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz filtre.")
+        return
+    action = parts[1]
 
-    data = REHBER_TEMP_DATA.get(chat_id, {})
+    data = _get_rehber_temp(chat_id, default={})
     results = data.get("results", [])
 
     if not results:
@@ -207,8 +247,12 @@ def handle_rehber_department_filter(call):
         indices = list(range(len(results)))
         msg = f"📋 <b>Tüm Sonuçlar ({len(results)} kişi)</b>\n\n"
     else:
-        idx = int(action)
+        idx = parse_int_part(["", action], 1)
+        if idx is None:
+            callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Geçersiz filtre.")
+            return
         if idx >= len(dept_keys):
+            callback_parse_fail(lambda msg: bot.answer_callback_query(call.id, msg), "Bölüm bulunamadı.")
             return
         dept = dept_keys[idx]
         indices = departments[dept]
