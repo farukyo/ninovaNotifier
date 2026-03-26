@@ -48,7 +48,13 @@ class RehberScraper:
 
             # girisv3.itu.edu.tr login sayfasına yönlenmeli
             if "girisv3.itu.edu.tr" not in resp.url:
-                logger.warning(f"Rehber SSO: Beklenmeyen URL: {resp.url}")
+                # Bazen SSO doğrudan rehber anasayfasına dönebilir.
+                if "rehber.itu.edu.tr" in resp.url and (
+                    "Çıkış" in resp.text or "/Account/Logout" in resp.text
+                ):
+                    logger.info("Rehber SSO: Oturum zaten açık, login adımı atlandı.")
+                    return True
+                logger.info(f"Rehber SSO: Beklenmeyen URL, anonim devam edilecek: {resp.url}")
                 return False
 
             soup = BeautifulSoup(resp.text, "html.parser")

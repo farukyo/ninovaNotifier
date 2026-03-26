@@ -6,6 +6,7 @@ import logging
 
 from telebot import types
 
+from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_profile, load_user_snapshot
 from bot.instance import bot_instance as bot
 from common.background_tasks import submit_background_task
@@ -59,11 +60,13 @@ def auto_add_courses(message):
     Ninova'ya bağlanarak kullanıcının tüm derslerini otomatik olarak bulur ve ekler.
     """
     chat_id = str(message.chat.id)
+    request_id = new_user_request_id("otd")
     user_info = load_user_profile(chat_id)
     username = user_info.get("username")
     password = decrypt_password(user_info.get("password", ""))
 
     if not username or not password:
+        log_user_action(chat_id, "otoders", status="missing_credentials", request_id=request_id)
         bot.reply_to(
             message,
             "❌ Kullanıcı adı veya şifre eksik! Lütfen önce 👤 Kullanıcı Adı ve 🔐 Şifre butonları ile ayarlarınızı yapın.",
@@ -71,6 +74,7 @@ def auto_add_courses(message):
         return
 
     logger.info(f"Oto Ders başlatıldı - Chat ID: {chat_id}, Kullanıcı Adı: {username}")
+    log_user_action(chat_id, "otoders", status="started", request_id=request_id)
     bot.reply_to(message, "⏳ Ninova'ya giriş yapılıyor ve dersleriniz taranıyor...")
 
     def run_auto_add():
@@ -83,6 +87,7 @@ def auto_add_courses(message):
             if login_to_ninova(session, chat_id, username, password):
                 courses = get_user_courses(session)
                 if not courses:
+                    log_user_action(chat_id, "otoders", status="no_courses", request_id=request_id)
                     bot.send_message(chat_id, "❌ Hiç aktif ders bulunamadı veya bir hata oluştu.")
                     return
 
@@ -140,6 +145,17 @@ def auto_add_courses(message):
                         active_to_add.append({"name": name, "url": url})
                         new_urls_list.append(url)
 
+                log_user_action(
+                    chat_id,
+                    "otoders_scan",
+                    status="completed",
+                    request_id=request_id,
+                    details=(
+                        f"fetched={len(courses)};already={len(already_in_data)};"
+                        f"active_new={len(active_to_add)};expired={len(expired_candidates)}"
+                    ),
+                )
+
                 # 1. Aktif dersleri kaydet
                 if active_to_add:
                     update_user_data(chat_id, "urls", new_urls_list)
@@ -170,8 +186,15 @@ def auto_add_courses(message):
                 if active_to_add:
                     from main import check_user_updates
 
-                    result = check_user_updates(chat_id, silent=True)
+                    result = check_user_updates(chat_id, silent=True, request_id=request_id)
                     if result.get("success"):
+                        log_user_action(
+                            chat_id,
+                            "otoders_sync",
+                            status="completed",
+                            request_id=request_id,
+                            details=f"changes={result.get('changes', 0)}",
+                        )
                         bot.send_message(
                             chat_id,
                             "✅ <b>Senkronizasyon Tamamlandı!</b>\n"
@@ -179,6 +202,14 @@ def auto_add_courses(message):
                             parse_mode="HTML",
                         )
                     else:
+                        log_user_action(
+                            chat_id,
+                            "otoders_sync",
+                            status="failed",
+                            request_id=request_id,
+                            details=result.get("message", "unknown"),
+                            level="warning",
+                        )
                         bot.send_message(
                             chat_id,
                             f"⚠️ Senkronizasyon hatası: {result.get('message')}",
@@ -205,16 +236,37 @@ def auto_add_courses(message):
                         reply_markup=markup,
                         parse_mode="HTML",
                     )
+                    log_user_action(
+                        chat_id,
+                        "otoders",
+                        status="awaiting_expired_confirmation",
+                        request_id=request_id,
+                        details=f"expired={len(expired_candidates)}",
+                    )
+
+                log_user_action(chat_id, "otoders", status="completed", request_id=request_id)
 
             else:
                 logger.warning(f"Oto Ders giriş başarısız - Chat ID: {chat_id}")
+                log_user_action(chat_id, "otoders", status="login_failed", request_id=request_id)
                 bot.send_message(
                     chat_id,
                     "❌ Giriş başarısız! Lütfen kullanıcı adı ve şifrenizi kontrol edin.",
                 )
         except Exception as e:
             logger.error(f"Oto Ders sırasında hata oluştu ({chat_id}): {e}")
+            log_user_action(
+                chat_id,
+                "otoders",
+                status="failed",
+                request_id=request_id,
+                details=str(e),
+                level="error",
+            )
             bot.send_message(chat_id, f"❌ Hata oluştu: {e!s}")
 
     if not submit_background_task("auto_add_courses", run_auto_add):
+        log_user_action(
+            chat_id, "otoders", status="queue_full", request_id=request_id, level="warning"
+        )
         bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")

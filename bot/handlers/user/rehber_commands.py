@@ -143,13 +143,10 @@ def process_rehber_soyad(message):
     encrypted_pw = user_info.get("password", "")
     password = decrypt_password(encrypted_pw) if encrypted_pw else ""
 
-    if username and password and not scraper.is_logged_in():
+    attempted_login = bool(username and password and not scraper.is_logged_in())
+    login_ok = True
+    if attempted_login:
         login_ok = scraper.login_to_rehber(username, password)
-        if not login_ok:
-            bot.send_message(
-                message.chat.id,
-                "⚠️ Rehber'e giriş yapılamadı. Sonuçlar sınırlı olabilir (e-posta/telefon görünmeyebilir).",
-            )
 
     results = scraper.search_person(ad, soyad)
     state = _get_rehber_temp(chat_id, default={})
@@ -162,6 +159,16 @@ def process_rehber_soyad(message):
             "❌ Eşleşen kişi bulunamadı. Lütfen bilgileri kontrol edip tekrar deneyin.",
         )
         return
+
+    # Login başarısız olsa bile bazı kayıtlar public olarak detaylı gelebilir.
+    # Uyarıyı sadece sonuçlar gerçekten sınırlı görünüyorsa göster.
+    if attempted_login and not login_ok:
+        has_contact_data = any(r.get("email") or r.get("phone") for r in results)
+        if not has_contact_data:
+            bot.send_message(
+                message.chat.id,
+                "⚠️ Rehber'e giriş yapılamadı. Sonuçlar sınırlı olabilir (e-posta/telefon görünmeyebilir).",
+            )
 
     # Bölüm / Fakülte gruplaması (Filtreleme)
     departments = {}

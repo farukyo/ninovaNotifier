@@ -2,6 +2,8 @@
 Admin yardımcı fonksiyonları.
 """
 
+import logging
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +24,39 @@ from .helpers import (
     log_admin_action,
     pop_admin_state,
 )
+
+logger = logging.getLogger("ninova")
+
+
+def _collect_runtime_metrics() -> dict[str, str]:
+    """Collect runtime metrics without background timers."""
+    metrics = {
+        "cpu_percent": "N/A",
+        "ram_percent": "N/A",
+        "ram_used_mb": "N/A",
+        "disk_percent": "N/A",
+        "disk_free_gb": "N/A",
+    }
+
+    try:
+        usage = shutil.disk_usage(Path())
+        metrics["disk_percent"] = f"{(usage.used / usage.total) * 100:.1f}%"
+        metrics["disk_free_gb"] = f"{usage.free / (1024**3):.2f} GB"
+    except Exception:
+        pass
+
+    try:
+        import psutil
+
+        vm = psutil.virtual_memory()
+        metrics["cpu_percent"] = f"{psutil.cpu_percent(interval=0.1):.1f}%"
+        metrics["ram_percent"] = f"{vm.percent:.1f}%"
+        metrics["ram_used_mb"] = f"{vm.used / (1024**2):.1f} MB"
+    except Exception:
+        # psutil optional; keep graceful fallback values.
+        pass
+
+    return metrics
 
 
 def show_stats(chat_id):
@@ -44,6 +79,7 @@ def show_stats(chat_id):
     data_size = Path(DATA_FILE).stat().st_size / 1024 if Path(DATA_FILE).exists() else 0
     log_file_path = Path(LOGS_DIR) / "app.log"
     log_size = log_file_path.stat().st_size / 1024 if log_file_path.exists() else 0
+    runtime = _collect_runtime_metrics()
 
     stats = (
         "📊 <b>Sistem İstatistikleri</b>\n\n"
@@ -51,10 +87,33 @@ def show_stats(chat_id):
         f"📚 <b>Toplam Ders:</b> {total_courses}\n"
         f"🔗 <b>Aktif Oturum:</b> {active_sessions}\n"
         f"⏱ <b>Uptime:</b> {get_uptime()}\n\n"
+        "🖥 <b>Anlık Kaynak Kullanımı:</b>\n"
+        f"├ CPU: {runtime['cpu_percent']}\n"
+        f"├ RAM: {runtime['ram_percent']} ({runtime['ram_used_mb']})\n"
+        f"└ Disk: {runtime['disk_percent']} (Boş: {runtime['disk_free_gb']})\n\n"
         f"💾 <b>Dosya Boyutları:</b>\n"
         f"├ users.json: {users_size:.1f} KB\n"
         f"├ ninova_data.json: {data_size:.1f} KB\n"
         f"└ app.log: {log_size:.1f} KB"
+    )
+
+    logger.info(
+        "[admin_metrics] actor=%s | users=%s | courses=%s | sessions=%s | uptime=%s | "
+        "cpu=%s | ram=%s | ram_used=%s | disk=%s | disk_free=%s | "
+        "users_kb=%.1f | data_kb=%.1f | log_kb=%.1f",
+        chat_id,
+        total_users,
+        total_courses,
+        active_sessions,
+        get_uptime(),
+        runtime["cpu_percent"],
+        runtime["ram_percent"],
+        runtime["ram_used_mb"],
+        runtime["disk_percent"],
+        runtime["disk_free_gb"],
+        users_size,
+        data_size,
+        log_size,
     )
 
     bot.send_message(chat_id, stats, parse_mode="HTML")

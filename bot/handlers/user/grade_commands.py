@@ -8,6 +8,7 @@ from datetime import datetime
 
 from telebot import types
 
+from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_grades
 from bot.instance import bot_instance as bot
 from common.background_tasks import submit_background_task
@@ -220,6 +221,7 @@ def kontrol_command_handler(message):
     /kontrol force -> (Admin) Tüm kullanıcıları kontrol eder.
     """
     chat_id = str(message.chat.id)
+    request_id = new_user_request_id("chk")
     text = message.text.split()
 
     # 1. /kontrol force (Admin only)
@@ -227,6 +229,7 @@ def kontrol_command_handler(message):
         from bot.handlers.admin.helpers import is_admin
 
         if is_admin(message):
+            log_user_action(chat_id, "manual_check_force", status="started", request_id=request_id)
             from bot.instance import get_check_callback
 
             cb = get_check_callback()
@@ -237,15 +240,37 @@ def kontrol_command_handler(message):
                     parse_mode="HTML",
                 )
                 if not submit_background_task("global_force_check", cb):
+                    log_user_action(
+                        chat_id,
+                        "manual_check_force",
+                        status="queue_full",
+                        request_id=request_id,
+                        level="warning",
+                    )
                     bot.reply_to(message, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
             else:
+                log_user_action(
+                    chat_id,
+                    "manual_check_force",
+                    status="not_ready",
+                    request_id=request_id,
+                    level="warning",
+                )
                 bot.reply_to(message, "❌ Kontrol fonksiyonu bulunamadı.")
         else:
+            log_user_action(
+                chat_id,
+                "manual_check_force",
+                status="unauthorized",
+                request_id=request_id,
+                level="warning",
+            )
             bot.reply_to(message, "⛔ Bu işlem için yetkiniz bulunmuyor.")
         return
 
     # 2. /kontrol ders -> Ders menüsünü aç
     if len(text) > 1 and text[1].lower() == "ders":
+        log_user_action(chat_id, "manual_check", status="menu_requested", request_id=request_id)
         interactive_menu(message)
         return
 
@@ -259,17 +284,35 @@ def kontrol_command_handler(message):
     def run_user_check():
         from main import check_user_updates
 
-        result = check_user_updates(chat_id)
+        result = check_user_updates(chat_id, request_id=request_id)
         if result.get("success"):
+            log_user_action(
+                chat_id,
+                "manual_check",
+                status="completed",
+                request_id=request_id,
+                details=f"changes={result.get('changes', 0)}",
+            )
             bot.send_message(
                 chat_id,
                 "✅ <b>Kontrol Tamamlandı.</b>\nNot, ödev, dosya ve duyuru bilgileriniz güncellendi.",
                 parse_mode="HTML",
             )
         else:
+            log_user_action(
+                chat_id,
+                "manual_check",
+                status="failed",
+                request_id=request_id,
+                details=result.get("message", "unknown"),
+                level="warning",
+            )
             bot.send_message(chat_id, f"❌ <b>Hata:</b> {result.get('message')}", parse_mode="HTML")
 
     if not submit_background_task("user_manual_check", run_user_check):
+        log_user_action(
+            chat_id, "manual_check", status="queue_full", request_id=request_id, level="warning"
+        )
         bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
 
 

@@ -604,7 +604,12 @@ def _compare_course_data(
     return sections_changes, changes
 
 
-def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool = False):
+def check_user_updates(
+    chat_id: str,
+    course_idx: int | None = None,
+    silent: bool = False,
+    request_id: str | None = None,
+):
     """
     Belirli bir kullanıcının notlarını kontrol eder.
 
@@ -617,10 +622,24 @@ def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool
     :param silent: (Opsiyonel) Bildirim göndermeden sadece verileri güncelle (True/False)
     :return: Başarı durumu ve mesaj içeren dict
     """
+    request_id = request_id or f"chk-{chat_id}-{int(time.time())}"
     users = load_all_users()
     user_data = users.get(chat_id)
+    logger.info(
+        "[user] actor=%s | action=check_user_updates | status=started | request_id=%s | "
+        "details=course_idx=%s;silent=%s",
+        chat_id,
+        request_id,
+        course_idx,
+        silent,
+    )
 
     if not user_data:
+        logger.warning(
+            "[user] actor=%s | action=check_user_updates | status=missing_user | request_id=%s",
+            chat_id,
+            request_id,
+        )
         return {"success": False, "message": "Kullanıcı bilgileri bulunamadı."}
 
     # Son kontrol zamanını güncelle
@@ -628,11 +647,21 @@ def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool
     all_urls = user_data.get("urls", [])
 
     if not all_urls:
+        logger.warning(
+            "[user] actor=%s | action=check_user_updates | status=no_courses | request_id=%s",
+            chat_id,
+            request_id,
+        )
         return {"success": False, "message": "Takip edilen ders bulunamadı."}
 
     # Eğer tek bir ders istenmişse filtrele
     if course_idx is not None:
         if course_idx < 0 or course_idx >= len(all_urls):
+            logger.warning(
+                "[user] actor=%s | action=check_user_updates | status=invalid_course_idx | request_id=%s",
+                chat_id,
+                request_id,
+            )
             return {"success": False, "message": "Geçersiz ders indeksi."}
         urls_to_scan = [all_urls[course_idx]]
     else:
@@ -642,6 +671,11 @@ def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool
     encrypted_password = user_data.get("password")
 
     if not username or not encrypted_password:
+        logger.warning(
+            "[user] actor=%s | action=check_user_updates | status=missing_credentials | request_id=%s",
+            chat_id,
+            request_id,
+        )
         return {"success": False, "message": "Kullanıcı bilgileri eksik."}
 
     password = decrypt_password(encrypted_password)
@@ -650,6 +684,11 @@ def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool
             chat_id,
             "⚠️ <b>Şifre Hatası</b>\n\nŞifreniz çözülemedi. Lütfen şifrenizi yeniden girin.",
             is_error=True,
+        )
+        logger.warning(
+            "[user] actor=%s | action=check_user_updates | status=decrypt_failed | request_id=%s",
+            chat_id,
+            request_id,
         )
         return {"success": False, "message": "Şifre çözme hatası."}
 
@@ -685,6 +724,11 @@ def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool
             except LoginFailedError:
                 error_msg = (
                     "⚠️ <b>Giriş Başarısız!</b>\n\nNinova'ya giriş yapılamıyor (Oturum hatası)."
+                )
+                logger.error(
+                    "[user] actor=%s | action=check_user_updates | status=login_failed | request_id=%s",
+                    chat_id,
+                    request_id,
                 )
                 send_telegram_message(chat_id, error_msg, is_error=True)
                 return {"success": False, "message": f"Oturum açma hatası: {error_msg}"}
@@ -735,6 +779,14 @@ def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool
     result_msg = f"✅ Kontrol tamamlandı ({len(all_changes)} değişiklik)"
     if not all_changes:
         result_msg = "✅ Kontrol tamamlandı (değişiklik yok)"
+
+    logger.info(
+        "[user] actor=%s | action=check_user_updates | status=completed | request_id=%s | details=changes=%s;scanned=%s",
+        chat_id,
+        request_id,
+        len(all_changes),
+        len(urls_to_scan),
+    )
 
     return {"success": True, "message": result_msg, "changes": len(all_changes)}
 
