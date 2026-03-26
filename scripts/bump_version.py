@@ -40,7 +40,7 @@ def write_version(pyproject_path: Path, new_version: str) -> None:
     content = pyproject_path.read_text(encoding="utf-8")
 
     def _replace(match: re.Match[str]) -> str:
-        return f'{match.group(1)}{new_version}{match.group(3)}'
+        return f"{match.group(1)}{new_version}{match.group(3)}"
 
     updated, count = VERSION_RE.subn(_replace, content, count=1)
     if count != 1:
