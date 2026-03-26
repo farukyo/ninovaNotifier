@@ -11,8 +11,9 @@ from bot.instance import bot_instance as bot
 from common.config import (
     DATA_FILE,
     LOGS_DIR,
-    USER_SESSIONS,
     USERS_FILE,
+    get_active_user_sessions,
+    has_user_session,
 )
 
 from .data_helpers import load_admin_users
@@ -72,7 +73,7 @@ def show_stats(chat_id):
 
     total_users = len(users)
     total_courses = sum(len(u.get("urls", [])) for u in users.values())
-    active_sessions = len(USER_SESSIONS)
+    active_sessions = len(get_active_user_sessions())
 
     # Dosya boyutları
     users_size = Path(USERS_FILE).stat().st_size / 1024 if Path(USERS_FILE).exists() else 0
@@ -138,7 +139,7 @@ def show_user_details(chat_id):
     for uid, data in users.items():
         username = data.get("username", "?")
         url_count = len(data.get("urls", []))
-        has_session = "✅" if uid in USER_SESSIONS else "❌"
+        has_session = "✅" if has_user_session(uid) else "❌"
         response += f"🆔 <code>{uid}</code>\n"
         response += f"├ 👤 {username}\n"
         response += f"├ 📚 {url_count} ders\n"

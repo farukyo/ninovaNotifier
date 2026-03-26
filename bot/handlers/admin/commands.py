@@ -6,16 +6,15 @@ import logging
 import os
 import sys
 
-import requests
 from telebot import types
 
 from bot.instance import bot_instance as bot
 from bot.instance import get_check_callback
 from common.background_tasks import submit_background_task
 from common.config import (
-    HEADERS,
-    USER_SESSIONS,
     cleanup_inactive_sessions,
+    get_active_user_sessions,
+    get_user_session,
 )
 from common.utils import (
     decrypt_password,
@@ -79,7 +78,7 @@ def admin_panel(message):
     request_id = new_admin_request_id("cmd")
     users = load_admin_users()
     log_admin_action(str(message.chat.id), "admin_panel", status="opened", request_id=request_id)
-    stats_summary = f"👥 {len(users)} kullanıcı | 🔗 {len(USER_SESSIONS)} oturum"
+    stats_summary = f"👥 {len(users)} kullanıcı | 🔗 {len(get_active_user_sessions())} oturum"
 
     bot.reply_to(
         message,
@@ -454,12 +453,8 @@ def admin_force_otoders_cmd(message):
             continue
 
         try:
-            # Yeni oturum oluştur
-            if chat_id not in USER_SESSIONS:
-                USER_SESSIONS[chat_id] = requests.Session()
-                USER_SESSIONS[chat_id].headers.update(HEADERS)
-
-            session = USER_SESSIONS[chat_id]
+            # Yeni oturum oluştur (SessionManager tarafından yönetilir)
+            session = get_user_session(chat_id)
 
             if not login_to_ninova(session, chat_id, username, password):
                 failed_users += 1

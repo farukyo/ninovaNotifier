@@ -185,6 +185,29 @@ class SessionManager:
         with self._lock:
             return len(self._sessions)
 
+    def has_session(self, chat_id: int) -> bool:
+        """
+        Check if a user has an active session.
+
+        Args:
+            chat_id: User's chat ID
+
+        Returns:
+            True if user has an active session, False otherwise
+        """
+        with self._lock:
+            return chat_id in self._sessions
+
+    def get_active_sessions(self) -> list[int]:
+        """
+        Get list of all active session user IDs.
+
+        Returns:
+            List of chat IDs with active sessions
+        """
+        with self._lock:
+            return list(self._sessions.keys())
+
 
 # Global singleton instance
 _session_manager: SessionManager | None = None

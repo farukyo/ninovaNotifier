@@ -165,6 +165,25 @@ def get_session_stats() -> dict:
     return _session_manager.stats()
 
 
+def has_user_session(chat_id: int) -> bool:
+    """
+    Bir kullanıcının aktif oturumu olup olmadığını kontrol et.
+
+    :param chat_id: Kullanıcı chat ID
+    :return: Aktif oturum varsa True, yoksa False
+    """
+    return _session_manager.has_session(chat_id)
+
+
+def get_active_user_sessions() -> list[int]:
+    """
+    Aktif oturumu olan tüm kullanıcıları döndür.
+
+    :return: Aktif oturumu olan chat ID'lerin listesi
+    """
+    return _session_manager.get_active_sessions()
+
+
 def get_cache_stats() -> dict:
     """Cache yöneticisi istatistikleri döndür."""
     return _cache_manager.stats()
