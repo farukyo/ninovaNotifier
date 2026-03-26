@@ -10,7 +10,6 @@ from common.config import (
     MAX_LOGIN_RETRIES,
     RETRY_BACKOFF_BASE,
     RETRY_BACKOFF_MAX,
-    console,
 )
 from common.utils import send_telegram_message
 
@@ -48,7 +47,6 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
     with get_user_lock(chat_id):
         if not username or not password:
             logger.error(f"[{chat_id}] Login failed: missing username or password")
-            console.print(f"[bold red]Hata ({chat_id}): Kullanıcı adı veya şifre eksik!")
             return False
 
         # Exponential backoff retry mekanizması
@@ -90,16 +88,12 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     logger.warning(
                         f"[{chat_id}] Login failed: invalid credentials (attempt {attempt}/{MAX_LOGIN_RETRIES})"
                     )
-                    console.print(
-                        f"[bold red]Giriş başarısız ({chat_id}): Kullanıcı adı veya şifre hatalı olabilir."
-                    )
                     # Invalid credentials - don't retry
                     return False
 
                 if not quiet:
                     logger.info(f"[{chat_id}] Login successful")
                     msg = "🔑 <b>Yeni Oturum Açıldı</b>\n\nNinova oturumu başarıyla açıldı."
-                    console.print(f"[bold green]Giriş başarılı! ({chat_id})")
                     send_telegram_message(chat_id, msg)
 
                     with contextlib.suppress(Exception):
@@ -125,14 +119,10 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     logger.error(
                         f"[{chat_id}] Login failed after {MAX_LOGIN_RETRIES} attempts: {e}"
                     )
-                    console.print(
-                        f"[bold red]Giriş hatası ({chat_id}): Ağ bağlantı sorunu. Lütfen daha sonra tekrar deneyin."
-                    )
                     return False
 
             except Exception as e:
                 logger.exception(f"[{chat_id}] Unexpected error during login: {e}")
-                console.print(f"[bold red]Giriş sırasında hata oluştu ({chat_id}): {e}")
                 return False
 
         return False

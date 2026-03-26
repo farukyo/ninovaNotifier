@@ -62,6 +62,19 @@ LIVE_REFRESH_PER_SECOND = 0.5
 LIVE_STATUS_UPDATE_EVERY_SECONDS = 10
 
 
+def emit_terminal_and_log(message: str, level: str = "info") -> None:
+    """Emit important summaries to both terminal and logger."""
+    log_method = getattr(logger, level, logger.info)
+    log_method(message)
+    style = {
+        "info": "[cyan]",
+        "warning": "[yellow]",
+        "error": "[bold red]",
+        "critical": "[bold red]",
+    }.get(level, "[cyan]")
+    console.print(f"{style}{message}")
+
+
 def show_users_table():
     """
     Kayıtlı kullanıcıları tablo formatında gösterir.
@@ -862,8 +875,7 @@ def check_for_updates():
         f"Kontrol özeti: {len(users)} kullanıcı tarandı, "
         f"{len(changes_table.rows)} değişiklik, {changed_users} kullanıcı etkilendi"
     )
-    console.print(f"[green]{summary}")
-    logger.info(summary)
+    emit_terminal_and_log(summary, level="info")
 
     # Son kontrol zamanını güncelle (Live display'de kullanmak için)
     global LAST_CHECK_DISPLAY_TIME
@@ -891,11 +903,11 @@ if __name__ == "__main__":
 
     if bot:
         try:
-            console.print("[yellow][Bot] Webhook temizleniyor...")
+            logger.info("[Bot] Webhook temizleniyor...")
             bot.remove_webhook(drop_pending_updates=True)
             time.sleep(2)  # Telegram sunucularının senkronize olması için kısa bir bekleme
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception(f"Webhook temizleme hatası: {e}")
 
         # infinity_polling kendi içinde hata yönetimi yapar.
         # logger_level parametresi ile log kirliliğini azaltabiliriz.
@@ -904,7 +916,7 @@ if __name__ == "__main__":
             kwargs={"skip_pending": True, "timeout": 20},
             daemon=True,
         ).start()
-        console.print("[bold cyan][Bot] Telegram komut dinleyicisi başlatıldı.")
+        logger.info("[Bot] Telegram komut dinleyicisi başlatıldı.")
 
     try:
         # Session cleanup counter (cleanup every SESSION_CLEANUP_INTERVAL)
@@ -952,10 +964,10 @@ if __name__ == "__main__":
                 except Exception as e:
                     logger.exception(f"Session cleanup failed: {e}")
     except KeyboardInterrupt:
-        console.print("\n[bold red]Program kullanıcı tarafından durduruldu.")
+        emit_terminal_and_log("Program kullanıcı tarafından durduruldu.", level="warning")
     except Exception as e:
         from rich.traceback import Traceback
 
         console.print(Traceback())
         error_msg = f"Ana döngüde kritik hata: {e!s}\n{traceback.format_exc()}"
-        console.print(f"[bold red]{error_msg}")
+        emit_terminal_and_log(error_msg, level="critical")
