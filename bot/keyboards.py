@@ -53,17 +53,6 @@ def build_ari24_menu_keyboard(daily_sub_status=False):
     return kb
 
 
-def build_manual_menu():
-    """Return an InlineKeyboardMarkup for the manual course menu."""
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton("➕ Ders Ekle", callback_data="manual_add"),
-        types.InlineKeyboardButton("🗑️ Ders Sil", callback_data="manual_delete"),
-        types.InlineKeyboardButton("📋 Ders Listesi", callback_data="manual_list"),
-    )
-    return kb
-
-
 def build_cancel_keyboard():
     """Return a simple ReplyKeyboardMarkup with a cancel button.
 

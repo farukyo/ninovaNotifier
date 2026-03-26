@@ -4,8 +4,9 @@ import math
 import requests
 from telebot import types
 
+from bot.inline_keyboards import build_manual_menu
 from bot.instance import bot_instance as bot
-from bot.keyboards import build_cancel_keyboard, build_main_keyboard, build_manual_menu
+from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text, show_file_browser, validate_ninova_url
 from common.cache import get_cached_file_id, set_cached_file_id
 from common.config import HEADERS, USER_SESSIONS, load_all_users, save_all_users
@@ -44,15 +45,9 @@ def handle_course_selection(call):
     data = user_grades[url]
     course_name = data.get("course_name", "Bilinmeyen Ders")
 
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("📊 Notlar", callback_data=f"det_{course_idx}_not"),
-        types.InlineKeyboardButton("📅 Ödevler", callback_data=f"det_{course_idx}_odev"),
-        types.InlineKeyboardButton("📁 Dosyalar", callback_data=f"det_{course_idx}_dosya"),
-        types.InlineKeyboardButton("📣 Duyurular", callback_data=f"det_{course_idx}_duyuru"),
-    )
-    markup.add(types.InlineKeyboardButton("🔄 Kontrol Et", callback_data=f"kontrol_{course_idx}"))
-    markup.add(types.InlineKeyboardButton("↩️ Ana Menü", callback_data="main_menu"))
+    from bot.inline_keyboards import build_course_detail_keyboard
+
+    markup = build_course_detail_keyboard(course_idx)
 
     bot.edit_message_text(
         chat_id=chat_id,
@@ -91,8 +86,9 @@ def handle_announcement_detail(call):
 
     ann = announcements[ann_idx]
 
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🔙 Geri", callback_data=f"det_{course_idx}_duyuru"))
+    from bot.inline_keyboards import build_back_keyboard
+
+    markup = build_back_keyboard(f"det_{course_idx}_duyuru")
 
     # Sanitize content before sending to Telegram
     raw_content = ann.get("content", "İçerik yüklenemedi.")
@@ -259,7 +255,9 @@ def handle_course_detail(call):
                     types.InlineKeyboardButton(f"🔹 {title}", callback_data=f"ann_{course_idx}_{i}")
                 )
 
-    markup.add(types.InlineKeyboardButton("↩️ Geri Dön", callback_data=f"crs_{course_idx}"))
+    from bot.inline_keyboards import get_back_button
+
+    markup.add(get_back_button(f"crs_{course_idx}"))
     bot.edit_message_text(
         chat_id=chat_id,
         message_id=call.message.message_id,
@@ -328,21 +326,9 @@ def handle_main_menu(call):
     chat_id = str(call.message.chat.id)
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
-    markup = types.InlineKeyboardMarkup()
-    for i, (_url, data) in enumerate(user_grades.items()):
-        markup.add(
-            types.InlineKeyboardButton(
-                f"📚 {data.get('course_name', 'Bilinmeyen Ders')}",
-                callback_data=f"crs_{i}",
-            )
-        )
+    from bot.inline_keyboards import build_main_dashboard_keyboard
 
-    # Add general control button
-    markup.add(types.InlineKeyboardButton("🔄 Tümünü Kontrol Et", callback_data="global_kontrol"))
-    # Add Manual Course Menu button
-    markup.add(
-        types.InlineKeyboardButton("📝 Manuel Ders Yönetimi", callback_data="manual_menu_open")
-    )
+    markup = build_main_dashboard_keyboard(user_grades)
 
     bot.edit_message_text(
         chat_id=chat_id,
@@ -509,11 +495,9 @@ def handle_course_delete_any(call):
     # This might need refinement based on startswith logic overlaps
     if call.data.startswith("del_req_"):
         idx = int(call.data.split("_")[2])
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("Evet, Sil", callback_data=f"del_yes_{idx}"),
-            types.InlineKeyboardButton("Hayır", callback_data="del_no"),
-        )
+        from bot.inline_keyboards import build_confirm_keyboard
+
+        markup = build_confirm_keyboard(f"del_yes_{idx}", "del_no", "Evet, Sil", "Hayır")
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -605,13 +589,9 @@ def handle_manual_delete(call):
         )
         return
 
-    markup = types.InlineKeyboardMarkup()
-    for i, url in enumerate(urls):
-        course_name = user_grades.get(url, {}).get("course_name", f"Ders {i + 1}")
-        display_text = course_name if len(course_name) <= 40 else course_name[:37] + "..."
-        markup.add(types.InlineKeyboardButton(f"🗑️ {display_text}", callback_data=f"del_req_{i}"))
+    from bot.inline_keyboards import build_manual_manage_courses_keyboard
 
-    markup.add(types.InlineKeyboardButton("↩️ Geri", callback_data="manual_back"))
+    markup = build_manual_manage_courses_keyboard(urls, user_grades)
 
     bot.edit_message_text(
         chat_id=chat_id,
@@ -649,8 +629,9 @@ def handle_manual_list(call):
         course_name = user_grades.get(url, {}).get("course_name", f"Ders {i}")
         response += f"{i}. <b>{course_name}</b>\n<code>{url}</code>\n\n"
 
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("↩️ Geri", callback_data="manual_back"))
+    from bot.inline_keyboards import build_back_keyboard
+
+    markup = build_back_keyboard("manual_back")
 
     bot.edit_message_text(
         chat_id=chat_id,
