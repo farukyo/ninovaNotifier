@@ -1,9 +1,12 @@
+import logging
 import urllib.parse
 
 from telebot import types
 
 from bot.instance import bot_instance as bot
 from common.utils import escape_html, get_file_icon, load_saved_grades
+
+logger = logging.getLogger("ninova")
 
 
 def is_cancel_text(text: str) -> bool:
@@ -27,10 +30,12 @@ def validate_ninova_url(url: str) -> str | None:
     :return: Temizlenmiş URL veya geçersizse None
     """
     if not url:
+        logger.debug("URL validation failed: empty URL")
         return None
 
     parsed = urllib.parse.urlparse(url)
     if parsed.netloc not in ("ninova.itu.edu.tr", "www.ninova.itu.edu.tr"):
+        logger.warning(f"Invalid Ninova URL: {parsed.netloc}")
         return None
 
     # Query string ve alt sayfa temizliği
@@ -40,6 +45,7 @@ def validate_ninova_url(url: str) -> str | None:
             clean_url = clean_url[: -len(suffix)]
             break
 
+    logger.debug(f"Validated Ninova URL: {clean_url}")
     return clean_url
 
 

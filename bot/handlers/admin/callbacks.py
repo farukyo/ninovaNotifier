@@ -7,14 +7,13 @@ import os
 import sys
 import threading
 
-import requests
 from telebot import types
 
 from bot.instance import bot_instance as bot
 from bot.instance import get_check_callback
 from common.config import (
-    HEADERS,
-    USER_SESSIONS,
+    close_user_session,
+    get_user_session,
     load_all_users,
     save_all_users,
 )
@@ -150,11 +149,8 @@ def handle_admin_callbacks(call):
                 continue
 
             try:
-                # Yeni oturum oluştur (eski oturumu sıfırla)
-                USER_SESSIONS[target_chat_id] = requests.Session()
-                USER_SESSIONS[target_chat_id].headers.update(HEADERS)
-
-                session = USER_SESSIONS[target_chat_id]
+                # Create/get session (managed by SessionManager)
+                session = get_user_session(target_chat_id)
 
                 if not login_to_ninova(session, target_chat_id, username, password):
                     failed += 1
@@ -367,13 +363,8 @@ def handle_optout_confirm(call):
         del grades[target_id]
         save_grades(grades)
 
-    # Oturumu sil
-    if target_id in USER_SESSIONS:
-        try:
-            USER_SESSIONS[target_id].close()
-            del USER_SESSIONS[target_id]
-        except Exception:
-            pass
+    # Close user session
+    close_user_session(target_id)
 
     bot.answer_callback_query(call.id, "Kullanıcı silindi!")
     bot.edit_message_text(

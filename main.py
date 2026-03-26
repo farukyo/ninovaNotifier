@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
-import requests
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
@@ -24,10 +23,12 @@ from bot import bot, set_check_callback, update_last_check_time
 from common.config import (
     CHECK_INTERVAL,
     DATA_DIR,
-    HEADERS,
     LOGS_DIR,
-    USER_SESSIONS,
+    SESSION_CLEANUP_INTERVAL,
+    cleanup_inactive_sessions,
     console,
+    get_cache_stats,
+    get_user_session,
     load_all_users,
     save_all_users,
 )
@@ -102,11 +103,16 @@ def check_ari24_updates():
     state_file = Path(DATA_DIR) / "ari24_state.json"
     try:
         if Path(state_file).exists():
-            with Path(state_file).open() as f:
-                state = json.load(f)
+            try:
+                with Path(state_file).open() as f:
+                    state = json.load(f)
+            except json.JSONDecodeError as e:
+                logger.error(f"Arı24 state file corrupted: {state_file} - {e}")
+                state = {"notified_urls": []}
         else:
             state = {"notified_urls": []}
-    except Exception:
+    except Exception as e:
+        logger.exception(f"Error loading Arı24 state: {e}")
         state = {"notified_urls": []}
 
     try:
@@ -595,12 +601,8 @@ def check_user_updates(chat_id: str, course_idx: int | None = None, silent: bool
     saved_grades = load_saved_grades()
     user_saved_grades = saved_grades.get(chat_id, {})
 
-    # Oturum önbelleğini kontrol et
-    if chat_id not in USER_SESSIONS:
-        USER_SESSIONS[chat_id] = requests.Session()
-        USER_SESSIONS[chat_id].headers.update(HEADERS)
-
-    user_session = USER_SESSIONS[chat_id]
+    # Get user session (managed by SessionManager)
+    user_session = get_user_session(chat_id)
     all_current_grades = {}
     all_changes = []
     telegram_messages = []
@@ -735,12 +737,8 @@ def check_for_updates():
 
         console.print(f"[bold cyan]Kullanıcı kontrol ediliyor: {chat_id}")
 
-        # Oturum önbelleğini kontrol et
-        if chat_id not in USER_SESSIONS:
-            USER_SESSIONS[chat_id] = requests.Session()
-            USER_SESSIONS[chat_id].headers.update(HEADERS)
-
-        user_session = USER_SESSIONS[chat_id]
+        # Get user session (managed by SessionManager)
+        user_session = get_user_session(chat_id)
 
         all_current_grades = {}
         with Progress(
@@ -903,6 +901,10 @@ if __name__ == "__main__":
         console.print("[bold cyan][Bot] Telegram komut dinleyicisi başlatıldı.")
 
     try:
+        # Session cleanup counter (cleanup every SESSION_CLEANUP_INTERVAL)
+        checks_since_cleanup = 0
+        checks_until_cleanup = SESSION_CLEANUP_INTERVAL // CHECK_INTERVAL
+
         while True:
             current_wait = CHECK_INTERVAL + random.randint(-30, 30)
             # Bekleme sırasında Live display
@@ -929,6 +931,20 @@ if __name__ == "__main__":
             check_ari24_updates()
             check_daily_bulletin()
             check_for_updates()
+
+            # Session cleanup (every SESSION_CLEANUP_INTERVAL seconds)
+            checks_since_cleanup += 1
+            if checks_since_cleanup >= checks_until_cleanup:
+                try:
+                    closed = cleanup_inactive_sessions()
+                    cache_stats = get_cache_stats()
+                    logger.info(
+                        f"Cleanup done: {closed} sessions closed, "
+                        f"cache size={cache_stats['entries']}/{cache_stats['max_entries']}"
+                    )
+                    checks_since_cleanup = 0
+                except Exception as e:
+                    logger.exception(f"Session cleanup failed: {e}")
     except KeyboardInterrupt:
         console.print("\n[bold red]Program kullanıcı tarafından durduruldu.")
     except Exception as e:

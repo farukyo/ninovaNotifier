@@ -1,9 +1,10 @@
 import io
+import logging
 from pathlib import Path
 
-from common.config import console
-
 from .auth import login_to_ninova
+
+logger = logging.getLogger("ninova")
 
 
 def download_file(
@@ -53,5 +54,5 @@ def download_file(
             return filepath
 
     except Exception as e:
-        console.print(f"[bold red]Dosya indirme hatası: {e}")
+        logger.exception(f"File download error: {e}")
     return None

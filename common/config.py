@@ -10,6 +10,9 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from rich.console import Console
 
+from common.cache_manager import get_cache_manager
+from common.session import get_session_manager
+
 load_dotenv(Path("secrets") / ".env")
 console = Console()
 logger = logging.getLogger("ninova")
@@ -107,5 +110,83 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
-# Global oturum belleği
+# ============================================================================
+# Session ve Cache Yönetimi - SessionManager ve CacheManager ile
+# ============================================================================
+
+# SessionManager'ı başlat (TTL: 15 dakika, Max: 5000 oturum)
+_session_manager = get_session_manager(ttl_seconds=15 * 60)
+
+# CacheManager'ı başlat (Max: 10000 entry, TTL: 7 gün)
+_cache_manager = get_cache_manager(max_entries=10000, ttl_seconds=7 * 24 * 3600)
+
+# Backward compatibility: USER_SESSIONS referansı (ama SessionManager tarafından yönetilir)
+# Eski kod hala USER_SESSIONS kullanabilir, ama asıl yönetim SessionManager'da olur
 USER_SESSIONS = {}
+
+
+def get_user_session(chat_id: int):
+    """
+    Kullanıcı için HTTP session alır (SessionManager tarafından yönetilir).
+
+    :param chat_id: Kullanıcı chat ID
+    :return: requests.Session nesnesi
+    """
+    return _session_manager.get_session(chat_id, headers=HEADERS)
+
+
+def close_user_session(chat_id: int) -> bool:
+    """
+    Kullanıcı oturumunu kapat.
+
+    :param chat_id: Kullanıcı chat ID
+    :return: Başarılı kapatma durumu
+    """
+    return _session_manager.close_session(chat_id)
+
+
+def cleanup_inactive_sessions(force: bool = False) -> int:
+    """
+    Inaktif oturumları temizle.
+
+    :param force: Tüm oturumları kapat mı?
+    :return: Temizlenen oturum sayısı
+    """
+    return _session_manager.cleanup_inactive_sessions(force=force)
+
+
+def get_session_stats() -> dict:
+    """Session yöneticisi istatistikleri döndür."""
+    return _session_manager.stats()
+
+
+def get_cache_stats() -> dict:
+    """Cache yöneticisi istatistikleri döndür."""
+    return _cache_manager.stats()
+
+
+# ============================================================================
+# Sabitler (Magic Numbers)
+# ============================================================================
+
+# Loglama ve Durum Dosyaları
+MAX_NOTIFIED_URLS = 500  # Notified URLs liste sınırı
+MAX_ARI24_EVENTS = 200  # Arı24 events cache sınırı
+MAX_SKS_MENU = 100  # SKS menüsü cache sınırı
+
+# Request Timeout'ları
+REQUEST_TIMEOUT = 15  # requests.get() timeout (saniye)
+REQUEST_TIMEOUT_LONG = 30  # Uzun işlemler için timeout
+
+# Session Temizlik
+SESSION_CLEANUP_INTERVAL = 5 * 60  # 5 dakikada bir temizlik
+SESSION_TTL = 15 * 60  # 15 dakika
+
+# Cache
+CACHE_FILE_TTL = 7 * 24 * 3600  # 7 gün
+CACHE_MAX_ENTRIES = 10000
+
+# Retry Mekanizması
+MAX_LOGIN_RETRIES = 3
+RETRY_BACKOFF_BASE = 2  # exponential backoff için base
+RETRY_BACKOFF_MAX = 30  # max backoff (saniye)

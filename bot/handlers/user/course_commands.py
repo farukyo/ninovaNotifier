@@ -5,11 +5,10 @@ Ders yönetimi komutları.
 import logging
 import threading
 
-import requests
 from telebot import types
 
 from bot.instance import bot_instance as bot
-from common.config import HEADERS, USER_SESSIONS, load_all_users
+from common.config import get_user_session, load_all_users
 from common.utils import decrypt_password, load_saved_grades, split_long_message, update_user_data
 from services.ninova import get_user_courses, login_to_ninova
 
@@ -81,11 +80,7 @@ def auto_add_courses(message):
 
             from services.ninova import get_class_info
 
-            if chat_id not in USER_SESSIONS:
-                USER_SESSIONS[chat_id] = requests.Session()
-                USER_SESSIONS[chat_id].headers.update(HEADERS)
-
-            session = USER_SESSIONS[chat_id]
+            session = get_user_session(chat_id)
             if login_to_ninova(session, chat_id, username, password):
                 courses = get_user_courses(session)
                 if not courses:

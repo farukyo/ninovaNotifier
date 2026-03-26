@@ -1,7 +1,8 @@
 import json
+import logging
 from pathlib import Path
 
-from common.config import console
+logger = logging.getLogger("ninova")
 
 CACHE_FILE = Path("data") / "file_cache.json"
 _FILE_CACHE = {}
@@ -16,7 +17,7 @@ def load_file_cache():
         with CACHE_FILE.open(encoding="utf-8") as f:
             _FILE_CACHE = json.load(f)
     except Exception as e:
-        console.print(f"[red]Cache yükleme hatası: {e}")
+        logger.error(f"Cache load error: {e}")
         _FILE_CACHE = {}
     return _FILE_CACHE
 
@@ -28,7 +29,7 @@ def save_file_cache():
         with CACHE_FILE.open("w", encoding="utf-8") as f:
             json.dump(_FILE_CACHE, f, indent=4)
     except Exception as e:
-        console.print(f"[red]Cache kaydetme hatası: {e}")
+        logger.error(f"Cache save error: {e}")
 
 
 def get_cached_file_id(ninova_url):

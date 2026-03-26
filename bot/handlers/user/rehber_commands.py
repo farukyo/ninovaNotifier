@@ -1,10 +1,13 @@
-import requests
 from telebot import types
 
 from bot.instance import bot_instance as bot
-from bot.keyboards import build_main_keyboard, build_rehber_ad_keyboard, build_rehber_soyad_keyboard
+from bot.keyboards import (
+    build_main_keyboard,
+    build_rehber_ad_keyboard,
+    build_rehber_soyad_keyboard,
+)
 from bot.utils import is_cancel_text
-from common.config import USER_SESSIONS, load_all_users
+from common.config import get_user_session, load_all_users
 from common.utils import decrypt_password, escape_html
 from services.rehber.scraper import RehberScraper
 
@@ -94,11 +97,8 @@ def process_rehber_soyad(message):
         reply_markup=build_main_keyboard(),
     )
 
-    # Session setup ve SSO login
-    if chat_id not in USER_SESSIONS:
-        USER_SESSIONS[chat_id] = requests.Session()
-
-    session = USER_SESSIONS[chat_id]
+    # Session setup (using SessionManager)
+    session = get_user_session(chat_id)
     scraper = RehberScraper(session)
 
     # Kullanıcı bilgilerini al ve Rehber SSO'ya giriş yap

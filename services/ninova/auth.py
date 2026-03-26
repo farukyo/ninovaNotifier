@@ -1,11 +1,17 @@
 import contextlib
 import logging
 import threading
+import time
 
 from bs4 import BeautifulSoup
 from plyer import notification
 
-from common.config import console
+from common.config import (
+    MAX_LOGIN_RETRIES,
+    RETRY_BACKOFF_BASE,
+    RETRY_BACKOFF_MAX,
+    console,
+)
 from common.utils import send_telegram_message
 
 logger = logging.getLogger("ninova")
@@ -27,10 +33,10 @@ class LoginFailedError(Exception):
 
 def login_to_ninova(session, chat_id, username, password, quiet=False):
     """
-    Belirli bir kullanıcı için Ninova'ya giriş yapar.
+    Belirli bir kullanıcı için Ninova'ya giriş yapar (exponential backoff retry ile).
 
     Oturum zaten aktifse tekrar giriş yapmaz. Başarısız giriş durumunda
-    kullanıcıya bildirim gönderir.
+    kullanıcıya bildirim gönderir. Ağ hataları için retry mekanizması vardır.
 
     :param session: requests.Session nesnesi
     :param chat_id: Kullanıcının Telegram chat ID'si
@@ -41,62 +47,92 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
     """
     with get_user_lock(chat_id):
         if not username or not password:
+            logger.error(f"[{chat_id}] Login failed: missing username or password")
             console.print(f"[bold red]Hata ({chat_id}): Kullanıcı adı veya şifre eksik!")
             return False
 
-        try:
-            # Önce halihazırda giriş yapılmış mı kontrol et
+        # Exponential backoff retry mekanizması
+        for attempt in range(1, MAX_LOGIN_RETRIES + 1):
             try:
-                check_resp = session.get(
-                    "https://ninova.itu.edu.tr/Kampus", timeout=5, allow_redirects=False
+                # Önce halihazırda giriş yapılmış mı kontrol et
+                try:
+                    check_resp = session.get(
+                        "https://ninova.itu.edu.tr/Kampus", timeout=5, allow_redirects=False
+                    )
+                    if check_resp.status_code == 200:
+                        if not quiet:
+                            logger.debug(f"[{chat_id}] Session already active, skipping login")
+                        return True
+                except Exception as e:
+                    logger.debug(f"[{chat_id}] Session check failed (attempt {attempt}): {e}")
+
+                login_url = "https://ninova.itu.edu.tr/Login.aspx"
+                resp = session.get(login_url, allow_redirects=True, timeout=15)
+                soup = BeautifulSoup(resp.text, "html.parser")
+
+                data = {}
+                for hidden in ["__VIEWSTATE", "__VIEWSTATEGENERATOR", "__EVENTVALIDATION"]:
+                    tag = soup.find("input", {"name": hidden})
+                    if tag:
+                        data[hidden] = tag["value"]
+
+                data.update(
+                    {
+                        "ctl00$ContentPlaceHolder1$tbUserName": username,
+                        "ctl00$ContentPlaceHolder1$tbPassword": password,
+                        "ctl00$ContentPlaceHolder1$btnLogin": "Giriş",
+                    }
                 )
-                if check_resp.status_code == 200:
-                    if not quiet:
-                        console.print(f"[cyan]Oturum zaten aktif ({chat_id})[/cyan]")
-                    return True
-            except Exception:
-                pass
 
-            login_url = "https://ninova.itu.edu.tr/Login.aspx"
-            resp = session.get(login_url, allow_redirects=True)
-            soup = BeautifulSoup(resp.text, "html.parser")
+                resp = session.post(resp.url, data=data, allow_redirects=True, timeout=15)
 
-            data = {}
-            for hidden in ["__VIEWSTATE", "__VIEWSTATEGENERATOR", "__EVENTVALIDATION"]:
-                tag = soup.find("input", {"name": hidden})
-                if tag:
-                    data[hidden] = tag["value"]
+                if "Hatalı" in resp.text or "Login.aspx" in resp.url:
+                    logger.warning(
+                        f"[{chat_id}] Login failed: invalid credentials (attempt {attempt}/{MAX_LOGIN_RETRIES})"
+                    )
+                    console.print(
+                        f"[bold red]Giriş başarısız ({chat_id}): Kullanıcı adı veya şifre hatalı olabilir."
+                    )
+                    # Invalid credentials - don't retry
+                    return False
 
-            data.update(
-                {
-                    "ctl00$ContentPlaceHolder1$tbUserName": username,
-                    "ctl00$ContentPlaceHolder1$tbPassword": password,
-                    "ctl00$ContentPlaceHolder1$btnLogin": "Giriş",
-                }
-            )
+                if not quiet:
+                    logger.info(f"[{chat_id}] Login successful")
+                    msg = "🔑 <b>Yeni Oturum Açıldı</b>\n\nNinova oturumu başarıyla açıldı."
+                    console.print(f"[bold green]Giriş başarılı! ({chat_id})")
+                    send_telegram_message(chat_id, msg)
 
-            resp = session.post(resp.url, data=data, allow_redirects=True)
+                    with contextlib.suppress(Exception):
+                        notification.notify(
+                            title="Ninova Takip",
+                            message=f"Oturum açıldı ({chat_id})",
+                            app_name="Ninova Takip",
+                            timeout=5,
+                        )
 
-            if "Hatalı" in resp.text or "Login.aspx" in resp.url:
-                console.print(
-                    f"[bold red]Giriş başarısız ({chat_id}): Kullanıcı adı veya şifre hatalı olabilir."
-                )
+                return True
+
+            except (TimeoutError, ConnectionError) as e:
+                # Network error - retry with backoff
+                if attempt < MAX_LOGIN_RETRIES:
+                    backoff = min(RETRY_BACKOFF_BASE**attempt, RETRY_BACKOFF_MAX)
+                    logger.warning(
+                        f"[{chat_id}] Network error (attempt {attempt}/{MAX_LOGIN_RETRIES}): {e}. "
+                        f"Retrying in {backoff}s..."
+                    )
+                    time.sleep(backoff)
+                else:
+                    logger.error(
+                        f"[{chat_id}] Login failed after {MAX_LOGIN_RETRIES} attempts: {e}"
+                    )
+                    console.print(
+                        f"[bold red]Giriş hatası ({chat_id}): Ağ bağlantı sorunu. Lütfen daha sonra tekrar deneyin."
+                    )
+                    return False
+
+            except Exception as e:
+                logger.exception(f"[{chat_id}] Unexpected error during login: {e}")
+                console.print(f"[bold red]Giriş sırasında hata oluştu ({chat_id}): {e}")
                 return False
 
-            if not quiet:
-                msg = "🔑 <b>Yeni Oturum Açıldı</b>\n\nNinova oturumu başarıyla açıldı."
-                console.print(f"[bold green]Giriş başarılı! ({chat_id})")
-                send_telegram_message(chat_id, msg)
-
-                with contextlib.suppress(Exception):
-                    notification.notify(
-                        title="Ninova Takip",
-                        message=f"Oturum açıldı ({chat_id})",
-                        app_name="Ninova Takip",
-                        timeout=5,
-                    )
-
-            return True
-        except Exception as e:
-            console.print(f"[bold red]Giriş sırasında hata oluştu ({chat_id}): {e}")
-            return False
+        return False

@@ -1,8 +1,11 @@
+import logging
 from datetime import datetime
 
 import telebot
 
 from common.config import TELEGRAM_TOKEN
+
+logger = logging.getLogger("ninova")
 
 bot_instance = telebot.TeleBot(TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
 START_TIME = datetime.now()
@@ -47,7 +50,15 @@ if bot_instance:
         """
         try:
             return _orig_answer(*args, **kwargs)
-        except Exception:
-            pass
+        except Exception as e:
+            # Log the error with context
+            callback_query_id = kwargs.get("callback_query_id") or (args[0] if args else "unknown")
+            logger.exception(f"Failed to answer callback query {callback_query_id}: {e}")
 
     bot_instance.answer_callback_query = _safe_answer
+
+    # Validate bot token at startup
+    if not TELEGRAM_TOKEN:
+        logger.warning("⚠️ TELEGRAM_TOKEN not set. Bot will not be able to function!")
+    else:
+        logger.info("✅ Telegram bot initialized successfully")

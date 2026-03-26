@@ -1,7 +1,7 @@
 import contextlib
+import logging
 import math
 
-import requests
 from telebot import types
 
 from bot.inline_keyboards import build_manual_menu
@@ -9,7 +9,7 @@ from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text, show_file_browser, validate_ninova_url
 from common.cache import get_cached_file_id, set_cached_file_id
-from common.config import HEADERS, USER_SESSIONS, load_all_users, save_all_users
+from common.config import close_user_session, load_all_users, save_all_users
 from common.utils import (
     decrypt_password,
     delete_course_data,
@@ -23,6 +23,8 @@ from common.utils import (
 )
 from services.ninova import download_file
 
+logger = logging.getLogger("ninova")
+
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("crs_"))
 def handle_course_selection(call):
@@ -32,30 +34,36 @@ def handle_course_selection(call):
     """
     chat_id = str(call.message.chat.id)
     course_idx = int(call.data.split("_")[1])
+    logger.debug(f"[{chat_id}] Course selection: index={course_idx}")
 
-    all_grades = load_saved_grades()
-    user_grades = all_grades.get(chat_id, {})
-    urls = list(user_grades.keys())
+    try:
+        all_grades = load_saved_grades()
+        user_grades = all_grades.get(chat_id, {})
+        urls = list(user_grades.keys())
 
-    if course_idx >= len(urls):
-        bot.answer_callback_query(call.id, "Ders bulunamadı.")
-        return
+        if course_idx >= len(urls):
+            logger.warning(f"[{chat_id}] Course index out of bounds: {course_idx} >= {len(urls)}")
+            bot.answer_callback_query(call.id, "Ders bulunamadı.")
+            return
 
-    url = urls[course_idx]
-    data = user_grades[url]
-    course_name = data.get("course_name", "Bilinmeyen Ders")
+        url = urls[course_idx]
+        data = user_grades[url]
+        course_name = data.get("course_name", "Bilinmeyen Ders")
 
-    from bot.inline_keyboards import build_course_detail_keyboard
+        from bot.inline_keyboards import build_course_detail_keyboard
 
-    markup = build_course_detail_keyboard(course_idx)
+        markup = build_course_detail_keyboard(course_idx)
 
-    bot.edit_message_text(
-        chat_id=chat_id,
-        message_id=call.message.message_id,
-        text=f"🎓 <b>{course_name}</b>\nLütfen görmek istediğiniz kategoriyi seçin:",
-        reply_markup=markup,
-        parse_mode="HTML",
-    )
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=f"🎓 <b>{course_name}</b>\nLütfen görmek istediğiniz kategoriyi seçin:",
+            reply_markup=markup,
+            parse_mode="HTML",
+        )
+        logger.info(f"[{chat_id}] Course menu displayed: {course_name}")
+    except Exception as e:
+        logger.exception(f"[{chat_id}] Error in course selection: {e}")
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("ann_"))
@@ -390,11 +398,9 @@ def handle_file_download(call):
     username = user_info.get("username")
     password = decrypt_password(user_info.get("password", ""))
 
-    if chat_id not in USER_SESSIONS:
-        USER_SESSIONS[chat_id] = requests.Session()
-        USER_SESSIONS[chat_id].headers.update(HEADERS)
+    from common.config import get_user_session
 
-    session = USER_SESSIONS[chat_id]
+    session = get_user_session(chat_id)
 
     # Download to buffer (RAM)
     result = download_file(
@@ -466,12 +472,7 @@ def handle_leave_confirm(call):
     if chat_id in all_grades:
         del all_grades[chat_id]
     save_grades(all_grades)
-    if chat_id in USER_SESSIONS:
-        try:
-            USER_SESSIONS[chat_id].close()
-            del USER_SESSIONS[chat_id]
-        except Exception:
-            pass
+    close_user_session(chat_id)
     bot.edit_message_text(
         chat_id=chat_id,
         message_id=call.message.message_id,
