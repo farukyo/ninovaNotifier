@@ -3,6 +3,7 @@ Admin callback handler'ları.
 """
 
 import contextlib
+import logging
 import os
 import sys
 import threading
@@ -12,6 +13,7 @@ from telebot import types
 from bot.instance import bot_instance as bot
 from bot.instance import get_check_callback
 from common.config import (
+    cleanup_inactive_sessions,
     close_user_session,
     get_user_session,
     load_all_users,
@@ -27,6 +29,8 @@ from services.ninova import get_user_courses, login_to_ninova
 
 from .helpers import admin_states, is_admin
 from .services import send_backup, show_logs, show_stats, show_user_details
+
+logger = logging.getLogger("ninova")
 
 
 @bot.callback_query_handler(
@@ -277,9 +281,20 @@ def handle_admin_callbacks(call):
             import time
 
             time.sleep(2)
+            try:
+                closed = cleanup_inactive_sessions(force=True)
+                logger.info(f"[restart] Closed {closed} sessions before execv")
+            except Exception as e:
+                logger.exception(f"[restart] Session cleanup failed: {e}")
+
             with contextlib.suppress(Exception):
                 bot.stop_polling()
+
+            with contextlib.suppress(Exception):
+                logging.shutdown()
+
             # os._exit(0) yerine execv ile yeniden başlat
+            logger.warning("[restart] Replacing process with os.execv")
             os.execv(sys.executable, [sys.executable, *sys.argv])
 
         threading.Thread(target=do_restart, daemon=True).start()

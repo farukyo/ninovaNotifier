@@ -3,6 +3,7 @@ Admin komutları.
 """
 
 import contextlib
+import logging
 import os
 import sys
 import threading
@@ -15,6 +16,7 @@ from bot.instance import get_check_callback
 from common.config import (
     HEADERS,
     USER_SESSIONS,
+    cleanup_inactive_sessions,
     load_all_users,
 )
 from common.utils import (
@@ -34,6 +36,8 @@ from .services import (
     show_stats,
     show_user_details,
 )
+
+logger = logging.getLogger("ninova")
 
 
 @bot.message_handler(func=lambda message: message.text == "👑 Admin")
@@ -174,9 +178,20 @@ def admin_restart_cmd(message):
         import time
 
         time.sleep(2)  # Mesajların gitmesini bekle
+        try:
+            closed = cleanup_inactive_sessions(force=True)
+            logger.info(f"[restart] Closed {closed} sessions before execv")
+        except Exception as e:
+            logger.exception(f"[restart] Session cleanup failed: {e}")
+
         with contextlib.suppress(Exception):
             bot.stop_polling()
+
+        with contextlib.suppress(Exception):
+            logging.shutdown()
+
         # os._exit(0) yerine execv ile yeniden başlat
+        logger.warning("[restart] Replacing process with os.execv")
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
     threading.Thread(target=do_restart, daemon=True).start()
