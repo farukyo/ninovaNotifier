@@ -56,6 +56,11 @@ logger = logging.getLogger("ninova")
 # Son kontrol zamanı (global) - Live display'de kullanılacak
 LAST_CHECK_DISPLAY_TIME = None
 
+# Terminal çıktı ayarları (gürültüyü azaltmak için)
+SHOW_VERBOSE_TERMINAL = False
+LIVE_REFRESH_PER_SECOND = 0.5
+LIVE_STATUS_UPDATE_EVERY_SECONDS = 10
+
 
 def show_users_table():
     """
@@ -722,12 +727,12 @@ def check_for_updates():
         encrypted_password = user_data.get("password")
 
         if not username or not encrypted_password:
-            console.print(f"[yellow]Kullanıcı bilgileri eksik ({chat_id}), pas geçiliyor.")
+            logger.warning(f"Kullanıcı bilgileri eksik ({chat_id}), pas geçiliyor.")
             continue
 
         password = decrypt_password(encrypted_password)
         if password is None:
-            console.print(f"[red]Şifre çözülemedi ({chat_id}), pas geçiliyor.")
+            logger.warning(f"Şifre çözülemedi ({chat_id}), pas geçiliyor.")
             send_telegram_message(
                 chat_id,
                 "⚠️ <b>Şifre Hatası</b>\n\nŞifreniz çözülemedi. Lütfen şifrenizi yeniden girin.",
@@ -735,7 +740,8 @@ def check_for_updates():
             )
             continue
 
-        console.print(f"[bold cyan]Kullanıcı kontrol ediliyor: {chat_id}")
+        if SHOW_VERBOSE_TERMINAL:
+            console.print(f"[bold cyan]Kullanıcı kontrol ediliyor: {chat_id}")
 
         # Get user session (managed by SessionManager)
         user_session = get_user_session(chat_id)
@@ -774,9 +780,7 @@ def check_for_updates():
                             all_current_grades[url] = grades
                     except LoginFailedError:
                         error_msg = "⚠️ <b>Giriş Başarısız!</b>\n\nNinova'ya giriş yapılamıyor (Oturum hatası). Kontrol şu an için durduruldu."
-                        console.print(
-                            f"[bold red]Oturum açma hatası ({chat_id})! Diğer dersler durduruluyor."
-                        )
+                        logger.error(f"Oturum açma hatası ({chat_id})! Diğer dersler durduruluyor.")
                         send_telegram_message(chat_id, error_msg, is_error=True)
                         stop_processing = True
                         # Diğerlerini iptal etmeye çalış
@@ -825,39 +829,41 @@ def check_for_updates():
 
         if all_changes:
             logger.info(f"Değişiklik tespit edildi: {chat_id} - {len(all_changes)} öğe")
-            console.print(
-                Panel(
-                    "\n".join(all_changes),
-                    title=f"[bold magenta]DEĞİŞİKLİK ({chat_id})",
-                    border_style="magenta",
+            if SHOW_VERBOSE_TERMINAL:
+                console.print(
+                    Panel(
+                        "\n".join(all_changes),
+                        title=f"[bold magenta]DEĞİŞİKLİK ({chat_id})",
+                        border_style="magenta",
+                    )
                 )
-            )
             for t_msg in telegram_messages:
                 send_telegram_message(chat_id, t_msg)
                 time.sleep(1)
 
             saved_grades[chat_id] = user_saved_grades
             save_grades(saved_grades)
-        else:
+        elif SHOW_VERBOSE_TERMINAL:
             console.print(f"[dim]Değişiklik yok ({chat_id})")
 
-    console.print("[italic white]Kontrol tamamlandı.")
+    logger.info("Kontrol tamamlandı.")
 
     # Kullanıcı verilerini kaydet (last_check güncellemeleri için)
     save_all_users(users)
-    console.print("[dim]Veriler kaydedildi.")
+    logger.info("Veriler kaydedildi.")
 
     # Değişiklikler tablosunu göster (eğer değişiklik varsa)
-    if changes_table.rows:
+    if SHOW_VERBOSE_TERMINAL and changes_table.rows:
         console.print()
         console.print(changes_table)
-    else:
-        console.print("[dim]Bu kontrol döneminde değişiklik yok.[/dim]")
 
-    # Güncellenmiş kullanıcı tablosunu göster
-    console.print()
-    show_users_table()
-    console.print("[green] Kontrol tamamlandı.")
+    changed_users = len({row.cells[0] for row in changes_table.rows}) if changes_table.rows else 0
+    summary = (
+        f"Kontrol özeti: {len(users)} kullanıcı tarandı, "
+        f"{len(changes_table.rows)} değişiklik, {changed_users} kullanıcı etkilendi"
+    )
+    console.print(f"[green]{summary}")
+    logger.info(summary)
 
     # Son kontrol zamanını güncelle (Live display'de kullanmak için)
     global LAST_CHECK_DISPLAY_TIME
@@ -879,9 +885,9 @@ if __name__ == "__main__":
         )
     )
 
-    # Kullanıcı tablosunu göster
+    # Başlangıçta bir kez kullanıcı tablosunu göster
     show_users_table()
-    console.print()  # Boş satır
+    console.print()
 
     if bot:
         try:
@@ -909,9 +915,9 @@ if __name__ == "__main__":
             current_wait = CHECK_INTERVAL + random.randint(-30, 30)
             # Bekleme sırasında Live display
             users_count = len(load_all_users())  # Disk I/O'yu 1 kere yap
-            with Live(console=console, refresh_per_second=1) as live:
+            with Live(console=console, refresh_per_second=LIVE_REFRESH_PER_SECOND) as live:
                 for i in range(current_wait):
-                    if i % 5 == 0:  # Her 5 saniyede güncelle
+                    if i % LIVE_STATUS_UPDATE_EVERY_SECONDS == 0:
                         status = "⏳ Sonraki kontrol bekleniyor...\n"
                         status += f"📊 Kullanıcı sayısı: {users_count}\n"
                         status += f"⏰ Kalan süre: {current_wait - i} saniye\n"
