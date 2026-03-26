@@ -51,6 +51,7 @@ from .grade_commands import (
     list_grades,
     manual_check,
 )
+from .rehber_commands import handle_rehber_start
 
 __all__ = [
     "auto_add_courses",
@@ -60,6 +61,7 @@ __all__ = [
     "discover_events",
     "handle_cafeteria_refresh",
     "handle_cancel_button",
+    "handle_rehber_start",
     # Course
     "interactive_menu",
     "interactive_menu",
@@ -91,3 +93,5 @@ __all__ = [
     "subscribe_menu",
     "toggle_daily_bulletin",
 ]
+
+# Loading rehber handlers

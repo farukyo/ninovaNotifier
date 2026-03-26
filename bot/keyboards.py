@@ -11,8 +11,9 @@ def build_main_keyboard():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("📊 Notlar", "📅 Ödevler", "📖 Dersler")
     kb.row("🤖 Oto Ders", "🔄 Kontrol", "📆 Akademik Takvim")
-    kb.row("🐝 Arı24", "🔍 Ara", "🍽 Yemekhane")
+    kb.row("🐝 Arı24", "📞 İTÜ Rehber", "🍽 Yemekhane")
     kb.row("📋 Durum", "❓ Yardım", "👤 Kullanıcı")
+    kb.row("🔍 Ara")
 
     return kb
 
@@ -60,4 +61,18 @@ def build_cancel_keyboard():
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     kb.add("⛔ İptal")
+    return kb
+
+
+def build_rehber_ad_keyboard():
+    """İTÜ Rehber araması için İsim giriş menüsü oluşturur."""
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    kb.row("Bilinmiyor", "⛔ İptal")
+    return kb
+
+
+def build_rehber_soyad_keyboard():
+    """İTÜ Rehber araması için Soyisim giriş menüsü oluşturur."""
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    kb.row("Bilinmiyor", "⛔ İptal")
     return kb
