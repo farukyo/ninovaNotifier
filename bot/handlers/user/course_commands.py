@@ -60,22 +60,31 @@ def auto_add_courses(message):
     Ninova'ya bağlanarak kullanıcının tüm derslerini otomatik olarak bulur ve ekler.
     """
     chat_id = str(message.chat.id)
-    request_id = new_user_request_id("otd")
+    start_msg = "⏳ Ninova'ya giriş yapılıyor ve dersleriniz taranıyor..."
+    trigger_auto_add_courses(
+        chat_id, request_id=new_user_request_id("otd"), start_message=start_msg
+    )
+
+
+def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_message: str = ""):
+    """Start auto-add flow for a user and optionally send a starter message."""
+    request_id = request_id or new_user_request_id("otd")
     user_info = load_user_profile(chat_id)
     username = user_info.get("username")
     password = decrypt_password(user_info.get("password", ""))
 
     if not username or not password:
         log_user_action(chat_id, "otoders", status="missing_credentials", request_id=request_id)
-        bot.reply_to(
-            message,
-            "❌ Kullanıcı adı veya şifre eksik! Lütfen önce 👤 Kullanıcı Adı ve 🔐 Şifre butonları ile ayarlarınızı yapın.",
+        bot.send_message(
+            chat_id,
+            "❌ Kullanıcı adı veya şifre eksik! Lütfen önce 👤 Kullanıcı menüsünden giriş yapın.",
         )
         return
 
     logger.info(f"Oto Ders başlatıldı - Chat ID: {chat_id}, Kullanıcı Adı: {username}")
     log_user_action(chat_id, "otoders", status="started", request_id=request_id)
-    bot.reply_to(message, "⏳ Ninova'ya giriş yapılıyor ve dersleriniz taranıyor...")
+    if start_message:
+        bot.send_message(chat_id, start_message)
 
     def run_auto_add():
         try:

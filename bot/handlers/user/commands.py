@@ -21,10 +21,9 @@ from .ari24_commands import (
     toggle_daily_bulletin,
 )
 from .auth_commands import (
-    process_password,
-    process_username,
-    set_password,
-    set_username,
+    process_login_password,
+    process_login_username,
+    start_login_flow,
 )
 from .cafeteria_commands import (
     handle_cafeteria_refresh,
@@ -42,6 +41,7 @@ from .general_commands import (
     send_help_button,
     send_welcome,
     show_academic_calendar,
+    show_extra_menu,
     show_faq,
     show_status,
 )
@@ -62,34 +62,26 @@ __all__ = [
     "handle_cafeteria_refresh",
     "handle_cancel_button",
     "handle_rehber_start",
-    # Course
-    "interactive_menu",
     "interactive_menu",
     "kontrol_command_handler",
     "leave_system",
     "list_assignments",
-    # Grade
     "list_grades",
     "manual_check",
     "my_clubs",
-    "process_password",
+    "process_login_password",
+    "process_login_username",
     "process_search_term",
-    "process_username",
     "search_announcements",
-    # Cafeteria
     "send_cafeteria_menu",
     "send_help_button",
-    "send_help_button",
-    # General
     "send_welcome",
-    "set_password",
-    # Auth
-    "set_username",
     "show_academic_calendar",
-    # Arı24
     "show_ari24_menu",
+    "show_extra_menu",
     "show_faq",
     "show_status",
+    "start_login_flow",
     "subscribe_menu",
     "toggle_daily_bulletin",
 ]

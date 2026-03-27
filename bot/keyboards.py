@@ -10,10 +10,9 @@ def build_main_keyboard():
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("📊 Notlar", "📅 Ödevler", "📖 Dersler")
-    kb.row("🤖 Oto Ders", "🔄 Kontrol", "📆 Akademik Takvim")
-    kb.row("🐝 Arı24", "📞 İTÜ Rehber", "🍽 Yemekhane")
-    kb.row("📋 Durum", "❓ Yardım", "👤 Kullanıcı")
-    kb.row("🔍 Ara")
+    kb.row("🔄 Kontrol", "📆 Akademik Takvim", "✨ Ekstra")
+    kb.row("🐝 Arı24", "📞 İTÜ Rehber")
+    kb.row("👤 Kullanıcı", "🔍 Ara")
 
     return kb
 
@@ -23,7 +22,7 @@ def build_user_menu_keyboard():
     Kullanıcı ayarları alt menüsü için klavye oluşturur.
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("👤 Kullanıcı Adı", "🔐 Şifre")
+    kb.row("🔐 Giriş Yap")
     kb.row("👑 Admin", "🚪 Ayrıl")
     kb.row("🔙 Geri")
     return kb
@@ -34,8 +33,8 @@ def build_extra_features_keyboard():
     Ek özellikler alt menüsü için klavye oluşturur.
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("🐝 Arı24")
-    # Gelecekte buraya yeni özellikler eklenecek
+    kb.row("🤖 Oto Ders", "📋 Durum")
+    kb.row("❓ Yardım", "🍽 Yemekhane")
     kb.row("🔙 Geri")
     return kb
 

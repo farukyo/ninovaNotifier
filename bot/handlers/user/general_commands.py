@@ -13,6 +13,7 @@ from bot.instance import START_TIME
 from bot.instance import bot_instance as bot
 from bot.keyboards import (
     build_cancel_keyboard,
+    build_extra_features_keyboard,
     build_main_keyboard,
     build_user_menu_keyboard,
 )
@@ -51,6 +52,16 @@ def show_user_menu(message):
     )
 
 
+@bot.message_handler(func=lambda message: message.text == "✨ Ekstra")
+def show_extra_menu(message):
+    """Ekstra özellikler alt menüsünü gösterir."""
+    bot.send_message(
+        message.chat.id,
+        "✨ Ekstra Menüsü:",
+        reply_markup=build_extra_features_keyboard(),
+    )
+
+
 @bot.message_handler(commands=["start", "help"])
 def send_welcome(message):
     """
@@ -73,8 +84,8 @@ def send_welcome(message):
         "🚀 <b>Başlarken:</b>\n"
         "1. Aşağıdaki 'Sıkça Sorulan Sorular' butonuna tıklayarak aklınızdaki soruları giderin.\n"
         "2. 'Kaynak Kodu' butonundan GitHub'da kodlarımı inceleyin.\n"
-        "3. Hazır hissettiğinizde '👤 Kullanıcı' menüsünden itü kullanıcı adı ve şifrenizi girerek giriş yapın.\n"
-        "4. '🤖 Otoders' ile derslerinizi senkronize edin ve tüm güzel özellikleri keşfedin!\n"
+        "3. Hazır hissettiğinizde '👤 Kullanıcı' menüsünden '🔐 Giriş Yap' ile giriş yapın.\n"
+        "4. Giriş sonrası Oto Ders otomatik başlar; ayrıca '✨ Ekstra' menüsünden özelliklere erişebilirsiniz.\n"
     )
 
     # Inline Keyboard for Trust

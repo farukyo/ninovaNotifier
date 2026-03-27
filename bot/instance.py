@@ -2,12 +2,38 @@ import logging
 from datetime import datetime
 
 import telebot
+from telebot import apihelper
 
 from common.config import TELEGRAM_TOKEN
 
 logger = logging.getLogger("ninova")
 
-bot_instance = telebot.TeleBot(TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
+
+class _BotExceptionHandler(telebot.ExceptionHandler):
+    """Catch handler exceptions so transient network issues don't stop polling."""
+
+    def handle(self, exception):
+        logger.warning(f"TeleBot handler exception captured: {type(exception).__name__}: {exception}")
+        logger.debug("TeleBot handler traceback", exc_info=True)
+        return True
+
+
+# Telegram API retry settings for transient network errors.
+apihelper.RETRY_ON_ERROR = True
+apihelper.MAX_RETRIES = 3
+apihelper.RETRY_TIMEOUT = 2
+# Explicit request timeouts for Telegram API calls.
+apihelper.connect_timeout = 10
+apihelper.read_timeout = 30
+# Keep upper-case aliases for compatibility with different pytelegrambotapi versions.
+apihelper.CONNECT_TIMEOUT = 10
+apihelper.READ_TIMEOUT = 30
+
+bot_instance = (
+    telebot.TeleBot(TELEGRAM_TOKEN, exception_handler=_BotExceptionHandler())
+    if TELEGRAM_TOKEN
+    else None
+)
 START_TIME = datetime.now()
 LAST_CHECK_TIME = None
 _check_callback = None

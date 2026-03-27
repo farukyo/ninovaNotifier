@@ -9,25 +9,25 @@ from common.config import get_user_session
 from common.utils import update_user_data
 from services.ninova import get_user_courses, login_to_ninova
 
-from .data_helpers import load_user_profile
+from .course_commands import trigger_auto_add_courses
 
 logger = logging.getLogger("ninova")
 
 
-@bot.message_handler(func=lambda message: message.text == "👤 Kullanıcı Adı")
-def set_username(message):
+@bot.message_handler(func=lambda message: message.text == "🔐 Giriş Yap")
+def start_login_flow(message):
     """
-    Kullanıcıdan yeni bir mesaj olarak kullanıcı adını ister.
+    Kullanıcıdan sırayla kullanıcı adı ve şifreyi alır.
     """
     prompt = bot.send_message(
         message.chat.id,
         "✏️ Lütfen kullanıcı adınızı yazın:",
         reply_markup=build_cancel_keyboard(),
     )
-    bot.register_next_step_handler(prompt, process_username)
+    bot.register_next_step_handler(prompt, process_login_username)
 
 
-def process_username(message):
+def process_login_username(message):
     chat_id = message.chat.id
     if is_cancel_text(message.text):
         bot.send_message(chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard())
@@ -38,30 +38,15 @@ def process_username(message):
         bot.send_message(chat_id, "❌ Geçerli bir kullanıcı adı girmediniz.")
         return
 
-    update_user_data(chat_id, "username", username)
-    logger.info(f"Kullanıcı adı güncellendi - Chat ID: {chat_id}, Kullanıcı Adı: {username}")
-    bot.send_message(
-        chat_id,
-        f"✅ Kullanıcı adı kaydedildi: <code>{username}</code>",
-        parse_mode="HTML",
-        reply_markup=build_main_keyboard(),
-    )
-
-
-@bot.message_handler(func=lambda message: message.text == "🔐 Şifre")
-def set_password(message):
-    """
-    Kullanıcıdan yeni bir mesaj olarak şifreyi ister.
-    """
     prompt = bot.send_message(
-        message.chat.id,
+        chat_id,
         "🔒 Lütfen şifrenizi yazın (gönderdiğiniz mesaj otomatik silinecek):",
         reply_markup=build_cancel_keyboard(),
     )
-    bot.register_next_step_handler(prompt, process_password)
+    bot.register_next_step_handler(prompt, lambda msg: process_login_password(msg, username))
 
 
-def process_password(message):
+def process_login_password(message, username):
     chat_id = message.chat.id
     if is_cancel_text(message.text):
         bot.send_message(chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard())
@@ -78,16 +63,7 @@ def process_password(message):
         logger.debug(f"[{chat_id}] Could not delete password message: {e}")
 
     chat_id_str = str(chat_id)
-    user_info = load_user_profile(chat_id_str)
-    username = (user_info.get("username") or "").strip()
-
-    if not username:
-        bot.send_message(
-            chat_id,
-            "❌ Önce kullanıcı adınızı girin: 👤 Kullanıcı Adı",
-            reply_markup=build_main_keyboard(),
-        )
-        return
+    username = (username or "").strip()
 
     checking_msg = bot.send_message(chat_id, "⏳ Giriş bilgileri doğrulanıyor...")
     user_session = get_user_session(chat_id_str)
@@ -109,11 +85,17 @@ def process_password(message):
         )
         return
 
+    update_user_data(chat_id, "username", username)
     update_user_data(chat_id, "password", password)
-    logger.info(f"Şifre güncellendi ve doğrulandı - Chat ID: {chat_id}")
+    logger.info(f"Kimlik bilgileri güncellendi ve doğrulandı - Chat ID: {chat_id}")
 
     bot.send_message(
         chat_id,
-        "✅ Giriş başarılı. Şifreniz güvenli bir şekilde kaydedildi.",
+        "✅ Giriş başarılı. Bilgileriniz güvenli şekilde kaydedildi.\n🤖 Oto Ders otomatik başlatılıyor...",
         reply_markup=build_main_keyboard(),
+    )
+
+    trigger_auto_add_courses(
+        chat_id_str,
+        start_message="⏳ Oto Ders başlatıldı: dersleriniz otomatik olarak senkronize ediliyor...",
     )

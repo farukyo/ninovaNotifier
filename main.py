@@ -63,6 +63,9 @@ LAST_CHECK_DISPLAY_TIME = None
 SHOW_VERBOSE_TERMINAL = False
 LIVE_REFRESH_PER_SECOND = 0.5
 LIVE_STATUS_UPDATE_EVERY_SECONDS = 10
+POLLING_TIMEOUT_SECONDS = 20
+POLLING_LONG_TIMEOUT_SECONDS = 20
+POLLING_LOG_LEVEL = logging.WARNING
 SHUTDOWN_EVENT = threading.Event()
 POLLING_THREAD: threading.Thread | None = None
 _SHUTDOWN_LOCK = threading.Lock()
@@ -113,6 +116,22 @@ def graceful_shutdown(reason: str) -> None:
         sync_cache_to_disk()
     except Exception as e:
         logger.exception(f"Shutdown cache sync failed: {e}")
+
+
+def _start_polling_thread() -> None:
+    """Start Telegram polling in a daemon thread with resilient defaults."""
+    global POLLING_THREAD
+    POLLING_THREAD = threading.Thread(
+        target=bot.infinity_polling,
+        kwargs={
+            "skip_pending": True,
+            "timeout": POLLING_TIMEOUT_SECONDS,
+            "long_polling_timeout": POLLING_LONG_TIMEOUT_SECONDS,
+            "logger_level": POLLING_LOG_LEVEL,
+        },
+        daemon=True,
+    )
+    POLLING_THREAD.start()
 
 
 def show_users_table():
@@ -1013,14 +1032,7 @@ if __name__ == "__main__":
         except Exception as e:
             logger.exception(f"Webhook temizleme hatası: {e}")
 
-        # infinity_polling kendi içinde hata yönetimi yapar.
-        # logger_level parametresi ile log kirliliğini azaltabiliriz.
-        POLLING_THREAD = threading.Thread(
-            target=bot.infinity_polling,
-            kwargs={"skip_pending": True, "timeout": 20},
-            daemon=True,
-        )
-        POLLING_THREAD.start()
+        _start_polling_thread()
         logger.info("[Bot] Telegram komut dinleyicisi başlatıldı.")
 
     try:
@@ -1029,6 +1041,10 @@ if __name__ == "__main__":
         checks_until_cleanup = SESSION_CLEANUP_INTERVAL // CHECK_INTERVAL
 
         while not SHUTDOWN_EVENT.is_set():
+            if bot and (POLLING_THREAD is None or not POLLING_THREAD.is_alive()):
+                logger.warning("[Bot] Polling thread durmuş, yeniden başlatılıyor...")
+                _start_polling_thread()
+
             current_wait = CHECK_INTERVAL + random.randint(-30, 30)
             # Bekleme sırasında Live display
             users_count = len(load_all_users())  # Disk I/O'yu 1 kere yap
