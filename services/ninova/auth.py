@@ -1,7 +1,9 @@
 import logging
+import os
 import threading
 import time
 
+import requests
 from bs4 import BeautifulSoup
 from plyer import notification
 
@@ -10,7 +12,6 @@ from common.config import (
     RETRY_BACKOFF_BASE,
     RETRY_BACKOFF_MAX,
 )
-from common.utils import send_telegram_message
 
 logger = logging.getLogger("ninova")
 
@@ -92,22 +93,25 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
 
                 if not quiet:
                     logger.info(f"[{chat_id}] Login successful")
-                    msg = "🔑 <b>Yeni Oturum Açıldı</b>\n\nNinova oturumu başarıyla açıldı."
-                    send_telegram_message(chat_id, msg)
 
-                    try:
-                        notification.notify(
-                            title="Ninova Takip",
-                            message=f"Oturum açıldı ({chat_id})",
-                            app_name="Ninova Takip",
-                            timeout=5,
-                        )
-                    except (OSError, RuntimeError, NotImplementedError) as e:
-                        logger.debug(f"[{chat_id}] Desktop notification skipped: {e}")
+                    # Headless Linux sunucularda desktop notification denemesi DBus hatası üretir.
+                    has_desktop_session = bool(
+                        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+                    )
+                    if has_desktop_session:
+                        try:
+                            notification.notify(
+                                title="Ninova Takip",
+                                message=f"Oturum açıldı ({chat_id})",
+                                app_name="Ninova Takip",
+                                timeout=5,
+                            )
+                        except Exception as e:
+                            logger.debug(f"[{chat_id}] Desktop notification skipped: {e}")
 
                 return True
 
-            except (TimeoutError, ConnectionError) as e:
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 # Network error - retry with backoff
                 if attempt < MAX_LOGIN_RETRIES:
                     backoff = min(RETRY_BACKOFF_BASE**attempt, RETRY_BACKOFF_MAX)

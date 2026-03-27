@@ -172,7 +172,7 @@ def admin_restart_cmd(message):
     """
     Botu yeniden başlatır.
 
-    Tüm kullanıcılara bildirim gönderir ve sistemi yeniden başlatır.
+    Sistemi yeniden başlatır.
 
     :param message: Admin'den gelen /restart komutu
     """
@@ -180,17 +180,7 @@ def admin_restart_cmd(message):
         return
 
     request_id = new_admin_request_id("cmd")
-    # Tüm kullanıcılara bildir
     log_admin_action(str(message.chat.id), "restart", status="started", request_id=request_id)
-    users_dict = load_admin_users()
-    for uid in users_dict:
-        try:
-            bot.send_message(
-                uid,
-                "🔄 Sistem güncellendi ve yeniden başlatılıyor... Lütfen bekleyiniz.",
-            )
-        except Exception as e:
-            logger.debug(f"[restart] Could not notify user {uid}: {e}")
 
     bot.reply_to(message, "🔄 Bot yeniden başlatılıyor...")
 

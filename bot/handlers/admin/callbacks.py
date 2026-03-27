@@ -325,17 +325,6 @@ def handle_admin_callbacks(call):
 
     elif action == "restart":
         log_admin_action(chat_id, "restart", status="started", request_id=request_id)
-        # Tüm kullanıcılara bildir
-        users_dict = load_admin_users()
-        for uid in users_dict:
-            try:
-                bot.send_message(
-                    uid,
-                    "🔄 Sistem güncellendi ve yeniden başlatılıyor... Lütfen bekleyiniz.",
-                )
-            except Exception as e:
-                logger.debug(f"[restart] Could not notify user {uid}: {e}")
-
         bot.send_message(chat_id, "🔄 Bot yeniden başlatılıyor...")
 
         def do_restart():
