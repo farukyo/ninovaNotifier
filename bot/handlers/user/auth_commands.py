@@ -5,7 +5,11 @@ import logging
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text
+from common.config import get_user_session
 from common.utils import update_user_data
+from services.ninova import get_user_courses, login_to_ninova
+
+from .data_helpers import load_user_profile
 
 logger = logging.getLogger("ninova")
 
@@ -68,15 +72,48 @@ def process_password(message):
         bot.send_message(chat_id, "❌ Geçerli bir şifre girmediniz.")
         return
 
-    update_user_data(chat_id, "password", password)
-    logger.info(f"Şifre güncellendi - Chat ID: {chat_id}")
     try:
         bot.delete_message(chat_id, message.message_id)
     except Exception as e:
         logger.debug(f"[{chat_id}] Could not delete password message: {e}")
 
+    chat_id_str = str(chat_id)
+    user_info = load_user_profile(chat_id_str)
+    username = (user_info.get("username") or "").strip()
+
+    if not username:
+        bot.send_message(
+            chat_id,
+            "❌ Önce kullanıcı adınızı girin: 👤 Kullanıcı Adı",
+            reply_markup=build_main_keyboard(),
+        )
+        return
+
+    checking_msg = bot.send_message(chat_id, "⏳ Giriş bilgileri doğrulanıyor...")
+    user_session = get_user_session(chat_id_str)
+
+    login_ok = login_to_ninova(user_session, chat_id_str, username, password, quiet=True)
+    courses = get_user_courses(user_session) if login_ok else []
+
+    try:
+        bot.delete_message(chat_id, checking_msg.message_id)
+    except Exception as e:
+        logger.debug(f"[{chat_id}] Could not delete checking message: {e}")
+
+    if not login_ok or not courses:
+        logger.warning(f"Kimlik doğrulama başarısız - Chat ID: {chat_id}")
+        bot.send_message(
+            chat_id,
+            "❌ Kullanıcı adı veya şifre hatalı. Lütfen bilgilerinizi kontrol edip tekrar deneyin.",
+            reply_markup=build_main_keyboard(),
+        )
+        return
+
+    update_user_data(chat_id, "password", password)
+    logger.info(f"Şifre güncellendi ve doğrulandı - Chat ID: {chat_id}")
+
     bot.send_message(
         chat_id,
-        "✅ Şifreniz güvenli bir şekilde kaydedildi.",
+        "✅ Giriş başarılı. Şifreniz güvenli bir şekilde kaydedildi.",
         reply_markup=build_main_keyboard(),
     )

@@ -817,6 +817,8 @@ def check_for_updates():
 
     users = load_all_users()
     saved_grades = load_saved_grades()
+    changed_usernames = set()
+    total_changes_count = 0
 
     for chat_id, user_data in users.items():
         # Son kontrol zamanını güncelle
@@ -931,6 +933,8 @@ def check_for_updates():
 
         if all_changes:
             logger.info(f"Değişiklik tespit edildi: {chat_id} - {len(all_changes)} öğe")
+            changed_usernames.add(username or str(chat_id))
+            total_changes_count += len(all_changes)
             if SHOW_VERBOSE_TERMINAL:
                 console.print(
                     Panel(
@@ -959,10 +963,10 @@ def check_for_updates():
         console.print()
         console.print(changes_table)
 
-    changed_users = len({row.cells[0] for row in changes_table.rows}) if changes_table.rows else 0
+    changed_users = len(changed_usernames)
     summary = (
         f"Kontrol özeti: {len(users)} kullanıcı tarandı, "
-        f"{len(changes_table.rows)} değişiklik, {changed_users} kullanıcı etkilendi"
+        f"{total_changes_count} değişiklik, {changed_users} kullanıcı etkilendi"
     )
     emit_terminal_and_log(summary, level="info")
 

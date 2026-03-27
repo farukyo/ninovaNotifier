@@ -36,7 +36,7 @@ def get_announcements(session, base_url):
     try:
         response = session.get(url, timeout=15)
         if response.status_code != 200:
-            return []
+            return None
         soup = BeautifulSoup(response.text, "html.parser")
         announcements = []
 
@@ -95,7 +95,7 @@ def get_announcements(session, base_url):
     except Exception as e:
         logger.error(f"Duyuru çekme hatası: {e}")
         console.print(f"[bold red]Duyuru çekme hatası: {e}")
-        return []
+        return None
 
 
 def get_announcement_detail(session, url):
@@ -243,7 +243,7 @@ def get_assignments(session, base_url):
     try:
         response = session.get(url, timeout=15)
         if response.status_code != 200:
-            return []
+            return None
         soup = BeautifulSoup(response.text, "html.parser")
         assignments = []
 
@@ -392,7 +392,7 @@ def get_assignments(session, base_url):
     except Exception as e:
         logger.error(f"Ödev çekme hatası: {e}")
         console.print(f"[bold red]Ödev çekme hatası: {e}")
-        return []
+        return None
 
 
 def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type="SinifDosyalari"):
@@ -417,7 +417,7 @@ def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type
     try:
         response = session.get(url, timeout=15)
         if response.status_code != 200:
-            return []
+            return None
         soup = BeautifulSoup(response.text, "html.parser")
 
         # dosyaSistemi div içindeki table'ı bul
@@ -476,6 +476,8 @@ def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type
                         folder_prefix=f"{folder_prefix}{file_name}/",
                         file_type=file_type,
                     )
+                    if sub_files is None:
+                        return None
                     files.extend(sub_files)
                 else:
                     # Dosya bilgisini ekle
@@ -495,7 +497,7 @@ def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type
     except Exception as e:
         logger.error(f"Dosya listesi çekme hatası: {e}")
         console.print(f"[bold red]Dosya listesi çekme hatası: {e}")
-        return []
+        return None
 
 
 def get_all_files(session, base_url):
@@ -504,12 +506,16 @@ def get_all_files(session, base_url):
 
     # Sınıf dosyaları
     sinif_files = get_class_files(session, base_url, file_type="SinifDosyalari")
+    if sinif_files is None:
+        return None
     for f in sinif_files:
         f["source"] = "Sınıf"
     all_files.extend(sinif_files)
 
     # Ders dosyaları
     ders_files = get_class_files(session, base_url, file_type="DersDosyalari")
+    if ders_files is None:
+        return None
     for f in ders_files:
         f["source"] = "Ders"
     all_files.extend(ders_files)
@@ -775,9 +781,24 @@ def get_grades(session, base_url, chat_id, username, password):
                     }
 
         # Base URL ile diğer verileri çek
-        grades_data["assignments"] = get_assignments(session, base_url)
-        grades_data["files"] = get_all_files(session, base_url)
-        grades_data["announcements"] = get_announcements(session, base_url)
+        assignments = get_assignments(session, base_url)
+        if assignments is None:
+            grades_data["fetch_success"] = False
+            assignments = []
+
+        files = get_all_files(session, base_url)
+        if files is None:
+            grades_data["fetch_success"] = False
+            files = []
+
+        announcements = get_announcements(session, base_url)
+        if announcements is None:
+            grades_data["fetch_success"] = False
+            announcements = []
+
+        grades_data["assignments"] = assignments
+        grades_data["files"] = files
+        grades_data["announcements"] = announcements
         return grades_data
     except LoginFailedError:
         raise
