@@ -1,11 +1,9 @@
 import logging
-import os
 import threading
 import time
 
 import requests
 from bs4 import BeautifulSoup
-from plyer import notification
 
 from common.config import (
     MAX_LOGIN_RETRIES,
@@ -93,21 +91,6 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
 
                 if not quiet:
                     logger.info(f"[{chat_id}] Login successful")
-
-                    # Headless Linux sunucularda desktop notification denemesi DBus hatası üretir.
-                    has_desktop_session = bool(
-                        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
-                    )
-                    if has_desktop_session:
-                        try:
-                            notification.notify(
-                                title="Ninova Takip",
-                                message=f"Oturum açıldı ({chat_id})",
-                                app_name="Ninova Takip",
-                                timeout=5,
-                            )
-                        except Exception as e:
-                            logger.debug(f"[{chat_id}] Desktop notification skipped: {e}")
 
                 return True
 
