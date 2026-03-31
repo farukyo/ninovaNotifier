@@ -9,7 +9,6 @@ on:
         default: patch
         type: choice
         options:
-          - patch
           - minor
           - major
       version:
@@ -38,9 +37,9 @@ jobs:
         id: version
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            NEW_VERSION=$(python scripts/bump_version.py --set-version "${{ github.event.inputs.version }}" --write)
+            NEW_VERSION=$(uv run python scripts/bump_version.py --set-version "${{ github.event.inputs.version }}" --write)
           else
-            NEW_VERSION=$(python scripts/bump_version.py --bump "${{ github.event.inputs.bump }}" --write)
+            NEW_VERSION=$(uv run python scripts/bump_version.py --bump "${{ github.event.inputs.bump }}" --write)
           fi
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
