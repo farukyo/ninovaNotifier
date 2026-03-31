@@ -88,7 +88,6 @@ def admin_panel(message):
     )
 
 
-
 def admin_broadcast_cmd(message):
     """
     Tüm kullanıcılara duyuru gönderir.
