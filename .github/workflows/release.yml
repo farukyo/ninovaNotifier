@@ -15,6 +15,10 @@ on:
         description: "Optional exact version override (e.g. 0.3.0)"
         required: false
         type: string
+      release_notes:
+        description: "Kullanıcıya gönderilecek changelog (boş bırakırsan varsayılan mesaj gider)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -69,5 +73,6 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
+          body: ${{ github.event.inputs.release_notes }}
           generate_release_notes: true
 

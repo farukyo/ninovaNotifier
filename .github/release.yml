@@ -1,0 +1,21 @@
+changelog:
+  # exclude:
+  #   labels:
+  #     - skip-changelog
+  categories:
+    - title: "🚀 Yeni Özellikler"
+      labels:
+        - enhancement
+        - feature
+    - title: "🐛 Hata Düzeltmeleri"
+      labels:
+        - bug
+        - fix
+    - title: "🔧 Bakım & Altyapı"
+      labels:
+        - chore
+        - ci
+        - dependencies
+    - title: "📝 Diğer Değişiklikler"
+      labels:
+        - "*"
