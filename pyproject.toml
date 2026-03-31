@@ -1,6 +1,6 @@
 [project]
 name = "ninovanotifier"
-version = "1.0.4"
+version = "1.1.0"
 description = "Telegram bot that notifies about new grades on ninova"
 readme = "README.md"
 requires-python = ">=3.12"
