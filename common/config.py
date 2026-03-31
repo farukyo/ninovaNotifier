@@ -216,6 +216,6 @@ CACHE_FILE_TTL = 7 * 24 * 3600  # 7 gün
 CACHE_MAX_ENTRIES = 10000
 
 # Retry Mekanizması
-MAX_LOGIN_RETRIES = 3
+MAX_LOGIN_RETRIES = 5  # Sunucu yavaşlığına karşı daha fazla deneme
 RETRY_BACKOFF_BASE = 2  # exponential backoff için base
-RETRY_BACKOFF_MAX = 30  # max backoff (saniye)
+RETRY_BACKOFF_MAX = 60  # max backoff (saniye) - 30'dan 60'a çıkardık

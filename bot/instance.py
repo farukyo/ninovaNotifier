@@ -13,8 +13,10 @@ class _BotExceptionHandler(telebot.ExceptionHandler):
     """Catch handler exceptions so transient network issues don't stop polling."""
 
     def handle(self, exception):
-        logger.warning(f"TeleBot handler exception captured: {type(exception).__name__}: {exception}")
-        logger.debug("TeleBot handler traceback", exc_info=True)
+        logger.warning(
+            f"TeleBot handler exception captured: {type(exception).__name__}: {exception}"
+        )
+        logger.debug("TeleBot handler traceback")
         return True
 
 

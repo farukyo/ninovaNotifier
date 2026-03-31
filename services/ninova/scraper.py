@@ -34,7 +34,7 @@ def get_announcements(session, base_url):
     """
     url = f"{base_url}/Duyurular"
     try:
-        response = session.get(url, timeout=15)
+        response = session.get(url, timeout=20)
         if response.status_code != 200:
             return None
         soup = BeautifulSoup(response.text, "html.parser")
@@ -114,7 +114,7 @@ def get_announcement_detail(session, url):
     </div>
     """
     try:
-        response = session.get(url, timeout=15)
+        response = session.get(url, timeout=20)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -164,7 +164,7 @@ def get_assignment_detail(session, url):
     - Teslim edilmemiş: href içinde "OdevGonder" veya "Ödevi Yükle" butonu
     """
     try:
-        response = session.get(url, timeout=15)
+        response = session.get(url, timeout=20)
         if response.status_code != 200:
             return None
 
@@ -241,7 +241,7 @@ def get_assignments(session, base_url):
     """
     url = f"{base_url}/Odevler"
     try:
-        response = session.get(url, timeout=15)
+        response = session.get(url, timeout=20)
         if response.status_code != 200:
             return None
         soup = BeautifulSoup(response.text, "html.parser")
@@ -415,7 +415,7 @@ def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type
     url = sub_url or f"{base_url}/{file_type}"
 
     try:
-        response = session.get(url, timeout=15)
+        response = session.get(url, timeout=20)
         if response.status_code != 200:
             return None
         soup = BeautifulSoup(response.text, "html.parser")
@@ -543,7 +543,7 @@ def get_user_courses(session):
     try:
         # Kampus sayfasına git (Kampus1'e redirect oluyor)
         # NOT: timestamp eklemeyin, 404 veriyor!
-        resp = session.get("https://ninova.itu.edu.tr/Kampus", timeout=15, allow_redirects=True)
+        resp = session.get("https://ninova.itu.edu.tr/Kampus", timeout=20, allow_redirects=True)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         tree_div = soup.find("div", {"class": "menuErisimAgaci"})
@@ -642,15 +642,22 @@ def get_grades(session, base_url, chat_id, username, password):
     """
     url = f"{base_url}/Notlar"
     try:
-        response = session.get(url, timeout=15, allow_redirects=False)
+        response = session.get(url, timeout=20, allow_redirects=False)
         if response.status_code == 302:
             console.print(f"[cyan]Oturum yenileniyor... ({chat_id})")
-            if login_to_ninova(session, chat_id, username, password, quiet=True):
-                response = session.get(url, timeout=15, allow_redirects=False)
-                if response.status_code == 302:
-                    raise LoginFailedError("Giriş başarısız.")
-            else:
-                raise LoginFailedError("Giriş başarısız.")
+            try:
+                if login_to_ninova(session, chat_id, username, password, quiet=True):
+                    response = session.get(url, timeout=20, allow_redirects=False)
+                    if response.status_code == 302:
+                        raise LoginFailedError(
+                            "SESSION_ERROR",
+                            "Oturum yenilendikten sonra hala giriş yapılamadı",
+                            username=username,
+                            chat_id=chat_id,
+                        )
+            except LoginFailedError:
+                # Already raised with proper type from auth module
+                raise
 
         if response.status_code != 200:
             return None
@@ -820,7 +827,7 @@ def get_class_info(session, class_url):
 
     url = f"{class_url}/SinifBilgileri"
     try:
-        response = session.get(url, timeout=15)
+        response = session.get(url, timeout=20)
         if response.status_code != 200:
             return {}
 

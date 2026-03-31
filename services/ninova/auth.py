@@ -25,7 +25,21 @@ def get_user_lock(chat_id):
 
 
 class LoginFailedError(Exception):
-    pass
+    """
+    Login hatası exception'ı.
+
+    :param error_type: 'INVALID_CREDENTIALS', 'NETWORK_TIMEOUT', 'SESSION_ERROR', 'UNKNOWN'
+    :param message: Hata mesajı
+    :param username: Giriş yapmaya çalışan kullanıcı adı
+    :param chat_id: Telegram chat ID
+    """
+
+    def __init__(self, error_type, message, username=None, chat_id=None):
+        self.error_type = error_type
+        self.message = message
+        self.username = username
+        self.chat_id = chat_id
+        super().__init__(message)
 
 
 def login_to_ninova(session, chat_id, username, password, quiet=False):
@@ -33,19 +47,25 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
     Belirli bir kullanıcı için Ninova'ya giriş yapar (exponential backoff retry ile).
 
     Oturum zaten aktifse tekrar giriş yapmaz. Başarısız giriş durumunda
-    kullanıcıya bildirim gönderir. Ağ hataları için retry mekanizması vardır.
+    LoginFailedError fırlatır. Ağ hataları için retry mekanizması vardır.
 
     :param session: requests.Session nesnesi
     :param chat_id: Kullanıcının Telegram chat ID'si
     :param username: Ninova kullanıcı adı
     :param password: Ninova şifresi
-    :param quiet: True ise sessiz mod (bildirim gönderme)
-    :return: Başarılıysa True, değilse False
+    :param quiet: True ise sessiz mod (de hata fırlatırıyor)
+    :return: Başarılıysa True, değilse LoginFailedError fırlatır
+    :raises LoginFailedError: Giriş başarısız olursa
     """
     with get_user_lock(chat_id):
         if not username or not password:
             logger.error(f"[{chat_id}] Login failed: missing username or password")
-            return False
+            raise LoginFailedError(
+                "SESSION_ERROR",
+                "Kullanıcı adı veya şifre eksik",
+                username=username,
+                chat_id=chat_id,
+            )
 
         # Exponential backoff retry mekanizması
         for attempt in range(1, MAX_LOGIN_RETRIES + 1):
@@ -53,7 +73,7 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                 # Önce halihazırda giriş yapılmış mı kontrol et
                 try:
                     check_resp = session.get(
-                        "https://ninova.itu.edu.tr/Kampus", timeout=5, allow_redirects=False
+                        "https://ninova.itu.edu.tr/Kampus", timeout=10, allow_redirects=False
                     )
                     if check_resp.status_code == 200:
                         if not quiet:
@@ -63,7 +83,7 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     logger.debug(f"[{chat_id}] Session check failed (attempt {attempt}): {e}")
 
                 login_url = "https://ninova.itu.edu.tr/Login.aspx"
-                resp = session.get(login_url, allow_redirects=True, timeout=15)
+                resp = session.get(login_url, allow_redirects=True, timeout=20)
                 soup = BeautifulSoup(resp.text, "html.parser")
 
                 data = {}
@@ -80,14 +100,19 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     }
                 )
 
-                resp = session.post(resp.url, data=data, allow_redirects=True, timeout=15)
+                resp = session.post(resp.url, data=data, allow_redirects=True, timeout=20)
 
                 if "Hatalı" in resp.text or "Login.aspx" in resp.url:
                     logger.warning(
                         f"[{chat_id}] Login failed: invalid credentials (attempt {attempt}/{MAX_LOGIN_RETRIES})"
                     )
                     # Invalid credentials - don't retry
-                    return False
+                    raise LoginFailedError(
+                        "INVALID_CREDENTIALS",
+                        "Ninova kullanıcı adı veya şifresi hanlış",
+                        username=username,
+                        chat_id=chat_id,
+                    )
 
                 if not quiet:
                     logger.info(f"[{chat_id}] Login successful")
@@ -107,10 +132,20 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     logger.error(
                         f"[{chat_id}] Login failed after {MAX_LOGIN_RETRIES} attempts: {e}"
                     )
-                    return False
+                    raise LoginFailedError(
+                        "NETWORK_TIMEOUT",
+                        f"{MAX_LOGIN_RETRIES} deneme sonucu başarısız: {str(e)[:100]}",
+                        username=username,
+                        chat_id=chat_id,
+                    ) from e
 
             except Exception as e:
                 logger.exception(f"[{chat_id}] Unexpected error during login: {e}")
-                return False
+                raise LoginFailedError(
+                    "UNKNOWN",
+                    f"Bilinmeyen hata: {str(e)[:100]}",
+                    username=username,
+                    chat_id=chat_id,
+                ) from e
 
         return False
