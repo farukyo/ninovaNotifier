@@ -88,6 +88,31 @@ def admin_panel(message):
     )
 
 
+@bot.message_handler(func=lambda message: message.text and message.text.startswith("__release__"))
+def ci_release_broadcast(message):
+    """
+    CI tarafından gönderilen release duyurusunu tüm kullanıcılara iletir.
+
+    Sadece admin'den gelen __release__ prefix'li mesajları işler.
+    CI workflow'u bu mesajı admin chat_id'sine gönderir, bot da tüm
+    users.json kullanıcılarına broadcast atar.
+
+    Format: __release__ <mesaj metni>
+    """
+    if not is_admin(message):
+        return
+
+    text = message.text[len("__release__") :].strip()
+    if not text:
+        return
+
+    request_id = new_admin_request_id("ci")
+    log_admin_action(
+        str(message.chat.id), "ci_release_broadcast", status="started", request_id=request_id
+    )
+    send_broadcast(message.chat.id, text, request_id=request_id)
+
+
 def admin_broadcast_cmd(message):
     """
     Tüm kullanıcılara duyuru gönderir.
