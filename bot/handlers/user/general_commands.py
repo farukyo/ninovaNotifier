@@ -72,20 +72,11 @@ def send_welcome(message):
     logger.info(f"Yeni kullanıcı /start komutunu kullandı: Chat ID: {message.chat.id}")
 
     welcome_text = (
-        "👋 <b>Ninova Not Takipçisi'ne Hoş Geldiniz!</b>\n\n"
-        "Ben, İTÜ'lüler için geliştirilmiş <b>açık kaynaklı</b> bir yardımcı botum.\n"
-        "Amacım; notlarınızı, ödevlerinizi ve kampüs gündemini en hızlı şekilde size ulaştırmak.\n\n"
-        "🛡️ <b>Güvenlik & Gizlilik</b>\n"
-        "Ninova verilerinize erişebilmek için giriş yapmaya ihtiyacım var. Ancak endişelenmeyin:\n"
-        "• Şifreniz <b>AES-256</b> standardı ile şifrelenir.\n"
-        "• Verileriniz sadece bu sunucuda <b>şifrelenmiş</b> olarak saklanır, 3. taraflarla paylaşılmaz.\n"
-        "• İstediğiniz zaman <code>👤 Kullanıcı -> 🚪 Ayrıl</code> menüsünden tüm verilerinizi silebilirsiniz.\n"
-        "• Kodlarım tamamen şeffaftır, inceleyebilir veya kendi bilgisayarınızda çalıştırabilirsiniz.\n\n"
-        "🚀 <b>Başlarken:</b>\n"
-        "1. Aşağıdaki 'Sıkça Sorulan Sorular' butonuna tıklayarak aklınızdaki soruları giderin.\n"
-        "2. 'Kaynak Kodu' butonundan GitHub'da kodlarımı inceleyin.\n"
-        "3. Hazır hissettiğinizde '👤 Kullanıcı' menüsünden '🔐 Giriş Yap' ile giriş yapın.\n"
-        "4. Giriş sonrası Oto Ders otomatik başlar; ayrıca '✨ Ekstra' menüsünden özelliklere erişebilirsiniz.\n"
+        "👋 <b>Ninova Not Takipçisi</b>\n\n"
+        "İTÜ Ninova'daki not, ödev ve duyurularınızı takip eden açık kaynaklı bir bot.\n\n"
+        "🔐 Şifreniz <b>AES-256</b> ile şifrelenir, 3. taraflarla paylaşılmaz. "
+        "İstediğiniz zaman <code>👤 Kullanıcı → 🚪 Ayrıl</code> ile tüm verilerinizi silebilirsiniz.\n\n"
+        "Başlamak için <b>👤 Kullanıcı → 🔐 Giriş Yap</b> adımını izleyin."
     )
 
     # Inline Keyboard for Trust
@@ -131,19 +122,15 @@ def show_faq(message):
     Sıkça sorulan soruları ve güvenlik detaylarını gösterir.
     """
     faq_text = (
-        "❓ <b>Sıkça Sorulan Sorular & Güvenlik</b>\n\n"
-        "<b>S: Şifrem güvende mi?</b>\n"
-        "C: Evet. Şifrenizi veritabanına kaydetmeden önce <b>AES-256</b> ile şifreliyorum. Anahtar sadece sunucuda bulunur.\n\n"
-        "<b>S: Neden şifremi istiyorsun?</b>\n"
-        "C: Senin adına Ninova'ya girip notlarını vs. çekebilmesi için botun şifrene ihtiyacı var. Maalesef İTÜ'nün sunduğu başka bir erişim yöntemi (API) yok.\n\n"
-        "<b>S: Verilerimi kimler görebilir?</b>\n"
-        "C: Şifren şifreli olduğu için ben dahil kimse veritabanını açıp şifreni okuyamaz. Benim bilgilerim:\n"
-        "Kullanıcı Adım: <code>olusan23</code>\n"
-        "Şifrem (Veritabanındaki Hali): <code>gAAAAABpaSBCXrSlCegdWvVc3Q-Lpf1Wi0b8kBE49poP7oWKicpU_UeKlW4bXqEZwvz6GDwnsX8VG05LSER-x_wz39q6y2xPLA==</code>\n"
-        "<b>S: Sana güvenmiyorum!</b>\n"
-        "C: En doğal hakkın, bana güvenme koda güven. Aşağıdaki butondan tüm kaynak kodlarımı inceleyebilirsin. Hatta istersen botu kendi bilgisayarında çalıştırabilirsin, o zaman verilerin tamamen senin kontrolünde olur.\n\n"
-        "<b>S: Verilerimi silebilir miyim?</b>\n"
-        "C: Tabii ki. <code>/ayril</code> komutunu gönderdiğin an tüm bilgilerini (kullanıcı adın, şifren, ayarların) saniyeler içinde kalıcı olarak silerim."
+        "❓ <b>Sıkça Sorulan Sorular</b>\n\n"
+        "<b>Şifrem güvende mi?</b>\n"
+        "Evet. Şifreniz <b>AES-256</b> ile şifrelenerek saklanır; ham haliyle hiç kimse göremez.\n\n"
+        "<b>Neden şifre istiyorsun?</b>\n"
+        "Bot, Ninova'ya senin adına giriş yaparak verileri çekiyor. İTÜ'nün API'si olmadığından başka yol yok.\n\n"
+        "<b>Sana güvenmiyorum.</b>\n"
+        "En doğal hakkın. Kaynak kodunu inceleyebilir ya da botu kendi bilgisayarında çalıştırabilirsin.\n\n"
+        "<b>Verilerimi silebilir miyim?</b>\n"
+        "<code>👤 Kullanıcı → 🚪 Ayrıl</code> ile tüm verilerini anında silerim."
     )
 
     # Altına tekrar kaynak kodu butonu ekleyelim
