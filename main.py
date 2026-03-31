@@ -7,6 +7,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 from rich.live import Live
@@ -49,11 +50,21 @@ from services.ari24.client import Ari24Client
 from services.ninova import LoginFailedError, get_announcement_detail, get_grades
 from services.sks.announcer import check_and_announce_sks_menu
 
-# Logging yapılandırması - Sadece dosyaya
+# Logging yapılandırması - Günlük rotasyonlu
+log_file_path = Path(LOGS_DIR) / "app.log"
+handler = TimedRotatingFileHandler(
+    log_file_path,
+    when="midnight",
+    interval=1,
+    backupCount=30,  # 30 günlük log tutar
+    encoding="utf-8",
+)
+handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+handler.suffix = "%Y-%m-%d"  # app.log.2024-03-31 şeklinde isimlendirilir
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler(Path(LOGS_DIR) / "app.log", encoding="utf-8")],
+    handlers=[handler],
 )
 logger = logging.getLogger("ninova")
 

@@ -152,45 +152,41 @@ def show_user_details(chat_id):
         bot.send_message(chat_id, response, parse_mode="HTML")
 
 
-def show_logs(chat_id, lines=30):
+def show_logs(chat_id, lines=50):
     """
-    Son logları admin'e gösterir veya dosya olarak gönderir.
-
-    Log dosyası 50KB'ın üzerindeyse tüm dosyayı gönderir,
-    değilse son N satırı mesaj olarak gösterir.
+    Güncel log dosyasının son N satırını admin'e gönderir.
 
     :param chat_id: Admin'in chat ID'si
-    :param lines: Gösterilecek maksimum satır sayısı (varsayılan: 30)
+    :param lines: Gösterilecek maksimum satır sayısı (varsayılan: 50)
     """
+    # app.log her zaman güncel log dosyasıdır, TimedRotatingFileHandler
+    # rotasyon sırasında eski logu isimlendirip yenisini app.log olarak açar.
     log_file = Path(LOGS_DIR) / "app.log"
 
     if not log_file.exists():
         bot.send_message(chat_id, "📂 Log dosyası bulunamadı.")
         return
 
-    file_size = log_file.stat().st_size
-
-    # Büyük dosyayı doğrudan gönder
-    if file_size > 50 * 1024:  # 50KB'dan büyükse
-        with log_file.open("rb") as f:
-            bot.send_document(chat_id, f, caption="📋 app.log")
-        return
-
-    # Küçük dosyanın son satırlarını göster
+    # Sadece son N satırı oku ve gönder
     try:
         with log_file.open(encoding="utf-8") as f:
             all_lines = f.readlines()
             last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
             log_text = "".join(last_lines)
 
-        if len(log_text) > 4000:
-            log_text = log_text[-4000:]
+            if log_text.strip():
+                # Telegram mesaj limiti 4096 karakterdir, gerekirse bölerek gönder
+                # <pre> etiketi ile kod bloğu olarak gönderiyoruz
+                header = f"📋 <b>Son {len(last_lines)} Log Kaydı (Güncel Dosya)</b>\n\n"
 
-        bot.send_message(
-            chat_id,
-            f"📋 <b>Son {len(last_lines)} Log Kaydı</b>\n\n<pre>{log_text}</pre>",
-            parse_mode="HTML",
-        )
+                if len(log_text) > 3500:
+                    # Çok uzunsa son 3500 karakteri al (limit 4096)
+                    log_text = log_text[-3500:]
+                    header = f"📋 <b>Son {len(last_lines)} Log Kaydı (Son 3500 karakter)</b>\n\n"
+
+                bot.send_message(chat_id, f"{header}<pre>{log_text}</pre>", parse_mode="HTML")
+            else:
+                bot.send_message(chat_id, "📜 Güncel log dosyası boş.")
     except Exception as e:
         bot.send_message(chat_id, f"❌ Log okuma hatası: {e}")
 
