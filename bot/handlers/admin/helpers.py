@@ -3,15 +3,12 @@ Admin yardımcı fonksiyonları.
 """
 
 import logging
-import os
 import time
 import uuid
 from datetime import datetime
 
 from bot.instance import START_TIME
-
-# Admin ID - ENV'den alınır
-ADMIN_ID = os.getenv("ADMIN_TELEGRAM_ID")
+from common.config import ADMIN_TELEGRAM_IDS
 
 # Admin state'leri (duyuru/msg için)
 ADMIN_STATE_TTL_SECONDS = 30 * 60
@@ -87,17 +84,18 @@ def has_admin_state(chat_id: str) -> bool:
     return str(chat_id) in admin_states
 
 
-def is_admin(message_or_call):
+def is_admin(message_or_call) -> bool:
     """
     Mesaj veya callback'in admin'den gelip gelmediğini kontrol eder.
+    ADMIN_TELEGRAM_IDS listesindeki herhangi bir ID eşleşirse True döner.
 
     :param message_or_call: telebot.types.Message veya CallbackQuery nesnesi
     :return: Admin ise True, değilse False
     """
     if hasattr(message_or_call, "chat"):
-        return str(message_or_call.chat.id) == ADMIN_ID
+        return message_or_call.chat.id in ADMIN_TELEGRAM_IDS
     if hasattr(message_or_call, "message"):
-        return str(message_or_call.message.chat.id) == ADMIN_ID
+        return message_or_call.message.chat.id in ADMIN_TELEGRAM_IDS
     return False
 
 

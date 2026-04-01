@@ -109,7 +109,14 @@ CHECK_INTERVAL = 300
 
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TOKEN")
-ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
+
+# Çoklu admin desteği: virgülle ayrılmış ID listesi desteklenir (örn. "123,456,789")
+# Geriye dönük uyumlu: tek değer de çalışır.
+_raw_admin_ids = os.getenv("ADMIN_TELEGRAM_ID", "0")
+ADMIN_TELEGRAM_IDS: list[int] = [
+    int(x.strip()) for x in _raw_admin_ids.split(",") if x.strip().lstrip("-").isdigit()
+]
+ADMIN_TELEGRAM_ID: int = ADMIN_TELEGRAM_IDS[0] if ADMIN_TELEGRAM_IDS else 0
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

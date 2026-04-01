@@ -1,14 +1,6 @@
 import io
 import math
 
-import matplotlib as mpl
-
-# Use a non-interactive backend for server environments
-mpl.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy.stats import norm
-
 
 def generate_bell_curve(grades_data: dict) -> io.BytesIO:
     """
@@ -22,6 +14,12 @@ def generate_bell_curve(grades_data: dict) -> io.BytesIO:
                         }
     :return: BytesIO object containing the generated image, or None if no valid data.
     """
+    import matplotlib as mpl
+
+    mpl.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy.stats import norm
 
     valid_plots = []
 

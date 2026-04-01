@@ -23,7 +23,7 @@ from rich.table import Table
 
 from bot import bot, set_check_callback, update_last_check_time
 from common.config import (
-    ADMIN_TELEGRAM_ID,
+    ADMIN_TELEGRAM_IDS,
     CHECK_INTERVAL,
     DATA_DIR,
     LOGS_DIR,
@@ -54,6 +54,21 @@ from services.sks.announcer import check_and_announce_sks_menu
 _logs_dir = Path(LOGS_DIR)
 
 
+class _JsonFormatter(logging.Formatter):
+    """Her log satırını tek satır JSON olarak formatlar."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "ts": self.formatTime(record, datefmt="%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            entry["exc"] = self.formatException(record.exc_info)
+        return json.dumps(entry, ensure_ascii=False)
+
+
 class DailyFileHandler(logging.FileHandler):
     """A file handler that automatically switches to app_YYYY-MM-DD.log on date change."""
 
@@ -82,9 +97,9 @@ class DailyFileHandler(logging.FileHandler):
 
 
 def _make_daily_log_handler():
-    """Her gün yeni bir app_YYYY-MM-DD.log dosyasına yazar, 30 gün tutar."""
+    """Her gün yeni bir app_YYYY-MM-DD.log dosyasına yazar, 30 gün tutar. JSON formatı."""
     h = DailyFileHandler(_logs_dir, encoding="utf-8")
-    h.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    h.setFormatter(_JsonFormatter())
     return h
 
 
@@ -124,7 +139,28 @@ _SHUTDOWN_DONE = False
 # Per-user error tracking - for reporting to admin after 3 consecutive errors
 # Format: {chat_id: {"error_count": int, "last_error_type": str, "last_error_details": str,
 #           "last_check_time": timestamp, "user_notification_sent": bool, "admin_notification_sent": bool}}
-_user_error_tracker = {}
+_ERROR_TRACKER_FILE = Path(DATA_DIR) / "error_tracker.json"
+_error_tracker_lock = threading.Lock()
+
+
+def _load_error_tracker() -> dict:
+    """error_tracker.json dosyasından hata takip verilerini yükler."""
+    if _ERROR_TRACKER_FILE.exists():
+        try:
+            with _ERROR_TRACKER_FILE.open(encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_error_tracker() -> None:
+    """Hata takip verilerini error_tracker.json dosyasına atomik olarak yazar."""
+    with _error_tracker_lock:
+        atomic_json_write(_ERROR_TRACKER_FILE, _user_error_tracker)
+
+
+_user_error_tracker: dict = _load_error_tracker()
 
 # Hata eşikleri
 _ERROR_THRESHOLD_ADMIN = 3  # Admin'e bildirim eşiği
@@ -180,8 +216,9 @@ def _record_user_error(chat_id: str, error_type: str, error_details: str, userna
             username,
             error_count,
         )
-        if ADMIN_TELEGRAM_ID:
-            send_telegram_message(ADMIN_TELEGRAM_ID, admin_msg, is_error=True)
+        for admin_id in ADMIN_TELEGRAM_IDS:
+            if admin_id:
+                send_telegram_message(admin_id, admin_msg, is_error=True)
         tracker["admin_notification_sent"] = True
 
     # 6+ hata → kullanıcıya bilgilendirme (hata mesajı DEĞİL, bilgi mesajı - bir kez)
@@ -201,6 +238,8 @@ def _record_user_error(chat_id: str, error_type: str, error_details: str, userna
         )
         send_telegram_message(chat_id, user_msg)
         tracker["user_notification_sent"] = True
+
+    _save_error_tracker()
 
 
 def _record_user_success(chat_id: str, username: str = ""):
@@ -246,8 +285,9 @@ def _record_user_success(chat_id: str, username: str = ""):
             f"📊 <b>Hata Sayısı:</b> {prev_error_count} kez\n"
             f"🕐 <b>Çözüm Saati:</b> {datetime.now().isoformat()}"
         )
-        if ADMIN_TELEGRAM_ID:
-            send_telegram_message(ADMIN_TELEGRAM_ID, admin_msg)
+        for admin_id in ADMIN_TELEGRAM_IDS:
+            if admin_id:
+                send_telegram_message(admin_id, admin_msg)
 
     # Tracker'ı sıfırla
     _user_error_tracker[chat_id] = {
@@ -258,6 +298,7 @@ def _record_user_success(chat_id: str, username: str = ""):
         "admin_notification_sent": False,
         "last_check_time": datetime.now().isoformat(),
     }
+    _save_error_tracker()
 
 
 def emit_terminal_and_log(message: str, level: str = "info") -> None:

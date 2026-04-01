@@ -1,10 +1,24 @@
 import contextlib
+import json
 import re
-import typing
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
+
+_CLUBS_FILE = Path("data") / "ari24_clubs.json"
+
+
+def _load_static_clubs() -> list[str]:
+    """data/ari24_clubs.json dosyasından kulüp listesini yükler."""
+    if _CLUBS_FILE.exists():
+        try:
+            with _CLUBS_FILE.open(encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
 
 MONTH_MAP = {
     "Oca": 1,
@@ -145,88 +159,6 @@ class Ari24Client:
             print(f"Error fetching Arı24 events: {e}")
             return []
 
-    STATIC_CLUBS: typing.ClassVar[list[str]] = [
-        "İTÜ Mezunları Derneği Öğrenci Kulübü",
-        "Sinema Kulübü",
-        "Gönüllülük Kulübü",
-        "Yatırım Kulübü",
-        "İşletme Mühendisliği Kulübü",
-        "Fotoğraf Kulübü",
-        "Oyun Tasarlama ve Geliştirme Kulübü",
-        "IEEE İTÜ Öğrenci Kolu",
-        "Kimya Mühendisliği Kulübü",
-        "Endüstri Mühendisliği Kulübü",
-        "ArtITU (Sanatsal Bakış Kulübü)",
-        "Elektrik Mühendisliği Kulübü",
-        "Ekonomi Kulübü",
-        "Matematik ve Bilgisayar Kulübü",
-        "Blockchain Kulübü",
-        "Tekstil Mühendisliği Kulübü",
-        "Markalaşma Kulübü",
-        "Metalurji ve Malzeme Mühendisliği Kulübü",
-        "Arama Kurtarma Kulübü",
-        "Meteorolojik Araştırmalar Kulübü (METAR)",
-        "Girişimcilik Kulübü",
-        "Bisiklet Kulübü",
-        "Kitap Kulübü",
-        "Journal Club",
-        "Sürdürülebilirlik Yönetimi Kulübü - ISMC",
-        "İTÜ ACM Student Chapter",
-        "BEST İstanbul",
-        "Kontrol ve Otomasyon Kulübü",
-        "Yapay Zeka Kulübü",
-        "Sosyal Araştırmalar Kulübü",
-        "Savunma Teknolojileri Kulübü (SAVTEK)",
-        "Astronomi Kulübü",
-        "Oyun Kulübü",
-        "Fizik Mühendisliği Kulübü",
-        "Jeoloji Mühendisliği Kulübü",
-        "EESTEC LC Istanbul",
-        "Yelken Kulübü",
-        "Jeodezi ve Fotogrametri Kulübü",
-        "Cevher Hazırlama Mühendisliği Kulubü",
-        "Endüstriyel Tasarım Kulübü",
-        "Gıda Mühendisliği Kulübü",
-        "Kahve Kulübü",
-        "Maden Mühendisliği Kulübü",
-        "Mühendisliğe Hazırlık Kulübü",
-        "Tenis Kulübü",
-        "GEZİTÜ",
-        "Gemi Mühendisliği Kulübü",
-        "International Bees",
-        "Rock Kulübü",
-        "Tiyatro Kulübü",
-        "İtalyan Dili ve Kültürü Kulübü",
-        "Dans Kulübü",
-        "Çevre Mühendisliği Kulübü",
-        "Timis Oyuncuları Tiyatro Topluluğu",
-        "İTÜ Vegan Kulübü",
-        "Ar-Ge Teknolojileri Kulübü",
-        "Örgü Kulübü",
-        "IAESTE",
-        "Veri Bilimi Kulübü",
-        "Jeofizik Mühendisliği Kulübü",
-        "Sivil Havacılık Etkileşim Kulübü",
-        "Gastronomi Kulübü",
-        "Yoga Kulübü",
-        "Jazz Blues Kulübü",
-        "İç Mimarlık Kulübü",
-        "Kimya Kulübü",
-        "Uçak Uzay Mühendisliği Kulübü",
-        "Basın Yayın Kulübü",
-        "İTÜ Moda Kulübü",
-        "Kent ve Kentlileşme Kulübü",
-        "Denizcilik Araştırmaları Kulübü",
-        "Uzak Doğu Dilleri ve Kültürleri Kulübü",
-        "Sıfır Atık Kulübü",
-        "EPGİK",
-        "Felsefe Kulübü",
-        "ITU Society of Women Engineers",
-        "Güzel Sanatlar Kulübü",
-        "FRP Kulübü",
-        "Buz Hokeyi Kulübü",
-    ]
-
     def get_weekly_events(self):
         """Returns events for the current week (Monday to Sunday)."""
         events = self.get_events()
@@ -270,11 +202,12 @@ class Ari24Client:
                 data.append(ev)
         return data
 
-    def get_all_clubs(self):
-        """Extracts unique list of organizers/clubs from current events + static list."""
+    def get_all_clubs(self) -> list[str]:
+        """Extracts unique list of organizers/clubs from current events + data/ari24_clubs.json."""
         events = self.get_events()
         active_clubs = {ev["organizer"] for ev in events if ev["organizer"]}
-        return sorted(set(self.STATIC_CLUBS) | active_clubs)
+        static_clubs = set(_load_static_clubs())
+        return sorted(static_clubs | active_clubs)
 
     def get_news(self, limit=5):
         """
