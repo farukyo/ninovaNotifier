@@ -54,18 +54,6 @@ def interactive_menu(message):
     )
 
 
-@bot.message_handler(func=lambda message: message.text == "🤖 Oto Ders")
-def auto_add_courses(message):
-    """
-    Ninova'ya bağlanarak kullanıcının tüm derslerini otomatik olarak bulur ve ekler.
-    """
-    chat_id = str(message.chat.id)
-    start_msg = "⏳ Ninova'ya giriş yapılıyor ve dersleriniz taranıyor..."
-    trigger_auto_add_courses(
-        chat_id, request_id=new_user_request_id("otd"), start_message=start_msg
-    )
-
-
 def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_message: str = ""):
     """Start auto-add flow for a user and optionally send a starter message."""
     request_id = request_id or new_user_request_id("otd")

@@ -44,12 +44,15 @@ def go_back_main(message):
 def show_user_menu(message):
     """
     Kullanıcı ayarları alt menüsünü gösterir.
+    Admin tuşu sadece admin kullanıcıya gösterilir.
     """
+    from bot.handlers.admin.helpers import is_admin as _is_admin
+
     log_user_action(str(message.chat.id), "show_user_menu")
     bot.send_message(
         message.chat.id,
         "👤 Kullanıcı Menüsü:",
-        reply_markup=build_user_menu_keyboard(),
+        reply_markup=build_user_menu_keyboard(is_admin=_is_admin(message)),
     )
 
 
@@ -191,7 +194,7 @@ def show_menu(message):
     )
 
 
-@bot.message_handler(func=lambda message: message.text == "🔍 Ara")
+@bot.message_handler(func=lambda message: message.text == "🔍 Duyurularda Ara")
 def search_announcements(message):
     """
     Ders duyurularında kelime bazlı arama yapar.

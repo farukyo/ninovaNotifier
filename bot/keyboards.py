@@ -5,25 +5,27 @@ def build_main_keyboard():
     """
     Kullanıcının ana etkileşim menüsü için klavye oluşturur.
 
-    :param user_id: İsteyen kullanıcının ID'si (Admin kontrolü için)
     :return: ReplyKeyboardMarkup nesnesi
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("📊 Notlar", "📅 Ödevler", "📖 Dersler")
-    kb.row("🔄 Kontrol", "📆 Akademik Takvim", "✨ Ekstra")
+    kb.row("📆 Akademik Takvim", "✨ Ekstra")
     kb.row("🐝 Arı24", "📞 İTÜ Rehber")
-    kb.row("👤 Kullanıcı", "🔍 Ara")
+    kb.row("👤 Kullanıcı", "🔍 Duyurularda Ara")
 
     return kb
 
 
-def build_user_menu_keyboard():
+def build_user_menu_keyboard(is_admin: bool = False):
     """
     Kullanıcı ayarları alt menüsü için klavye oluşturur.
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("🔐 Giriş Yap")
-    kb.row("👑 Admin", "🚪 Ayrıl")
+    if is_admin:
+        kb.row("👑 Admin", "🚪 Ayrıl")
+    else:
+        kb.row("🚪 Ayrıl")
     kb.row("🔙 Geri")
     return kb
 
@@ -33,7 +35,7 @@ def build_extra_features_keyboard():
     Ek özellikler alt menüsü için klavye oluşturur.
     """
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("🤖 Oto Ders", "📋 Durum")
+    kb.row("🔄 Kontrol", "📋 Durum")
     kb.row("❓ Yardım", "🍽 Yemekhane")
     kb.row("🔙 Geri")
     return kb

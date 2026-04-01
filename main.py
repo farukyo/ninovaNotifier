@@ -6,7 +6,6 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -21,9 +20,9 @@ from rich.progress import (
 )
 from rich.table import Table
 
+import common.error_tracker as error_tracker
 from bot import bot, set_check_callback, update_last_check_time
 from common.config import (
-    ADMIN_TELEGRAM_IDS,
     CHECK_INTERVAL,
     DATA_DIR,
     LOGS_DIR,
@@ -37,6 +36,7 @@ from common.config import (
     save_all_users,
     sync_cache_to_disk,
 )
+from common.logging_setup import setup_logging
 from common.utils import (
     decrypt_password,
     escape_html,
@@ -50,75 +50,11 @@ from services.ari24.client import Ari24Client
 from services.ninova import LoginFailedError, get_announcement_detail, get_grades
 from services.sks.announcer import check_and_announce_sks_menu
 
-# Logging yapılandırması - Günlük tarih prefixli dosya (app_2026-04-01.log)
+# Logging yapılandırması
 _logs_dir = Path(LOGS_DIR)
+_log_handler = setup_logging(_logs_dir)
 
 
-class _JsonFormatter(logging.Formatter):
-    """Her log satırını tek satır JSON olarak formatlar."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        entry = {
-            "ts": self.formatTime(record, datefmt="%Y-%m-%dT%H:%M:%S"),
-            "level": record.levelname,
-            "logger": record.name,
-            "msg": record.getMessage(),
-        }
-        if record.exc_info:
-            entry["exc"] = self.formatException(record.exc_info)
-        return json.dumps(entry, ensure_ascii=False)
-
-
-class DailyFileHandler(logging.FileHandler):
-    """A file handler that automatically switches to app_YYYY-MM-DD.log on date change."""
-
-    def __init__(self, logs_dir: Path, encoding: str = "utf-8"):
-        self.logs_dir = logs_dir
-        self.current_date = datetime.now().date()
-        filename = self.logs_dir / f"app_{self.current_date.strftime('%Y-%m-%d')}.log"
-        super().__init__(filename, mode="a", encoding=encoding)
-
-    def emit(self, record):
-        today = datetime.now().date()
-        if today != self.current_date:
-            self.current_date = today
-            self.acquire()
-            try:
-                if self.stream:
-                    self.stream.close()
-                    self.stream = None
-                self.baseFilename = str(
-                    self.logs_dir / f"app_{self.current_date.strftime('%Y-%m-%d')}.log"
-                )
-                self.stream = self._open()
-            finally:
-                self.release()
-        super().emit(record)
-
-
-def _make_daily_log_handler():
-    """Her gün yeni bir app_YYYY-MM-DD.log dosyasına yazar, 30 gün tutar. JSON formatı."""
-    h = DailyFileHandler(_logs_dir, encoding="utf-8")
-    h.setFormatter(_JsonFormatter())
-    return h
-
-
-def _cleanup_old_logs(keep_days: int = 30):
-    """30 günden eski log dosyalarını siler."""
-    cutoff = time.time() - keep_days * 86400
-    for log_path in _logs_dir.glob("app_*.log"):
-        if log_path.stat().st_mtime < cutoff:
-            with suppress(OSError):
-                log_path.unlink()
-
-
-_cleanup_old_logs()
-handler = _make_daily_log_handler()
-
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[handler],
-)
 logger = logging.getLogger("ninova")
 
 # Son kontrol zamanı (global) - Live display'de kullanılacak
@@ -134,171 +70,10 @@ POLLING_LOG_LEVEL = logging.WARNING
 SHUTDOWN_EVENT = threading.Event()
 POLLING_THREAD: threading.Thread | None = None
 _SHUTDOWN_LOCK = threading.Lock()
+
+# error_tracker: yükle ve artık var olmayan kullanıcıları temizle
+error_tracker.load(known_user_ids=set(load_all_users().keys()))
 _SHUTDOWN_DONE = False
-
-# Per-user error tracking - for reporting to admin after 3 consecutive errors
-# Format: {chat_id: {"error_count": int, "last_error_type": str, "last_error_details": str,
-#           "last_check_time": timestamp, "user_notification_sent": bool, "admin_notification_sent": bool}}
-_ERROR_TRACKER_FILE = Path(DATA_DIR) / "error_tracker.json"
-_error_tracker_lock = threading.Lock()
-
-
-def _load_error_tracker() -> dict:
-    """error_tracker.json dosyasından hata takip verilerini yükler."""
-    if _ERROR_TRACKER_FILE.exists():
-        try:
-            with _ERROR_TRACKER_FILE.open(encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
-
-
-def _save_error_tracker() -> None:
-    """Hata takip verilerini error_tracker.json dosyasına atomik olarak yazar."""
-    with _error_tracker_lock:
-        atomic_json_write(_ERROR_TRACKER_FILE, _user_error_tracker)
-
-
-_user_error_tracker: dict = _load_error_tracker()
-
-# Hata eşikleri
-_ERROR_THRESHOLD_ADMIN = 3  # Admin'e bildirim eşiği
-_ERROR_THRESHOLD_USER = 6  # Kullanıcıya bilgilendirme eşiği
-
-
-def _record_user_error(chat_id: str, error_type: str, error_details: str, username: str = ""):
-    """
-    Kullanıcı hata sayacını artırır ve eşiklere göre bildirim gönderir.
-    - 3 ardışık hata → admin'e bildirim
-    - 6 ardışık hata → kullanıcıya bilgilendirme (hata değil, bilgi mesajı)
-    Kullanıcıya hiçbir zaman hata mesajı gönderilmez. 6. hatada sadece
-    bilgilendirme mesajı gider.
-    """
-    if chat_id not in _user_error_tracker:
-        _user_error_tracker[chat_id] = {
-            "error_count": 0,
-            "last_error_type": None,
-            "last_error_details": None,
-            "user_notification_sent": False,
-            "admin_notification_sent": False,
-            "last_check_time": datetime.now().isoformat(),
-        }
-
-    tracker = _user_error_tracker[chat_id]
-    tracker["error_count"] += 1
-    tracker["last_error_type"] = error_type
-    tracker["last_error_details"] = error_details
-    tracker["last_check_time"] = datetime.now().isoformat()
-
-    error_count = tracker["error_count"]
-    logger.warning(
-        "[error_tracker] user=%s (%s) | error_count=%d | type=%s | details=%s",
-        chat_id,
-        username,
-        error_count,
-        error_type,
-        error_details,
-    )
-
-    # 3+ hata → admin'e bildirim (bir kez)
-    if error_count >= _ERROR_THRESHOLD_ADMIN and not tracker["admin_notification_sent"]:
-        admin_msg = (
-            f"⚠️ <b>Kullanıcıda {error_count} kez Ninova Hataları</b>\n\n"
-            f"👤 <b>Kullanıcı:</b> {chat_id} ({username})\n"
-            f"🔗 <b>Son Hata Tipi:</b> {tracker['last_error_type']}\n"
-            f"📝 <b>Detay:</b> {tracker['last_error_details']}\n"
-            f"🕐 <b>Saat:</b> {tracker['last_check_time']}"
-        )
-        logger.error(
-            "[error_tracker] Admin bildirim gönderiliyor: user=%s (%s), error_count=%d",
-            chat_id,
-            username,
-            error_count,
-        )
-        for admin_id in ADMIN_TELEGRAM_IDS:
-            if admin_id:
-                send_telegram_message(admin_id, admin_msg, is_error=True)
-        tracker["admin_notification_sent"] = True
-
-    # 6+ hata → kullanıcıya bilgilendirme (hata mesajı DEĞİL, bilgi mesajı - bir kez)
-    if error_count >= _ERROR_THRESHOLD_USER and not tracker["user_notification_sent"]:
-        user_msg = (
-            "ℹ️ <b>Bilgilendirme</b>\n\n"
-            "Ninova sistemlerinde bir sorun olabilir veya şifrenizin güncelliğini "
-            "kontrol etmeniz gerekebilir.\n\n"
-            "Eğer şifreniz değişmediyse, Ninova sistemi düzeldiğinde otomatik olarak "
-            "mesaj alacaksınız."
-        )
-        logger.info(
-            "[error_tracker] Kullanıcıya bilgilendirme gönderiliyor: user=%s (%s), error_count=%d",
-            chat_id,
-            username,
-            error_count,
-        )
-        send_telegram_message(chat_id, user_msg)
-        tracker["user_notification_sent"] = True
-
-    _save_error_tracker()
-
-
-def _record_user_success(chat_id: str, username: str = ""):
-    """
-    Başarılı kontrol sonrası hata sayacını sıfırlar.
-    Eğer önceden kullanıcıya bilgilendirme gönderilmişse, düzeldi mesajı gönderir.
-    """
-    if chat_id not in _user_error_tracker:
-        return
-
-    tracker = _user_error_tracker[chat_id]
-    if tracker["error_count"] == 0:
-        return
-
-    prev_error_count = tracker["error_count"]
-    logger.info(
-        "[error_tracker] Sorun düzeldi: user=%s (%s), önceki error_count=%d",
-        chat_id,
-        username,
-        prev_error_count,
-    )
-
-    # Kullanıcıya düzeldi mesajı (sadece önceden bilgilendirme gönderildiyse)
-    if tracker.get("user_notification_sent"):
-        resolution_msg = (
-            "✅ <b>Sistem Normale Döndü</b>\n\n"
-            "Ninova bağlantısı başarıyla sağlandı. "
-            "Normal bildirimler yeniden başlayacaktır."
-        )
-        send_telegram_message(chat_id, resolution_msg)
-        logger.info(
-            "[error_tracker] Kullanıcıya düzeldi bildirimi gönderildi: user=%s (%s)",
-            chat_id,
-            username,
-        )
-
-    # Admin'e düzeldi bildirimi (sadece admin'e hata bildirimi gönderilmişse)
-    if tracker.get("admin_notification_sent"):
-        admin_msg = (
-            f"✅ <b>Ninova Sorunu Çözüldü</b>\n\n"
-            f"👤 <b>Kullanıcı:</b> {chat_id} ({username})\n"
-            f"🔗 <b>Son Hata Tipi:</b> {tracker['last_error_type']}\n"
-            f"📊 <b>Hata Sayısı:</b> {prev_error_count} kez\n"
-            f"🕐 <b>Çözüm Saati:</b> {datetime.now().isoformat()}"
-        )
-        for admin_id in ADMIN_TELEGRAM_IDS:
-            if admin_id:
-                send_telegram_message(admin_id, admin_msg)
-
-    # Tracker'ı sıfırla
-    _user_error_tracker[chat_id] = {
-        "error_count": 0,
-        "last_error_type": None,
-        "last_error_details": None,
-        "user_notification_sent": False,
-        "admin_notification_sent": False,
-        "last_check_time": datetime.now().isoformat(),
-    }
-    _save_error_tracker()
 
 
 def emit_terminal_and_log(message: str, level: str = "info") -> None:
@@ -933,7 +708,7 @@ def check_user_updates(
             chat_id,
             request_id,
         )
-        _record_user_error(chat_id, "DECRYPT_ERROR", "Şifre çözülemedi", username)
+        error_tracker.record_error(chat_id, "DECRYPT_ERROR", "Şifre çözülemedi", username)
         return {"success": False, "message": "Şifre çözme hatası."}
 
     saved_grades = load_saved_grades()
@@ -974,7 +749,7 @@ def check_user_updates(
                     e.error_type,
                     e.message,
                 )
-                _record_user_error(chat_id, e.error_type, str(e.message), username)
+                error_tracker.record_error(chat_id, e.error_type, str(e.message), username)
                 return {"success": False, "message": "Ninova bağlantı hatası."}
 
             progress.update(task, advance=1)
@@ -1007,7 +782,7 @@ def check_user_updates(
 
     # Başarılı veri çekimi - hata sayacını sıfırla
     if all_current_grades:
-        _record_user_success(chat_id, username)
+        error_tracker.record_success(chat_id, username)
 
     # Verileri kaydet
     if all_changes:
@@ -1085,7 +860,7 @@ def check_for_updates():
         password = decrypt_password(encrypted_password)
         if password is None:
             logger.error(f"Şifre çözülemedi ({chat_id}), pas geçiliyor.")
-            _record_user_error(chat_id, "DECRYPT_ERROR", "Şifre çözülemedi", username)
+            error_tracker.record_error(chat_id, "DECRYPT_ERROR", "Şifre çözülemedi", username)
             continue
 
         if SHOW_VERBOSE_TERMINAL:
@@ -1132,7 +907,9 @@ def check_for_updates():
                                 e.error_type,
                                 e.message,
                             )
-                            _record_user_error(chat_id, e.error_type, str(e.message), username)
+                            error_tracker.record_error(
+                                chat_id, e.error_type, str(e.message), username
+                            )
                             login_error_sent = True
                         else:
                             logger.debug(
@@ -1149,7 +926,7 @@ def check_for_updates():
 
         # Başarılı veri çekimi → hata sayacını sıfırla, düzeldi mesajı gönder
         if all_current_grades:
-            _record_user_success(chat_id, username)
+            error_tracker.record_success(chat_id, username)
 
         # Ortak fonksiyon ile değişiklikleri kontrol et
         for url, current_data in all_current_grades.items():

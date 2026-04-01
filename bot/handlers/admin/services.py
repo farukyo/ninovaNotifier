@@ -78,7 +78,9 @@ def show_stats(chat_id):
     # Dosya boyutları
     users_size = Path(USERS_FILE).stat().st_size / 1024 if Path(USERS_FILE).exists() else 0
     data_size = Path(DATA_FILE).stat().st_size / 1024 if Path(DATA_FILE).exists() else 0
-    log_file_path = Path(LOGS_DIR) / "app.log"
+    from datetime import date
+
+    log_file_path = Path(LOGS_DIR) / f"app_{date.today().strftime('%Y-%m-%d')}.log"
     log_size = log_file_path.stat().st_size / 1024 if log_file_path.exists() else 0
     runtime = _collect_runtime_metrics()
 
@@ -95,7 +97,7 @@ def show_stats(chat_id):
         f"💾 <b>Dosya Boyutları:</b>\n"
         f"├ users.json: {users_size:.1f} KB\n"
         f"├ ninova_data.json: {data_size:.1f} KB\n"
-        f"└ app.log: {log_size:.1f} KB"
+        f"└ log (bugün): {log_size:.1f} KB"
     )
 
     logger.info(
@@ -159,9 +161,9 @@ def show_logs(chat_id, lines=50):
     :param chat_id: Admin'in chat ID'si
     :param lines: Gösterilecek maksimum satır sayısı (varsayılan: 50)
     """
-    # app.log her zaman güncel log dosyasıdır, TimedRotatingFileHandler
-    # rotasyon sırasında eski logu isimlendirip yenisini app.log olarak açar.
-    log_file = Path(LOGS_DIR) / "app.log"
+    from datetime import date
+
+    log_file = Path(LOGS_DIR) / f"app_{date.today().strftime('%Y-%m-%d')}.log"
 
     if not log_file.exists():
         bot.send_message(chat_id, "📂 Log dosyası bulunamadı.")
