@@ -20,6 +20,7 @@ def _load_static_clubs() -> list[str]:
             pass
     return []
 
+
 MONTH_MAP = {
     "Oca": 1,
     "Şub": 2,

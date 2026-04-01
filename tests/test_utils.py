@@ -1,18 +1,15 @@
 """Tests for common/utils.py — encryption, date parsing, HTML sanitization, escape_html."""
 
-import pytest
+import unittest.mock as mock
+
 from cryptography.fernet import Fernet
 
 # Patch cipher_suite before importing utils so we use a test key
 _TEST_KEY = Fernet.generate_key()
 _TEST_CIPHER = Fernet(_TEST_KEY)
 
-import unittest.mock as mock
-
 with mock.patch("common.config.cipher_suite", _TEST_CIPHER):
     from common.utils import (
-        decrypt_password,
-        encrypt_password,
         escape_html,
         get_file_icon,
         parse_turkish_date,
@@ -87,7 +84,10 @@ class TestEscapeHtml:
         assert escape_html("a > b") == "a &gt; b"
 
     def test_combined(self):
-        assert escape_html("<script>alert('xss')</script>") == "&lt;script&gt;alert('xss')&lt;/script&gt;"
+        assert (
+            escape_html("<script>alert('xss')</script>")
+            == "&lt;script&gt;alert('xss')&lt;/script&gt;"
+        )
 
     def test_no_special_chars(self):
         assert escape_html("hello world") == "hello world"

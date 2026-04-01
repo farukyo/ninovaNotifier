@@ -1,7 +1,5 @@
 """Tests for bot/callback_parsing.py — split_callback_data, parse_int_part."""
 
-import pytest
-
 from bot.callback_parsing import parse_int_part, split_callback_data
 
 

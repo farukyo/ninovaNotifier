@@ -1,7 +1,5 @@
 """Tests for bot/utils.py — validate_ninova_url (SSRF prevention)."""
 
-import pytest
-
 from bot.utils import validate_ninova_url
 
 
