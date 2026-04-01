@@ -3,6 +3,7 @@ Not ve ödev komutları.
 """
 
 import contextlib
+import logging
 import math
 from datetime import datetime
 
@@ -16,6 +17,8 @@ from common.utils import split_long_message
 
 from .course_commands import interactive_menu
 
+logger = logging.getLogger("ninova")
+
 
 @bot.message_handler(func=lambda message: message.text == "📊 Notlar")
 def list_grades(message):
@@ -24,6 +27,7 @@ def list_grades(message):
     Notlar, ağırlıklar, sınıf ortalaması ve performans tahmini içerir.
     """
     chat_id = str(message.chat.id)
+    log_user_action(chat_id, "list_grades")
     user_grades = load_user_grades(chat_id)
 
     if not user_grades:
@@ -122,6 +126,7 @@ def list_assignments(message, show_all=False):
     Varsayılan olarak sadece 'aktif' ödevleri gösterir.
     """
     chat_id = str(message.chat.id)
+    log_user_action(chat_id, "list_assignments", details=f"show_all={show_all}")
     user_grades = load_user_grades(chat_id)
 
     if not user_grades:
@@ -299,6 +304,8 @@ def kontrol_command_handler(message):
                 parse_mode="HTML",
             )
         else:
+            # Hata mesajı kullanıcıya gönderilmez, sadece loglanır.
+            # Hata eşikleri (3 admin, 6 kullanıcı bilgi) _record_user_error tarafından yönetilir.
             log_user_action(
                 chat_id,
                 "manual_check",
@@ -307,7 +314,6 @@ def kontrol_command_handler(message):
                 details=result.get("message", "unknown"),
                 level="warning",
             )
-            bot.send_message(chat_id, f"❌ <b>Hata:</b> {result.get('message')}", parse_mode="HTML")
 
     if not submit_background_task("user_manual_check", run_user_check):
         log_user_action(
@@ -330,4 +336,9 @@ def manual_check(message):
     if result["success"]:
         bot.send_message(chat_id, f"✅ {result['message']}")
     else:
-        bot.send_message(chat_id, f"❌ Kontrol başarısız: {result['message']}")
+        # Hata mesajı kullanıcıya gönderilmez, sadece loglanır
+        logger.warning(
+            "[user] actor=%s | action=manual_check | status=failed | details=%s",
+            chat_id,
+            result["message"],
+        )

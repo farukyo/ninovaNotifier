@@ -915,6 +915,7 @@ def handle_kontrol(call):
                     "✅ Kontrol tamamlandı. Not, ödev, dosya ve duyuru bilgileriniz güncellendi.",
                 )
             else:
+                # Hata mesajı kullanıcıya gönderilmez, sadece loglanır
                 log_user_action(
                     chat_id,
                     "inline_check",
@@ -922,10 +923,6 @@ def handle_kontrol(call):
                     request_id=request_id,
                     details=result.get("message", "unknown"),
                     level="warning",
-                )
-                bot.send_message(
-                    chat_id,
-                    f"❌ Kontrol sırasında bir hata oluştu: {result.get('message', 'Bilinmeyen hata')}",
                 )
 
             # Re-show the appropriate menu
@@ -1021,7 +1018,11 @@ def handle_kontrol(call):
                 details=str(e),
                 level="error",
             )
-            bot.send_message(chat_id, f"❌ Kritik hata: {e!s}")
+            logger.error(
+                "[user] actor=%s | action=inline_check | critical_error=%s",
+                chat_id,
+                str(e),
+            )
 
     if not submit_background_task("user_inline_check", run_check):
         log_user_action(
@@ -1093,9 +1094,11 @@ def handle_add_expired_yes(call):
                 parse_mode="HTML",
             )
         else:
-            bot.send_message(
+            # Hata mesajı kullanıcıya gönderilmez, sadece loglanır
+            logger.warning(
+                "[user] actor=%s | action=add_expired_sync | status=failed | details=%s",
                 chat_id,
-                f"⚠️ Dersler eklendi ancak senkronizasyon sırasında hata oluştu: {result.get('message')}",
+                result.get("message", "unknown"),
             )
 
     if not submit_background_task("add_expired_sync", run_sync):

@@ -9,6 +9,7 @@ from common.config import get_user_session
 from common.utils import update_user_data
 from services.ninova import get_user_courses, login_to_ninova
 
+from .audit import log_user_action
 from .course_commands import trigger_auto_add_courses
 
 logger = logging.getLogger("ninova")
@@ -19,6 +20,7 @@ def start_login_flow(message):
     """
     Kullanıcıdan sırayla kullanıcı adı ve şifreyi alır.
     """
+    log_user_action(str(message.chat.id), "login_start")
     prompt = bot.send_message(
         message.chat.id,
         "✏️ Lütfen kullanıcı adınızı yazın:",
@@ -77,7 +79,7 @@ def process_login_password(message, username):
         logger.debug(f"[{chat_id}] Could not delete checking message: {e}")
 
     if not login_ok or not courses:
-        logger.warning(f"Kimlik doğrulama başarısız - Chat ID: {chat_id}")
+        log_user_action(chat_id_str, "login", status="failed", level="warning")
         bot.send_message(
             chat_id,
             "❌ Kullanıcı adı veya şifre hatalı. Lütfen bilgilerinizi kontrol edip tekrar deneyin.",
@@ -87,7 +89,7 @@ def process_login_password(message, username):
 
     update_user_data(chat_id, "username", username)
     update_user_data(chat_id, "password", password)
-    logger.info(f"Kimlik bilgileri güncellendi ve doğrulandı - Chat ID: {chat_id}")
+    log_user_action(chat_id_str, "login", status="success", details=f"username={username}")
 
     bot.send_message(
         chat_id,

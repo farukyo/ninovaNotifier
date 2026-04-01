@@ -8,6 +8,7 @@ from datetime import datetime
 from telebot import types
 
 import bot.instance as bc
+from bot.handlers.user.audit import log_user_action
 from bot.handlers.user.data_helpers import load_user_grades, load_user_profile
 from bot.instance import START_TIME
 from bot.instance import bot_instance as bot
@@ -25,14 +26,13 @@ from services.calendar.itu_calendar import ITUCalendarService
 
 logger = logging.getLogger("ninova")
 
-# ... (omitted)
-
 
 @bot.message_handler(func=lambda message: message.text == "🔙 Geri")
 def go_back_main(message):
     """
     Ana menüye dönüş sağlar.
     """
+    log_user_action(str(message.chat.id), "go_back_main")
     bot.send_message(
         message.chat.id,
         "Menüye dönüldü.",
@@ -45,6 +45,7 @@ def show_user_menu(message):
     """
     Kullanıcı ayarları alt menüsünü gösterir.
     """
+    log_user_action(str(message.chat.id), "show_user_menu")
     bot.send_message(
         message.chat.id,
         "👤 Kullanıcı Menüsü:",
@@ -55,6 +56,7 @@ def show_user_menu(message):
 @bot.message_handler(func=lambda message: message.text == "✨ Ekstra")
 def show_extra_menu(message):
     """Ekstra özellikler alt menüsünü gösterir."""
+    log_user_action(str(message.chat.id), "show_extra_menu")
     bot.send_message(
         message.chat.id,
         "✨ Ekstra Menüsü:",
@@ -69,7 +71,11 @@ def send_welcome(message):
     Güvenlik ve şeffaflık vurgusu yapar.
     """
     update_user_data(message.chat.id, "chat_id", str(message.chat.id))
-    logger.info(f"Yeni kullanıcı /start komutunu kullandı: Chat ID: {message.chat.id}")
+    log_user_action(
+        str(message.chat.id),
+        "start_command",
+        details=f"username={message.from_user.username or 'unknown'}",
+    )
 
     welcome_text = (
         "👋 <b>Ninova Not Takipçisi</b>\n\n"
@@ -154,6 +160,7 @@ def show_faq(message):
 def handle_cancel_button(message):
     """Handle cancel button press - clears any pending input and returns to menu."""
     chat_id = message.chat.id
+    log_user_action(str(chat_id), "cancel")
     bot.clear_step_handler_by_chat_id(chat_id)
     bot.send_message(
         chat_id,
@@ -190,6 +197,7 @@ def search_announcements(message):
     Ders duyurularında kelime bazlı arama yapar.
     Önce arama kelimesini sorar.
     """
+    log_user_action(str(message.chat.id), "search_start")
     prompt = bot.send_message(
         message.chat.id,
         "🔍 <b>Arama</b>\n\nHangi metni aramak istiyorsunuz? Lütfen kelimeyi yazın:",
@@ -294,6 +302,7 @@ def show_status(message):
     :param message: Kullanıcıdan gelen /durum komutu
     """
     chat_id = str(message.chat.id)
+    log_user_action(chat_id, "show_status")
     users = load_all_users()
     user_info = load_user_profile(chat_id)
 
@@ -341,7 +350,7 @@ def leave_system(message):
         types.InlineKeyboardButton("Evet, Verilerimi Sil", callback_data="leave_confirm"),
         types.InlineKeyboardButton("Hayır, Vazgeç", callback_data="leave_cancel"),
     )
-    logger.info(f"Kullanıcı sistemden ayrılmak istiyor: {message.chat.id}")
+    log_user_action(str(message.chat.id), "leave_request")
     bot.reply_to(
         message,
         "⚠️ <b>DİKKAT!</b>\n\nSistemden ayrılmak üzeresiniz. Tüm kayıtlı verileriniz ve takip listeniz kalıcı olarak silinecek. Onaylıyor musunuz?",
@@ -360,6 +369,11 @@ def show_academic_calendar(message, show_past=False, show_future=False):
     :param show_past: Geçmiş etkinlikleri de göster (default: False)
     :param show_future: 10 günden uzak etkinlikleri de göster (default: False)
     """
+    log_user_action(
+        str(message.chat.id),
+        "academic_calendar",
+        details=f"show_past={show_past};show_future={show_future}",
+    )
     bot.reply_to(message, "🔄 Akademik takvim verileri çekiliyor...")
 
     def run_fetch():

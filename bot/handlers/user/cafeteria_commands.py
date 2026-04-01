@@ -4,6 +4,7 @@ from datetime import datetime
 from telebot import types
 
 from bot.callback_parsing import callback_parse_fail, split_callback_data
+from bot.handlers.user.audit import log_user_action
 from bot.instance import bot_instance as bot
 from services.sks.scraper import get_meal_menu
 
@@ -15,6 +16,7 @@ def send_cafeteria_menu(message):
     """
     Shows the current day's cafeteria menu with a refresh button.
     """
+    log_user_action(str(message.chat.id), "cafeteria_menu")
     now = datetime.now()
     # If before 15:00, show lunch by default, else show dinner
     slot = "lunch" if now.hour < 15 else "dinner"

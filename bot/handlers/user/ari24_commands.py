@@ -1,11 +1,15 @@
+import logging
+
 from telebot import types
 
 from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
+from bot.handlers.user.audit import log_user_action
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_ari24_menu_keyboard
 from common.config import load_all_users, save_all_users
 from services.ari24.client import Ari24Client
 
+logger = logging.getLogger("ninova")
 ari24_client = Ari24Client()
 CLUBS_PER_PAGE = 10
 
@@ -13,6 +17,7 @@ CLUBS_PER_PAGE = 10
 @bot.message_handler(func=lambda message: message.text == "🐝 Arı24")
 def show_ari24_menu(message):
     chat_id = str(message.chat.id)
+    log_user_action(chat_id, "ari24_menu")
     users = load_all_users()
     user_data = users.get(chat_id, {})
     daily_sub = user_data.get("daily_subscription", False)

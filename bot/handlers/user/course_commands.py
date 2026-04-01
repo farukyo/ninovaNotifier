@@ -90,6 +90,7 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
         try:
             from datetime import datetime
 
+            from main import _record_user_error
             from services.ninova import get_class_info
 
             session = get_user_session(chat_id)
@@ -219,10 +220,6 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                             details=result.get("message", "unknown"),
                             level="warning",
                         )
-                        bot.send_message(
-                            chat_id,
-                            f"⚠️ Senkronizasyon hatası: {result.get('message')}",
-                        )
 
                 # 4. Eski dersler varsa sor
                 if expired_candidates:
@@ -258,9 +255,11 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
             else:
                 logger.warning(f"Oto Ders giriş başarısız - Chat ID: {chat_id}")
                 log_user_action(chat_id, "otoders", status="login_failed", request_id=request_id)
-                bot.send_message(
+                _record_user_error(
                     chat_id,
-                    "❌ Giriş başarısız! Lütfen kullanıcı adı ve şifrenizi kontrol edin.",
+                    "LOGIN_FAILED",
+                    "Oto ders akışında Ninova girişi başarısız",
+                    username,
                 )
         except Exception as e:
             logger.error(f"Oto Ders sırasında hata oluştu ({chat_id}): {e}")
@@ -272,7 +271,9 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                 details=str(e),
                 level="error",
             )
-            bot.send_message(chat_id, f"❌ Hata oluştu: {e!s}")
+            from main import _record_user_error
+
+            _record_user_error(chat_id, "OTODERS_EXCEPTION", str(e), username)
 
     if not submit_background_task("auto_add_courses", run_auto_add):
         log_user_action(

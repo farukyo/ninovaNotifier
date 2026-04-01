@@ -1,8 +1,10 @@
+import logging
 import time
 
 from telebot import types
 
 from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
+from bot.handlers.user.audit import log_user_action
 from bot.instance import bot_instance as bot
 from bot.keyboards import (
     build_main_keyboard,
@@ -13,6 +15,8 @@ from bot.utils import is_cancel_text
 from common.config import get_user_session, load_all_users
 from common.utils import decrypt_password, escape_html
 from services.rehber.scraper import RehberScraper
+
+logger = logging.getLogger("ninova")
 
 # Geçici hafıza: hangi chat_id hangi arama sonuçlarını (veya query'sini) tutuyor.
 REHBER_TEMP_DATA = {}
@@ -55,6 +59,7 @@ def _pop_rehber_temp(chat_id: str) -> None:
 @bot.message_handler(func=lambda message: message.text == "📞 İTÜ Rehber")
 def handle_rehber_start(message):
     chat_id = str(message.chat.id)
+    log_user_action(chat_id, "rehber_search_start")
     _set_rehber_temp(chat_id, {"ad": "", "soyad": "", "results": []})
 
     prompt = bot.send_message(

@@ -440,6 +440,11 @@ def admin_force_otoders_cmd(message):
 
         if not username or not password:
             failed_users += 1
+            from main import _record_user_error
+
+            _record_user_error(
+                chat_id, "MISSING_CREDENTIALS", "Eksik kullanıcı adı/şifre", username
+            )
             continue
 
         try:
@@ -448,6 +453,14 @@ def admin_force_otoders_cmd(message):
 
             if not login_to_ninova(session, chat_id, username, password):
                 failed_users += 1
+                from main import _record_user_error
+
+                _record_user_error(
+                    chat_id,
+                    "LOGIN_FAILED",
+                    "Admin force otoders sırasında giriş başarısız",
+                    username,
+                )
                 continue
 
             # Tüm dersleri çek
@@ -495,6 +508,9 @@ def admin_force_otoders_cmd(message):
         except Exception as e:
             logger.exception(f"[admin] force_otoders failed for user {chat_id}: {e}")
             failed_users += 1
+            from main import _record_user_error
+
+            _record_user_error(chat_id, "FORCE_OTODERS_EXCEPTION", str(e), username)
             continue
 
     # Admin'e özet bildir

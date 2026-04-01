@@ -188,6 +188,14 @@ def handle_admin_callbacks(call):
 
             if not username or not password:
                 failed += 1
+                from main import _record_user_error
+
+                _record_user_error(
+                    target_chat_id,
+                    "MISSING_CREDENTIALS",
+                    "Eksik kullanıcı adı/şifre",
+                    username,
+                )
                 continue
 
             try:
@@ -196,6 +204,14 @@ def handle_admin_callbacks(call):
 
                 if not login_to_ninova(session, target_chat_id, username, password):
                     failed += 1
+                    from main import _record_user_error
+
+                    _record_user_error(
+                        target_chat_id,
+                        "LOGIN_FAILED",
+                        "Admin forceoto callback sırasında giriş başarısız",
+                        username,
+                    )
                     continue
 
                 # Tüm dersleri çek
@@ -253,6 +269,9 @@ def handle_admin_callbacks(call):
             except Exception as e:
                 logger.exception(f"[admin] forceoto failed for user {target_chat_id}: {e}")
                 failed += 1
+                from main import _record_user_error
+
+                _record_user_error(target_chat_id, "FORCEOTO_EXCEPTION", str(e), username)
                 continue
 
         # Admin'e özet bildir
