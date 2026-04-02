@@ -3,6 +3,7 @@ Ders yönetimi komutları.
 """
 
 import logging
+import sys
 
 from telebot import types
 
@@ -11,10 +12,43 @@ from bot.handlers.user.data_helpers import load_user_profile, load_user_snapshot
 from bot.instance import bot_instance as bot
 from common.background_tasks import submit_background_task
 from common.config import get_user_session
-from common.utils import decrypt_password, load_saved_grades, split_long_message, update_user_data
+from common.utils import (
+    decrypt_password,
+    escape_html,
+    load_saved_grades,
+    split_long_message,
+    update_user_data,
+)
 from services.ninova import get_user_courses, login_to_ninova
 
 logger = logging.getLogger("ninova")
+
+
+def _resolve_main_callable(name: str):
+    """Get callable from active runtime module first, then fallback import.
+
+    This avoids re-import side effects when app is started as `python main.py`.
+    """
+    runtime_main = sys.modules.get("__main__")
+    candidate = getattr(runtime_main, name, None) if runtime_main else None
+    if callable(candidate):
+        return candidate
+
+    imported_main = sys.modules.get("main")
+    if imported_main is None:
+        import main as imported_main
+
+    fallback = getattr(imported_main, name, None)
+    return fallback if callable(fallback) else None
+
+
+@bot.message_handler(commands=["otoders"])
+def run_otoders_command(message):
+    """Handle /otoders command by starting the auto-add flow."""
+    trigger_auto_add_courses(
+        str(message.chat.id),
+        start_message="⏳ Oto Ders başlatıldı: dersleriniz otomatik olarak senkronize ediliyor...",
+    )
 
 
 @bot.message_handler(func=lambda message: message.text == "📖 Dersler")
@@ -78,8 +112,10 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
         try:
             from datetime import datetime
 
-            from main import _record_user_error
             from services.ninova import get_class_info
+
+            record_user_error = _resolve_main_callable("_record_user_error")
+            check_user_updates_fn = _resolve_main_callable("check_user_updates")
 
             session = get_user_session(chat_id)
             if login_to_ninova(session, chat_id, username, password):
@@ -130,7 +166,8 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                     # Eğer kullanıcı daha önce eklemişse (URL listesinde varsa) tekrar sormaya gerek yok
                     # Ama yukarıdaki if bunu check ediyor zaten.
 
-                    class_info = get_class_info(session, url)
+                    # If class detail parsing fails for a single course, keep flow alive.
+                    class_info = get_class_info(session, url) or {}
                     end_date = class_info.get("end_date")
 
                     is_expired = False
@@ -164,13 +201,13 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                 if already_in_data:
                     response += "✅ <b>Zaten Ekli Dersler:</b>\n"
                     for name in already_in_data:
-                        response += f"  • {name}\n"
+                        response += f"  • {escape_html(name)}\n"
                     response += "\n"
 
                 if active_to_add:
                     response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
                     for c in active_to_add:
-                        response += f"  ➕ {c['name']}\n"
+                        response += f"  ➕ {escape_html(c['name'])}\n"
                     response += "\n🔄 Yeni dersler için senkronizasyon yapılıyor...\n"
 
                 if not active_to_add and not already_in_data and not expired_candidates:
@@ -178,13 +215,15 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
 
                 chunks = split_long_message(response)
                 for chunk in chunks:
-                    bot.send_message(chat_id, chunk, parse_mode="HTML")
+                    try:
+                        bot.send_message(chat_id, chunk, parse_mode="HTML")
+                    except Exception:
+                        # Fallback to plain text if Telegram rejects HTML payload.
+                        bot.send_message(chat_id, chunk)
 
                 # 3. Aktif dersler için senkronizasyon
-                if active_to_add:
-                    from main import check_user_updates
-
-                    result = check_user_updates(chat_id, silent=True, request_id=request_id)
+                if active_to_add and check_user_updates_fn:
+                    result = check_user_updates_fn(chat_id, silent=True, request_id=request_id)
                     if result.get("success"):
                         log_user_action(
                             chat_id,
@@ -208,6 +247,14 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                             details=result.get("message", "unknown"),
                             level="warning",
                         )
+                elif active_to_add and not check_user_updates_fn:
+                    log_user_action(
+                        chat_id,
+                        "otoders_sync",
+                        status="missing_sync_handler",
+                        request_id=request_id,
+                        level="warning",
+                    )
 
                 # 4. Eski dersler varsa sor
                 if expired_candidates:
@@ -243,12 +290,13 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
             else:
                 logger.warning(f"Oto Ders giriş başarısız - Chat ID: {chat_id}")
                 log_user_action(chat_id, "otoders", status="login_failed", request_id=request_id)
-                _record_user_error(
-                    chat_id,
-                    "LOGIN_FAILED",
-                    "Oto ders akışında Ninova girişi başarısız",
-                    username,
-                )
+                if record_user_error:
+                    record_user_error(
+                        chat_id,
+                        "LOGIN_FAILED",
+                        "Oto ders akışında Ninova girişi başarısız",
+                        username,
+                    )
         except Exception as e:
             logger.error(f"Oto Ders sırasında hata oluştu ({chat_id}): {e}")
             log_user_action(
@@ -259,9 +307,13 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                 details=str(e),
                 level="error",
             )
-            from main import _record_user_error
-
-            _record_user_error(chat_id, "OTODERS_EXCEPTION", str(e), username)
+            record_user_error = _resolve_main_callable("_record_user_error")
+            if record_user_error:
+                record_user_error(chat_id, "OTODERS_EXCEPTION", str(e), username)
+            bot.send_message(
+                chat_id,
+                "⚠️ Oto Ders sırasında bir hata oluştu. Lütfen /otoders ile tekrar deneyin.",
+            )
 
     if not submit_background_task("auto_add_courses", run_auto_add):
         log_user_action(

@@ -15,7 +15,7 @@ from bot.instance import bot_instance as bot
 from common.background_tasks import submit_background_task
 from common.utils import split_long_message
 
-from .course_commands import interactive_menu
+from .course_commands import _resolve_main_callable, interactive_menu
 
 logger = logging.getLogger("ninova")
 
@@ -287,7 +287,17 @@ def kontrol_command_handler(message):
     )
 
     def run_user_check():
-        from main import check_user_updates
+        check_user_updates = _resolve_main_callable("check_user_updates")
+        if not check_user_updates:
+            log_user_action(
+                chat_id,
+                "manual_check",
+                status="missing_check_handler",
+                request_id=request_id,
+                level="warning",
+            )
+            bot.send_message(chat_id, "⚠️ Kontrol servisi hazır değil. Lütfen tekrar deneyin.")
+            return
 
         result = check_user_updates(chat_id, request_id=request_id)
         if result.get("success"):
@@ -329,7 +339,10 @@ def manual_check(message):
     chat_id = str(message.chat.id)
     bot.reply_to(message, "🔄 Kontrol başlatılıyor, lütfen bekleyin...")
 
-    from main import check_user_updates
+    check_user_updates = _resolve_main_callable("check_user_updates")
+    if not check_user_updates:
+        bot.send_message(chat_id, "⚠️ Kontrol servisi hazır değil. Lütfen tekrar deneyin.")
+        return
 
     result = check_user_updates(chat_id)
 
