@@ -506,19 +506,21 @@ def get_all_files(session, base_url):
 
     # Sınıf dosyaları
     sinif_files = get_class_files(session, base_url, file_type="SinifDosyalari")
-    if sinif_files is None:
-        return None
-    for f in sinif_files:
-        f["source"] = "Sınıf"
-    all_files.extend(sinif_files)
+    if sinif_files is not None:
+        for f in sinif_files:
+            f["source"] = "Sınıf"
+        all_files.extend(sinif_files)
 
     # Ders dosyaları
     ders_files = get_class_files(session, base_url, file_type="DersDosyalari")
-    if ders_files is None:
+    if ders_files is not None:
+        for f in ders_files:
+            f["source"] = "Ders"
+        all_files.extend(ders_files)
+
+    # Her iki uç nokta da başarısızsa üst akış fetch_success=False olarak işaretlesin.
+    if sinif_files is None and ders_files is None:
         return None
-    for f in ders_files:
-        f["source"] = "Ders"
-    all_files.extend(ders_files)
 
     return all_files
 

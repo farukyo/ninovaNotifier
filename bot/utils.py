@@ -110,12 +110,18 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
             logger.warning(f"show_file_browser edit failed ({chat_id}): {e}")
         return
 
+    source_folder_map = {
+        "Sınıf": "Sınıf Dosyaları",
+        "Ders": "Ders Dosyaları",
+    }
+
     folders = set()
     file_entries = []
     prefix_len = len(path_segments)
 
     for real_idx, file in enumerate(files):
-        segments = file.get("name", "").split("/")
+        source_folder = source_folder_map.get(file.get("source"), "Diğer Dosyalar")
+        segments = [source_folder, *file.get("name", "").split("/")]
         if len(segments) <= prefix_len:
             continue
         if segments[:prefix_len] != path_segments:
