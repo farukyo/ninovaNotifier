@@ -78,5 +78,7 @@ def setup_logging(logs_dir: Path) -> DailyFileHandler:
     cleanup_old_logs(logs_dir)
     handler = DailyFileHandler(logs_dir, encoding="utf-8")
     handler.setFormatter(_JsonFormatter())
-    logging.basicConfig(level=logging.INFO, handlers=[handler])
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
     return handler
