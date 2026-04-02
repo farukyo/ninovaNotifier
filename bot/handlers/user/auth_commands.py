@@ -89,6 +89,7 @@ def process_login_password(message, username):
 
     update_user_data(chat_id, "username", username)
     update_user_data(chat_id, "password", password)
+    update_user_data(chat_id, "daily_subscription", True)
     log_user_action(chat_id_str, "login", status="success", details=f"username={username}")
 
     bot.send_message(

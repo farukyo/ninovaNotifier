@@ -38,8 +38,10 @@ def download_file(
                 else:
                     filename = cd.split("filename=")[1].split(";")[0].strip()
 
-            # Clean filename
-            filename = "".join([c for c in filename if c.isalnum() or c in "._- "]).strip()
+            # Clean filename — remove only filesystem/path-unsafe chars, preserve Unicode (Turkish)
+            filename = "".join(c for c in filename if c not in '<>:"/\\|?*\x00').strip()
+            if not filename:
+                filename = "document.bin"
 
             if to_buffer:
                 buffer = io.BytesIO()

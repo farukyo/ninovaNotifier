@@ -358,6 +358,11 @@ def check_daily_bulletin():
             if len(upcoming_events) > 15:
                 bulletin_message += f"<i>... ve {len(upcoming_events) - 15} etkinlik daha.</i>\n"
 
+        bulletin_message += (
+            "\n\n🔔 Belirli kulüplerin etkinliklerini takip etmek için - <i>Arı24 → Abone Ol</i>\n"
+            "<i>Günlük bülteni kapatmak için - Arı24 → Günlük Bülten</i>"
+        )
+
         users = load_all_users()
         for chat_id, user_data in users.items():
             if user_data.get("daily_subscription", False):
@@ -397,7 +402,8 @@ def _compare_course_data(
     :param include_console_log: Rich console'a log yazılsın mı
     :param username: Kullanıcı adı (console log için)
     :param changes_table: Rich Table nesnesi (console log için)
-    :return: (sections_changes, change_descriptions) tuple
+    :return: (sections_changes, change_descriptions, new_file_entries) tuple
+        new_file_entries: list of (file_idx, file_name) for newly added files
     """
     if not isinstance(saved_data, dict):
         saved_data = {}
@@ -414,6 +420,7 @@ def _compare_course_data(
 
     sections_changes = []
     changes = []
+    new_file_entries = []  # (file_idx, file_name) for newly added files
 
     # --- 1. NOT KONTROLÜ ---
     for key, entry in current_grades.items():
@@ -533,17 +540,14 @@ def _compare_course_data(
 
     # --- 3. DOSYA KONTROLÜ ---
     saved_file_map = {f.get("url"): f for f in saved_files}
-    for file in current_files:
+    for file_idx, file in enumerate(current_files):
         f_url = file["url"]
         if f_url not in saved_file_map:
-            e_file_name = escape_html(file["name"])
-            icon = get_file_icon(file["name"].split("/")[-1])
-            sections_changes.append(
-                f"{icon} <b>YENİ DOSYA:</b> <a href='{f_url}'>{e_file_name}</a>"
-            )
-            changes.append(f"YENİ DOSYA: {file['name']}")
+            file_name = file["name"]
+            new_file_entries.append((file_idx, file_name))
+            changes.append(f"YENİ DOSYA: {file_name}")
             if include_console_log and changes_table:
-                changes_table.add_row(username, course_name, f"📎 Yeni Dosya: {file['name']}")
+                changes_table.add_row(username, course_name, f"📎 Yeni Dosya: {file_name}")
         else:
             saved_file = saved_file_map[f_url]
             name_changed = file["name"] != saved_file.get("name")
@@ -624,7 +628,7 @@ def _compare_course_data(
                 sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_title}")
                 changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
 
-    return sections_changes, changes
+    return sections_changes, changes, new_file_entries
 
 
 def check_user_updates(
@@ -756,16 +760,21 @@ def check_user_updates(
             time.sleep(0.2)
 
     # Değişiklikleri kontrol et — ortak fonksiyon kullan
+    new_file_notifications = []  # (course_url, course_name, file_idx, file_name)
+
     for url, current_data in all_current_grades.items():
         course_name = current_data.get("course_name", "Bilinmeyen Ders")
         saved_data = user_saved_grades.get(url, {})
         e_course = escape_html(course_name)
 
-        sections_changes, changes = _compare_course_data(
+        sections_changes, changes, new_file_entries = _compare_course_data(
             current_data, saved_data, user_session, course_name
         )
 
         all_changes.extend(changes)
+
+        for file_idx, file_name in new_file_entries:
+            new_file_notifications.append((url, course_name, file_idx, file_name))
 
         if sections_changes and not silent:
             msg = f"📚 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
@@ -788,9 +797,41 @@ def check_user_updates(
     if all_changes:
         saved_grades[chat_id] = user_saved_grades
         save_grades(saved_grades)
+        urls_list = list(user_saved_grades.keys())
         for t_msg in telegram_messages:
             send_telegram_message(chat_id, t_msg)
             time.sleep(1)
+        if not silent and new_file_notifications:
+            from telebot import types as tg_types
+
+            for course_url, file_course_name, file_idx, file_name in new_file_notifications:
+                try:
+                    url_idx = urls_list.index(course_url)
+                except ValueError:
+                    continue
+                basename = file_name.split("/")[-1]
+                icon = get_file_icon(basename)
+                markup = tg_types.InlineKeyboardMarkup()
+                markup.add(
+                    tg_types.InlineKeyboardButton(
+                        "📥 İndir", callback_data=f"dl_{url_idx}_{file_idx}"
+                    )
+                )
+                text = (
+                    f"📚 <b>{escape_html(file_course_name)}</b>\n"
+                    f"{icon} <b>YENİ DOSYA:</b> {escape_html(basename)}"
+                )
+                try:
+                    bot.send_message(
+                        chat_id,
+                        text,
+                        reply_markup=markup,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True,
+                    )
+                except Exception as e:
+                    logger.error(f"File notification send error for {chat_id}: {e}")
+                time.sleep(1)
 
     # Kullanıcı verilerini kaydet
     save_all_users(users)
@@ -929,12 +970,13 @@ def check_for_updates():
             error_tracker.record_success(chat_id, username)
 
         # Ortak fonksiyon ile değişiklikleri kontrol et
+        new_file_notifications = []  # (course_url, course_name, file_idx, file_name)
         for url, current_data in all_current_grades.items():
             course_name = current_data.get("course_name", "Bilinmeyen Ders")
             saved_data = user_saved_grades.get(url, {})
             e_course = escape_html(course_name)
 
-            sections_changes, changes = _compare_course_data(
+            sections_changes, changes, new_file_entries = _compare_course_data(
                 current_data,
                 saved_data,
                 user_session,
@@ -946,6 +988,9 @@ def check_for_updates():
             )
 
             all_changes.extend(changes)
+
+            for file_idx, file_name in new_file_entries:
+                new_file_notifications.append((url, course_name, file_idx, file_name))
 
             if sections_changes:
                 msg = f"📚 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
@@ -978,6 +1023,39 @@ def check_for_updates():
 
             saved_grades[chat_id] = user_saved_grades
             save_grades(saved_grades)
+
+            if new_file_notifications:
+                from telebot import types as tg_types
+
+                urls_list = list(user_saved_grades.keys())
+                for course_url, file_course_name, file_idx, file_name in new_file_notifications:
+                    try:
+                        url_idx = urls_list.index(course_url)
+                    except ValueError:
+                        continue
+                    basename = file_name.split("/")[-1]
+                    icon = get_file_icon(basename)
+                    markup = tg_types.InlineKeyboardMarkup()
+                    markup.add(
+                        tg_types.InlineKeyboardButton(
+                            "📥 İndir", callback_data=f"dl_{url_idx}_{file_idx}"
+                        )
+                    )
+                    text = (
+                        f"📚 <b>{escape_html(file_course_name)}</b>\n"
+                        f"{icon} <b>YENİ DOSYA:</b> {escape_html(basename)}"
+                    )
+                    try:
+                        bot.send_message(
+                            chat_id,
+                            text,
+                            reply_markup=markup,
+                            parse_mode="HTML",
+                            disable_web_page_preview=True,
+                        )
+                    except Exception as e:
+                        logger.error(f"File notification send error for {chat_id}: {e}")
+                    time.sleep(1)
         elif SHOW_VERBOSE_TERMINAL:
             console.print(f"[dim]Değişiklik yok ({chat_id})")
 

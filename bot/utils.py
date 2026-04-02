@@ -98,13 +98,16 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
         markup.add(
             types.InlineKeyboardButton("↩️ Ders menüsüne dön", callback_data=f"crs_{course_idx}")
         )
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"🎓 <b>{course_name}</b>\n<i>Dosya bulunamadı.</i>",
-            parse_mode="HTML",
-            reply_markup=markup,
-        )
+        try:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=f"🎓 <b>{course_name}</b>\n<i>Dosya bulunamadı.</i>",
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        except Exception as e:
+            logger.warning(f"show_file_browser edit failed ({chat_id}): {e}")
         return
 
     folders = set()
@@ -158,11 +161,14 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
         "(İndirmek için dosyaya tıklayın)"
     )
 
-    bot.edit_message_text(
-        chat_id=chat_id,
-        message_id=message_id,
-        text=response,
-        reply_markup=markup,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    try:
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=response,
+            reply_markup=markup,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    except Exception as e:
+        logger.warning(f"show_file_browser edit failed ({chat_id}): {e}")
