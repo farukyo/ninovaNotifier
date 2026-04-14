@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from bot.instance import bot_instance as bot
+from bot.keyboards import build_main_keyboard
 from common.config import (
     DATA_FILE,
     LOGS_DIR,
@@ -355,6 +356,16 @@ def handle_admin_text(message):
 
     state = get_admin_state(chat_id)
     if not state:
+        return
+
+    text = (message.text or "").strip()
+    if text in {"🔙 Geri", "⛔ İptal"}:
+        pop_admin_state(chat_id)
+        bot.send_message(
+            chat_id,
+            "✅ Admin işlem modu kapatıldı. Ana menüye dönüldü.",
+            reply_markup=build_main_keyboard(),
+        )
         return
 
     # State'i temizle
