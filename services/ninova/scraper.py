@@ -11,6 +11,19 @@ from .auth import LoginFailedError, login_to_ninova
 logger = logging.getLogger("ninova")
 
 
+def _looks_like_login_page(html: str, url: str = "") -> bool:
+    """Detect when Ninova returned the login form instead of course content."""
+    html_lower = html.lower()
+    url_lower = url.lower()
+    return (
+        "login.aspx" in url_lower
+        or "ctl00_contentplaceholder1_tbusername" in html_lower
+        or "ctl00$contentplaceholder1$tbusername" in html_lower
+        or "ctl00_contentplaceholder1_btnlogin" in html_lower
+        or "ctl00$contentplaceholder1$btnlogin" in html_lower
+    )
+
+
 def get_announcements(session, base_url):
     """
     Sınıf duyurularını çeker.
@@ -36,6 +49,9 @@ def get_announcements(session, base_url):
     try:
         response = session.get(url, timeout=20)
         if response.status_code != 200:
+            return None
+        if _looks_like_login_page(response.text, response.url):
+            logger.warning("Duyuru listesi için login sayfası döndü; oturum muhtemelen düşmüş.")
             return None
         soup = BeautifulSoup(response.text, "html.parser")
         announcements = []
@@ -244,6 +260,9 @@ def get_assignments(session, base_url):
         response = session.get(url, timeout=20)
         if response.status_code != 200:
             return None
+        if _looks_like_login_page(response.text, response.url):
+            logger.warning("Ödev listesi için login sayfası döndü; oturum muhtemelen düşmüş.")
+            return None
         soup = BeautifulSoup(response.text, "html.parser")
         assignments = []
 
@@ -418,6 +437,9 @@ def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type
         response = session.get(url, timeout=20)
         if response.status_code != 200:
             return None
+        if _looks_like_login_page(response.text, response.url):
+            logger.warning("Dosya listesi için login sayfası döndü; oturum muhtemelen düşmüş.")
+            return None
         soup = BeautifulSoup(response.text, "html.parser")
 
         # dosyaSistemi div içindeki table'ı bul
@@ -546,6 +568,9 @@ def get_user_courses(session):
         # Kampus sayfasına git (Kampus1'e redirect oluyor)
         # NOT: timestamp eklemeyin, 404 veriyor!
         resp = session.get("https://ninova.itu.edu.tr/Kampus", timeout=20, allow_redirects=True)
+        if _looks_like_login_page(resp.text, resp.url):
+            logger.error("Ders listesi çekilirken oturumun kapalı olduğu fark edildi.")
+            return []
         soup = BeautifulSoup(resp.text, "html.parser")
 
         tree_div = soup.find("div", {"class": "menuErisimAgaci"})
@@ -662,6 +687,11 @@ def get_grades(session, base_url, chat_id, username, password):
                 raise
 
         if response.status_code != 200:
+            return None
+        if _looks_like_login_page(response.text, response.url):
+            logger.warning(
+                f"[{chat_id}] Not listesi için login sayfası döndü; oturum muhtemelen düşmüş."
+            )
             return None
         soup = BeautifulSoup(response.text, "html.parser")
         course_name = "Bilinmeyen Ders"
