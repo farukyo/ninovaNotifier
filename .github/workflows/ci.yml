@@ -87,7 +87,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             cd ${{ secrets.VPS_APP_PATH }}
             git pull origin main
-            uv sync
+            /home/faruk/.local/bin/uv sync
             pm2 restart ninova-bot
