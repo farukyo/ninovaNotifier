@@ -4,6 +4,8 @@ import re
 from bs4 import BeautifulSoup
 
 from common.config import console
+from common.http_logging import http_request
+from common.log_context import log_with_context
 from common.utils import sanitize_html_for_telegram
 
 from .auth import LoginFailedError, login_to_ninova
@@ -47,11 +49,23 @@ def get_announcements(session, base_url):
     """
     url = f"{base_url}/Duyurular"
     try:
-        response = session.get(url, timeout=20)
+        response = http_request(
+            logger,
+            session,
+            "GET",
+            url,
+            action="ninova_fetch_announcements",
+            timeout=20,
+        )
         if response.status_code != 200:
             return None
         if _looks_like_login_page(response.text, response.url):
-            logger.warning("Duyuru listesi için login sayfası döndü; oturum muhtemelen düşmüş.")
+            log_with_context(
+                logger,
+                "warning",
+                "Duyuru listesi için login sayfası döndü; oturum muhtemelen düşmüş.",
+                action="ninova_fetch_announcements",
+            )
             return None
         soup = BeautifulSoup(response.text, "html.parser")
         announcements = []
@@ -130,7 +144,14 @@ def get_announcement_detail(session, url):
     </div>
     """
     try:
-        response = session.get(url, timeout=20)
+        response = http_request(
+            logger,
+            session,
+            "GET",
+            url,
+            action="ninova_fetch_announcement_detail",
+            timeout=20,
+        )
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -180,7 +201,14 @@ def get_assignment_detail(session, url):
     - Teslim edilmemiş: href içinde "OdevGonder" veya "Ödevi Yükle" butonu
     """
     try:
-        response = session.get(url, timeout=20)
+        response = http_request(
+            logger,
+            session,
+            "GET",
+            url,
+            action="ninova_fetch_assignment_detail",
+            timeout=20,
+        )
         if response.status_code != 200:
             return None
 
@@ -257,11 +285,23 @@ def get_assignments(session, base_url):
     """
     url = f"{base_url}/Odevler"
     try:
-        response = session.get(url, timeout=20)
+        response = http_request(
+            logger,
+            session,
+            "GET",
+            url,
+            action="ninova_fetch_assignments",
+            timeout=20,
+        )
         if response.status_code != 200:
             return None
         if _looks_like_login_page(response.text, response.url):
-            logger.warning("Ödev listesi için login sayfası döndü; oturum muhtemelen düşmüş.")
+            log_with_context(
+                logger,
+                "warning",
+                "Ödev listesi için login sayfası döndü; oturum muhtemelen düşmüş.",
+                action="ninova_fetch_assignments",
+            )
             return None
         soup = BeautifulSoup(response.text, "html.parser")
         assignments = []
@@ -434,11 +474,23 @@ def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type
     url = sub_url or f"{base_url}/{file_type}"
 
     try:
-        response = session.get(url, timeout=20)
+        response = http_request(
+            logger,
+            session,
+            "GET",
+            url,
+            action="ninova_fetch_files",
+            timeout=20,
+        )
         if response.status_code != 200:
             return None
         if _looks_like_login_page(response.text, response.url):
-            logger.warning("Dosya listesi için login sayfası döndü; oturum muhtemelen düşmüş.")
+            log_with_context(
+                logger,
+                "warning",
+                "Dosya listesi için login sayfası döndü; oturum muhtemelen düşmüş.",
+                action="ninova_fetch_files",
+            )
             return None
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -567,9 +619,22 @@ def get_user_courses(session):
     try:
         # Kampus sayfasına git (Kampus1'e redirect oluyor)
         # NOT: timestamp eklemeyin, 404 veriyor!
-        resp = session.get("https://ninova.itu.edu.tr/Kampus", timeout=20, allow_redirects=True)
+        resp = http_request(
+            logger,
+            session,
+            "GET",
+            "https://ninova.itu.edu.tr/Kampus",
+            action="ninova_fetch_courses",
+            timeout=20,
+            allow_redirects=True,
+        )
         if _looks_like_login_page(resp.text, resp.url):
-            logger.error("Ders listesi çekilirken oturumun kapalı olduğu fark edildi.")
+            log_with_context(
+                logger,
+                "error",
+                "Ders listesi çekilirken oturumun kapalı olduğu fark edildi.",
+                action="ninova_fetch_courses",
+            )
             return []
         soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -578,7 +643,12 @@ def get_user_courses(session):
         if not tree_div:
             # Belki login sayfası geri geldi?
             if "Login.aspx" in resp.url or "Giriş" in resp.text:
-                logger.error("Ders listesi çekilirken oturumun kapalı olduğu fark edildi.")
+                log_with_context(
+                    logger,
+                    "error",
+                    "Ders listesi çekilirken oturumun kapalı olduğu fark edildi.",
+                    action="ninova_fetch_courses",
+                )
             return []
 
         courses = []
@@ -669,12 +739,30 @@ def get_grades(session, base_url, chat_id, username, password):
     """
     url = f"{base_url}/Notlar"
     try:
-        response = session.get(url, timeout=20, allow_redirects=False)
+        response = http_request(
+            logger,
+            session,
+            "GET",
+            url,
+            action="ninova_fetch_grades",
+            chat_id=str(chat_id),
+            timeout=20,
+            allow_redirects=False,
+        )
         if response.status_code == 302:
             console.print(f"[cyan]Oturum yenileniyor... ({chat_id})")
             try:
                 if login_to_ninova(session, chat_id, username, password, quiet=True):
-                    response = session.get(url, timeout=20, allow_redirects=False)
+                    response = http_request(
+                        logger,
+                        session,
+                        "GET",
+                        url,
+                        action="ninova_fetch_grades",
+                        chat_id=str(chat_id),
+                        timeout=20,
+                        allow_redirects=False,
+                    )
                     if response.status_code == 302:
                         raise LoginFailedError(
                             "SESSION_ERROR",
@@ -689,8 +777,12 @@ def get_grades(session, base_url, chat_id, username, password):
         if response.status_code != 200:
             return None
         if _looks_like_login_page(response.text, response.url):
-            logger.warning(
-                f"[{chat_id}] Not listesi için login sayfası döndü; oturum muhtemelen düşmüş."
+            log_with_context(
+                logger,
+                "warning",
+                "Not listesi için login sayfası döndü; oturum muhtemelen düşmüş.",
+                chat_id=str(chat_id),
+                action="ninova_fetch_grades",
             )
             return None
         soup = BeautifulSoup(response.text, "html.parser")
@@ -859,7 +951,14 @@ def get_class_info(session, class_url):
 
     url = f"{class_url}/SinifBilgileri"
     try:
-        response = session.get(url, timeout=20)
+        response = http_request(
+            logger,
+            session,
+            "GET",
+            url,
+            action="ninova_fetch_class_info",
+            timeout=20,
+        )
         if response.status_code != 200:
             return {}
 

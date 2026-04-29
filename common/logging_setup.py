@@ -11,6 +11,32 @@ from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
+from common.log_context import get_log_context
+
+_EXTRA_FIELDS = (
+    "chat_id",
+    "action",
+    "request_id",
+    "http_method",
+    "http_url",
+    "http_status",
+    "http_elapsed_ms",
+    "retry_count",
+    "error_stage",
+    "callback_data_len",
+)
+
+
+class _ContextFilter(logging.Filter):
+    """Inject shared context fields into log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        context = get_log_context()
+        for key, value in context.items():
+            if value is not None and not hasattr(record, key):
+                setattr(record, key, value)
+        return True
+
 
 class _JsonFormatter(logging.Formatter):
     """Her log satırını tek satır JSON olarak formatlar."""
@@ -21,7 +47,16 @@ class _JsonFormatter(logging.Formatter):
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
+            "module": record.module,
+            "func": record.funcName,
+            "line": record.lineno,
+            "thread": record.threadName,
+            "process": record.process,
         }
+        for key in _EXTRA_FIELDS:
+            value = getattr(record, key, None)
+            if value is not None:
+                entry[key] = value
         if record.exc_info:
             entry["exc"] = self.formatException(record.exc_info)
         return json.dumps(entry, ensure_ascii=False)
@@ -78,7 +113,10 @@ def setup_logging(logs_dir: Path) -> DailyFileHandler:
     cleanup_old_logs(logs_dir)
     handler = DailyFileHandler(logs_dir, encoding="utf-8")
     handler.setFormatter(_JsonFormatter())
+    handler.addFilter(_ContextFilter())
     root = logging.getLogger()
     root.setLevel(logging.INFO)
-    root.addHandler(handler)
+    if not any(isinstance(h, DailyFileHandler) for h in root.handlers):
+        root.addHandler(handler)
+    root.addFilter(_ContextFilter())
     return handler

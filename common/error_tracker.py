@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from common.config import ADMIN_TELEGRAM_IDS, DATA_DIR, atomic_json_write, load_all_users
+from common.log_context import log_with_context
 from common.utils import send_telegram_message
 
 logger = logging.getLogger("ninova")
@@ -33,9 +34,13 @@ def _empty_entry() -> dict:
         "error_count": 0,
         "last_error_type": None,
         "last_error_details": None,
+        "last_error_stage": None,
+        "last_error_url": None,
         "user_notification_sent": False,
         "admin_notification_sent": False,
         "last_check_time": datetime.now().isoformat(),
+        "last_success_time": None,
+        "last_success_url": None,
     }
 
 
@@ -69,7 +74,15 @@ def _save() -> None:
         atomic_json_write(_ERROR_TRACKER_FILE, _tracker)
 
 
-def record_error(chat_id: str, error_type: str, error_details: str, username: str = "") -> None:
+def record_error(
+    chat_id: str,
+    error_type: str,
+    error_details: str,
+    username: str = "",
+    *,
+    error_stage: str | None = None,
+    last_url: str | None = None,
+) -> None:
     """Hata sayacını artırır; eşiklere göre bildirim gönderir."""
     if chat_id not in _tracker:
         _tracker[chat_id] = _empty_entry()
@@ -78,16 +91,19 @@ def record_error(chat_id: str, error_type: str, error_details: str, username: st
     entry["error_count"] += 1
     entry["last_error_type"] = error_type
     entry["last_error_details"] = error_details
+    entry["last_error_stage"] = error_stage
     entry["last_check_time"] = datetime.now().isoformat()
+    if last_url:
+        entry["last_error_url"] = last_url
 
     error_count = entry["error_count"]
-    logger.warning(
-        "[error_tracker] user=%s (%s) | error_count=%d | type=%s | details=%s",
-        chat_id,
-        username,
-        error_count,
-        error_type,
-        error_details,
+    log_with_context(
+        logger,
+        "warning",
+        f"[error_tracker] error recorded: type={error_type} details={error_details}",
+        chat_id=chat_id,
+        action="error_tracker",
+        error_stage=error_stage,
     )
 
     if error_count >= ERROR_THRESHOLD_ADMIN and not entry["admin_notification_sent"]:
@@ -98,11 +114,12 @@ def record_error(chat_id: str, error_type: str, error_details: str, username: st
             f"📝 <b>Detay:</b> {entry['last_error_details']}\n"
             f"🕐 <b>Saat:</b> {entry['last_check_time']}"
         )
-        logger.error(
-            "[error_tracker] Admin bildirim gönderiliyor: user=%s (%s), error_count=%d",
-            chat_id,
-            username,
-            error_count,
+        log_with_context(
+            logger,
+            "error",
+            "[error_tracker] Admin bildirimi gonderiliyor",
+            chat_id=chat_id,
+            action="error_tracker",
         )
         for admin_id in ADMIN_TELEGRAM_IDS:
             if admin_id:
@@ -117,11 +134,12 @@ def record_error(chat_id: str, error_type: str, error_details: str, username: st
             "Eğer şifreniz değişmediyse, Ninova sistemi düzeldiğinde otomatik olarak "
             "mesaj alacaksınız."
         )
-        logger.info(
-            "[error_tracker] Kullanıcıya bilgilendirme gönderiliyor: user=%s (%s), error_count=%d",
-            chat_id,
-            username,
-            error_count,
+        log_with_context(
+            logger,
+            "info",
+            "[error_tracker] Kullanici bilgilendirme gonderiliyor",
+            chat_id=chat_id,
+            action="error_tracker",
         )
         send_telegram_message(chat_id, user_msg)
         entry["user_notification_sent"] = True
@@ -129,7 +147,12 @@ def record_error(chat_id: str, error_type: str, error_details: str, username: st
     _save()
 
 
-def record_success(chat_id: str, username: str = "") -> None:
+def record_success(
+    chat_id: str,
+    username: str = "",
+    *,
+    last_url: str | None = None,
+) -> None:
     """Başarılı kontrol sonrası sayacı sıfırlar; gerekirse 'düzeldi' mesajı gönderir."""
     if chat_id not in _tracker:
         return
@@ -139,11 +162,12 @@ def record_success(chat_id: str, username: str = "") -> None:
         return
 
     prev_count = entry["error_count"]
-    logger.info(
-        "[error_tracker] Sorun düzeldi: user=%s (%s), önceki error_count=%d",
-        chat_id,
-        username,
-        prev_count,
+    log_with_context(
+        logger,
+        "info",
+        "[error_tracker] Sorun duzeldi",
+        chat_id=chat_id,
+        action="error_tracker",
     )
 
     if entry.get("user_notification_sent"):
@@ -153,10 +177,12 @@ def record_success(chat_id: str, username: str = "") -> None:
             "Ninova bağlantısı başarıyla sağlandı. "
             "Normal bildirimler yeniden başlayacaktır.",
         )
-        logger.info(
-            "[error_tracker] Kullanıcıya düzeldi bildirimi gönderildi: user=%s (%s)",
-            chat_id,
-            username,
+        log_with_context(
+            logger,
+            "info",
+            "[error_tracker] Kullaniciya duzeldi bildirimi gonderildi",
+            chat_id=chat_id,
+            action="error_tracker",
         )
 
     if entry.get("admin_notification_sent"):
@@ -173,6 +199,9 @@ def record_success(chat_id: str, username: str = "") -> None:
 
     _tracker[chat_id] = _empty_entry()
     _tracker[chat_id]["last_check_time"] = datetime.now().isoformat()
+    _tracker[chat_id]["last_success_time"] = datetime.now().isoformat()
+    if last_url:
+        _tracker[chat_id]["last_success_url"] = last_url
     _save()
 
 

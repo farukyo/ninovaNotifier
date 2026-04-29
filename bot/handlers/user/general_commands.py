@@ -314,7 +314,7 @@ def show_status(message):
 
     course_count = len(user_info.get("urls", []))
     username = user_info.get("username")
-    user_display = username if username else "❌"
+    user_display = username or "❌"
     has_pass = "✅" if user_info.get("password") else "❌"
 
     uptime = datetime.now() - START_TIME

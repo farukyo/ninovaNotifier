@@ -3,6 +3,8 @@
 import logging
 import uuid
 
+from common.log_context import log_with_context
+
 logger = logging.getLogger("ninova")
 
 
@@ -27,4 +29,11 @@ def log_user_action(
     if details:
         parts.append(f"details={details}")
     message = " | ".join(parts)
-    getattr(logger, level, logger.info)(message)
+    log_with_context(
+        logger,
+        level,
+        message,
+        chat_id=str(actor_id),
+        action=action,
+        request_id=request_id,
+    )

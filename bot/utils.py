@@ -1,12 +1,22 @@
 import logging
+import secrets
+import threading
+import time
 import urllib.parse
+from collections import OrderedDict
 
 from telebot import types
 
 from bot.instance import bot_instance as bot
+from common.log_context import log_with_context
 from common.utils import escape_html, get_file_icon, load_saved_grades
 
 logger = logging.getLogger("ninova")
+
+_PATH_TOKEN_TTL_SECONDS = 60 * 60
+_PATH_TOKEN_MAX_ENTRIES = 2000
+_PATH_TOKEN_LOCK = threading.Lock()
+_PATH_TOKEN_CACHE: OrderedDict[str, tuple[str, float]] = OrderedDict()
 
 
 def is_cancel_text(text: str) -> bool:
@@ -67,6 +77,58 @@ def decode_path(path_str):
     :return: Klasör isimleri listesi
     """
     return [p for p in urllib.parse.unquote(path_str).split("/") if p]
+
+
+def _log_callback_size(callback_data: str, chat_id: str, action: str) -> None:
+    if len(callback_data) > 64:
+        log_with_context(
+            logger,
+            "warning",
+            "callback_data length exceeds Telegram limit",
+            chat_id=str(chat_id),
+            action=action,
+            callback_data_len=len(callback_data),
+        )
+
+
+def store_path_token(chat_id: str, message_id: int, encoded_path: str) -> str:
+    """Store a short-lived token for a file browser path."""
+    now = time.time()
+    token = secrets.token_hex(4)
+    key = f"{chat_id}:{message_id}:{token}"
+    with _PATH_TOKEN_LOCK:
+        while key in _PATH_TOKEN_CACHE:
+            token = secrets.token_hex(4)
+            key = f"{chat_id}:{message_id}:{token}"
+        _PATH_TOKEN_CACHE[key] = (encoded_path, now)
+        _PATH_TOKEN_CACHE.move_to_end(key)
+
+        # Cleanup expired entries and enforce size limits.
+        expired = [
+            k for k, (_, ts) in _PATH_TOKEN_CACHE.items() if now - ts > _PATH_TOKEN_TTL_SECONDS
+        ]
+        for k in expired:
+            del _PATH_TOKEN_CACHE[k]
+        while len(_PATH_TOKEN_CACHE) > _PATH_TOKEN_MAX_ENTRIES:
+            _PATH_TOKEN_CACHE.popitem(last=False)
+
+    return token
+
+
+def resolve_path_token(chat_id: str, message_id: int, token: str) -> str | None:
+    """Resolve a stored path token for the file browser."""
+    key = f"{chat_id}:{message_id}:{token}"
+    now = time.time()
+    with _PATH_TOKEN_LOCK:
+        entry = _PATH_TOKEN_CACHE.get(key)
+        if not entry:
+            return None
+        encoded_path, ts = entry
+        if now - ts > _PATH_TOKEN_TTL_SECONDS:
+            del _PATH_TOKEN_CACHE[key]
+            return None
+        _PATH_TOKEN_CACHE.move_to_end(key)
+        return encoded_path
 
 
 def show_file_browser(chat_id, message_id, course_idx, path_str=""):
@@ -139,26 +201,28 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
 
     for folder in sorted(folders):
         encoded = encode_path([*path_segments, folder])
-        markup.add(
-            types.InlineKeyboardButton(f"📁 {folder}", callback_data=f"dir_{course_idx}_{encoded}")
-        )
+        token = store_path_token(str(chat_id), message_id, encoded)
+        callback_data = f"dir_{course_idx}_{token}"
+        _log_callback_size(callback_data, str(chat_id), "file_browser_dir")
+        markup.add(types.InlineKeyboardButton(f"📁 {folder}", callback_data=callback_data))
 
     for real_idx, file in file_entries:
         basename = file["name"].split("/")[-1]
         icon = get_file_icon(basename)
-        markup.add(
-            types.InlineKeyboardButton(
-                f"{icon} {basename}", callback_data=f"dl_{course_idx}_{real_idx}"
-            )
-        )
+        callback_data = f"dl_{course_idx}_{real_idx}"
+        _log_callback_size(callback_data, str(chat_id), "file_browser_download")
+        markup.add(types.InlineKeyboardButton(f"{icon} {basename}", callback_data=callback_data))
 
     if path_segments:
         parent = encode_path(path_segments[:-1])
-        markup.add(
-            types.InlineKeyboardButton("↩️ Üst klasör", callback_data=f"dir_{course_idx}_{parent}")
-        )
+        token = store_path_token(str(chat_id), message_id, parent)
+        callback_data = f"dir_{course_idx}_{token}"
+        _log_callback_size(callback_data, str(chat_id), "file_browser_dir")
+        markup.add(types.InlineKeyboardButton("↩️ Üst klasör", callback_data=callback_data))
 
-    markup.add(types.InlineKeyboardButton("↩️ Ders menüsüne dön", callback_data=f"crs_{course_idx}"))
+    callback_data = f"crs_{course_idx}"
+    _log_callback_size(callback_data, str(chat_id), "file_browser_back")
+    markup.add(types.InlineKeyboardButton("↩️ Ders menüsüne dön", callback_data=callback_data))
 
     path_label = "/" + "/".join(path_segments) if path_segments else "/"
     response = (

@@ -18,6 +18,8 @@ from common.config import (
     load_all_users,
     save_all_users,
 )
+from common.http_logging import http_request
+from common.log_context import log_with_context
 
 logger = logging.getLogger("ninova")
 
@@ -445,15 +447,38 @@ def send_telegram_message(chat_id, message, is_error=False):
             "parse_mode": "HTML",
         }
         try:
-            response = requests.post(url, json=payload, timeout=10)
+            response = http_request(
+                logger,
+                requests,
+                "POST",
+                url,
+                action="telegram_send",
+                chat_id=str(chat_id),
+                json=payload,
+                timeout=10,
+            )
             if response.status_code == 200:
                 clean_msg = re.sub(r"<[^>]*>", "", msg.splitlines()[0])
                 console.print(f"[green][Telegram] Mesaj gönderildi ({chat_id}): {clean_msg}")
             else:
-                logger.error(f"Telegram mesaj gönderme hatası ({chat_id}): {response.text}")
+                log_with_context(
+                    logger,
+                    "error",
+                    "Telegram mesaj gonderme hatasi",
+                    chat_id=str(chat_id),
+                    action="telegram_send",
+                    http_status=response.status_code,
+                )
                 console.print(f"[red][Telegram] Hata ({chat_id}): {response.text}")
         except requests.RequestException as e:
-            logger.error(f"Telegram mesaj gönderim ağ hatası ({chat_id}): {e}")
+            log_with_context(
+                logger,
+                "error",
+                f"Telegram mesaj gonderim ag hatasi: {e}",
+                chat_id=str(chat_id),
+                action="telegram_send",
+                error_stage="http",
+            )
             console.print(f"[red][Telegram] Gönderim hatası ({chat_id}): {e}")
 
 
@@ -485,7 +510,16 @@ def send_telegram_document(
                 "caption": caption,
                 "parse_mode": "HTML",
             }
-            response = requests.post(url, data=data, timeout=30)
+            response = http_request(
+                logger,
+                requests,
+                "POST",
+                url,
+                action="telegram_send_document",
+                chat_id=str(chat_id),
+                data=data,
+                timeout=30,
+            )
 
         # 2. Send by File Path
         elif isinstance(document, str) and Path(document).exists():
@@ -493,7 +527,17 @@ def send_telegram_document(
             with Path(document).open("rb") as f:
                 files = {"document": (filename, f)}
                 data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-                response = requests.post(url, data=data, files=files, timeout=60)
+                response = http_request(
+                    logger,
+                    requests,
+                    "POST",
+                    url,
+                    action="telegram_send_document",
+                    chat_id=str(chat_id),
+                    data=data,
+                    files=files,
+                    timeout=60,
+                )
 
             # Delete temp file if it was a path
             with contextlib.suppress(OSError):
@@ -506,7 +550,17 @@ def send_telegram_document(
                 document.seek(0)
             files = {"document": (filename, document)}
             data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-            response = requests.post(url, data=data, files=files, timeout=60)
+            response = http_request(
+                logger,
+                requests,
+                "POST",
+                url,
+                action="telegram_send_document",
+                chat_id=str(chat_id),
+                data=data,
+                files=files,
+                timeout=60,
+            )
 
         if response.status_code == 200:
             resp_json = response.json()
@@ -517,11 +571,25 @@ def send_telegram_document(
 
             console.print(f"[green][Telegram] Dosya gönderildi ({chat_id}): {filename}")
         else:
-            logger.error(f"Telegram dosya gönderim hatası ({chat_id}): {response.text}")
+            log_with_context(
+                logger,
+                "error",
+                "Telegram dosya gonderim hatasi",
+                chat_id=str(chat_id),
+                action="telegram_send_document",
+                http_status=response.status_code,
+            )
             console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {response.text}")
 
     except Exception as e:
-        logger.error(f"Telegram dosya gönderim istisnası ({chat_id}): {e}")
+        log_with_context(
+            logger,
+            "error",
+            f"Telegram dosya gonderim istisnasi: {e}",
+            chat_id=str(chat_id),
+            action="telegram_send_document",
+            exc_info=True,
+        )
         console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {e}")
 
     return sent_file_id

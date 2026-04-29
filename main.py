@@ -36,6 +36,7 @@ from common.config import (
     save_all_users,
     sync_cache_to_disk,
 )
+from common.log_context import clear_log_context, set_log_context
 from common.logging_setup import setup_logging
 from common.utils import (
     decrypt_password,
@@ -650,6 +651,7 @@ def check_user_updates(
     :return: Başarı durumu ve mesaj içeren dict
     """
     request_id = request_id or f"chk-{chat_id}-{int(time.time())}"
+    set_log_context(chat_id=str(chat_id), action="check_user_updates", request_id=request_id)
     users = load_all_users()
     user_data = users.get(chat_id)
     logger.info(
@@ -667,6 +669,7 @@ def check_user_updates(
             chat_id,
             request_id,
         )
+        clear_log_context()
         return {"success": False, "message": "Kullanıcı bilgileri bulunamadı."}
 
     # Son kontrol zamanını güncelle
@@ -679,6 +682,7 @@ def check_user_updates(
             chat_id,
             request_id,
         )
+        clear_log_context()
         return {"success": False, "message": "Takip edilen ders bulunamadı."}
 
     # Eğer tek bir ders istenmişse filtrele
@@ -689,6 +693,7 @@ def check_user_updates(
                 chat_id,
                 request_id,
             )
+            clear_log_context()
             return {"success": False, "message": "Geçersiz ders indeksi."}
         urls_to_scan = [all_urls[course_idx]]
     else:
@@ -703,6 +708,7 @@ def check_user_updates(
             chat_id,
             request_id,
         )
+        clear_log_context()
         return {"success": False, "message": "Kullanıcı bilgileri eksik."}
 
     password = decrypt_password(encrypted_password)
@@ -712,7 +718,14 @@ def check_user_updates(
             chat_id,
             request_id,
         )
-        error_tracker.record_error(chat_id, "DECRYPT_ERROR", "Şifre çözülemedi", username)
+        error_tracker.record_error(
+            chat_id,
+            "DECRYPT_ERROR",
+            "Şifre çözülemedi",
+            username,
+            error_stage="decrypt",
+        )
+        clear_log_context()
         return {"success": False, "message": "Şifre çözme hatası."}
 
     saved_grades = load_saved_grades()
@@ -753,7 +766,15 @@ def check_user_updates(
                     e.error_type,
                     e.message,
                 )
-                error_tracker.record_error(chat_id, e.error_type, str(e.message), username)
+                error_tracker.record_error(
+                    chat_id,
+                    e.error_type,
+                    str(e.message),
+                    username,
+                    error_stage="login",
+                    last_url=url,
+                )
+                clear_log_context()
                 return {"success": False, "message": "Ninova bağlantı hatası."}
 
             progress.update(task, advance=1)
@@ -791,7 +812,8 @@ def check_user_updates(
 
     # Başarılı veri çekimi - hata sayacını sıfırla
     if all_current_grades:
-        error_tracker.record_success(chat_id, username)
+        last_url = next(iter(all_current_grades.keys()), None)
+        error_tracker.record_success(chat_id, username, last_url=last_url)
 
     # Verileri kaydet
     if all_changes:
@@ -851,7 +873,7 @@ def check_user_updates(
         len(all_changes),
         len(urls_to_scan),
     )
-
+    clear_log_context()
     return {"success": True, "message": result_msg, "changes": len(all_changes)}
 
 
@@ -885,10 +907,13 @@ def check_for_updates():
     total_changes_count = 0
 
     for chat_id, user_data in users.items():
+        request_id = f"auto-{chat_id}-{int(time.time())}"
+        set_log_context(chat_id=str(chat_id), action="check_for_updates", request_id=request_id)
         # Son kontrol zamanını güncelle
         user_data["last_check"] = datetime.now().isoformat()
         urls = user_data.get("urls", [])
         if not urls:
+            clear_log_context()
             continue
 
         username = user_data.get("username")
@@ -896,12 +921,20 @@ def check_for_updates():
 
         if not username or not encrypted_password:
             logger.warning(f"Kullanıcı bilgileri eksik ({chat_id}), pas geçiliyor.")
+            clear_log_context()
             continue
 
         password = decrypt_password(encrypted_password)
         if password is None:
             logger.error(f"Şifre çözülemedi ({chat_id}), pas geçiliyor.")
-            error_tracker.record_error(chat_id, "DECRYPT_ERROR", "Şifre çözülemedi", username)
+            error_tracker.record_error(
+                chat_id,
+                "DECRYPT_ERROR",
+                "Şifre çözülemedi",
+                username,
+                error_stage="decrypt",
+            )
+            clear_log_context()
             continue
 
         if SHOW_VERBOSE_TERMINAL:
@@ -949,7 +982,12 @@ def check_for_updates():
                                 e.message,
                             )
                             error_tracker.record_error(
-                                chat_id, e.error_type, str(e.message), username
+                                chat_id,
+                                e.error_type,
+                                str(e.message),
+                                username,
+                                error_stage="login",
+                                last_url=url,
                             )
                             login_error_sent = True
                         else:
@@ -967,7 +1005,8 @@ def check_for_updates():
 
         # Başarılı veri çekimi → hata sayacını sıfırla, düzeldi mesajı gönder
         if all_current_grades:
-            error_tracker.record_success(chat_id, username)
+            last_url = next(iter(all_current_grades.keys()), None)
+            error_tracker.record_success(chat_id, username, last_url=last_url)
 
         # Ortak fonksiyon ile değişiklikleri kontrol et
         new_file_notifications = []  # (course_url, course_name, file_idx, file_name)
@@ -1056,6 +1095,8 @@ def check_for_updates():
                     except Exception as e:
                         logger.error(f"File notification send error for {chat_id}: {e}")
                     time.sleep(1)
+
+                clear_log_context()
         elif SHOW_VERBOSE_TERMINAL:
             console.print(f"[dim]Değişiklik yok ({chat_id})")
 

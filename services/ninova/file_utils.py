@@ -2,6 +2,9 @@ import io
 import logging
 from pathlib import Path
 
+from common.http_logging import http_request
+from common.log_context import log_with_context
+
 from .auth import login_to_ninova
 
 logger = logging.getLogger("ninova")
@@ -23,11 +26,39 @@ def download_file(
     :return: (BytesIO, filename) veya filepath veya None
     """
     try:
-        response = session.get(url, stream=True, timeout=30, allow_redirects=False)
+        response = http_request(
+            logger,
+            session,
+            "GET",
+            url,
+            action="ninova_file_download",
+            chat_id=str(chat_id) if chat_id else None,
+            timeout=30,
+            allow_redirects=False,
+            stream=True,
+        )
         if response.status_code == 302:
             if login_to_ninova(session, chat_id, username, password):
-                response = session.get(url, stream=True, timeout=30, allow_redirects=False)
+                response = http_request(
+                    logger,
+                    session,
+                    "GET",
+                    url,
+                    action="ninova_file_download",
+                    chat_id=str(chat_id) if chat_id else None,
+                    timeout=30,
+                    allow_redirects=False,
+                    stream=True,
+                )
             else:
+                log_with_context(
+                    logger,
+                    "warning",
+                    "File download failed after login retry",
+                    chat_id=str(chat_id) if chat_id else None,
+                    action="ninova_file_download",
+                    error_stage="login",
+                )
                 return None
 
         if response.status_code == 200:
@@ -56,5 +87,12 @@ def download_file(
             return filepath
 
     except Exception as e:
-        logger.exception(f"File download error: {e}")
+        log_with_context(
+            logger,
+            "error",
+            f"File download error: {e}",
+            chat_id=str(chat_id) if chat_id else None,
+            action="ninova_file_download",
+            exc_info=True,
+        )
     return None

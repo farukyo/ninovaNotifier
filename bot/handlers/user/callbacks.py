@@ -10,10 +10,11 @@ from bot.handlers.user.data_helpers import load_user_grades, load_user_profile, 
 from bot.inline_keyboards import build_manual_menu
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
-from bot.utils import is_cancel_text, show_file_browser, validate_ninova_url
+from bot.utils import is_cancel_text, resolve_path_token, show_file_browser, validate_ninova_url
 from common.background_tasks import submit_background_task
 from common.cache_manager import get_cache_manager
 from common.config import close_user_session, load_all_users, save_all_users
+from common.log_context import clear_log_context, set_log_context
 from common.utils import (
     decrypt_password,
     delete_course_data,
@@ -378,164 +379,168 @@ def handle_file_download(call):
     """
     chat_id = str(call.message.chat.id)
     request_id = new_user_request_id("dl")
-    parts = split_callback_data(call.data)
-    url_idx = parse_int_part(parts, 1)
-    file_idx = parse_int_part(parts, 2)
-    if url_idx is None or file_idx is None:
+    set_log_context(chat_id=chat_id, action="file_download", request_id=request_id)
+    try:
+        parts = split_callback_data(call.data)
+        url_idx = parse_int_part(parts, 1)
+        file_idx = parse_int_part(parts, 2)
+        if url_idx is None or file_idx is None:
+            log_user_action(
+                chat_id,
+                "file_download",
+                status="invalid_callback",
+                request_id=request_id,
+                details=call.data,
+                level="warning",
+            )
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg),
+                "Geçersiz dosya isteği.",
+            )
+            return
+
+        _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
+
+        if url_idx >= len(urls):
+            log_user_action(
+                chat_id,
+                "file_download",
+                status="invalid_course_index",
+                request_id=request_id,
+                details=f"url_idx={url_idx};urls={len(urls)}",
+                level="warning",
+            )
+            bot.answer_callback_query(call.id, "Kurs bulunamadı.")
+            return
+
+        course_url = urls[url_idx]
+        files = user_grades[course_url].get("files", [])
+        if file_idx >= len(files):
+            log_user_action(
+                chat_id,
+                "file_download",
+                status="invalid_file_index",
+                request_id=request_id,
+                details=f"file_idx={file_idx};files={len(files)}",
+                level="warning",
+            )
+            bot.answer_callback_query(call.id, "Dosya bulunamadı.")
+            return
+
+        file_data = files[file_idx]
+        file_url = file_data["url"]
+        file_name = (
+            file_data["name"] if "/" not in file_data["name"] else file_data["name"].split("/")[-1]
+        )
         log_user_action(
             chat_id,
             "file_download",
-            status="invalid_callback",
-            request_id=request_id,
-            details=call.data,
-            level="warning",
-        )
-        callback_parse_fail(
-            lambda msg: bot.answer_callback_query(call.id, msg),
-            "Geçersiz dosya isteği.",
-        )
-        return
-
-    _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
-
-    if url_idx >= len(urls):
-        log_user_action(
-            chat_id,
-            "file_download",
-            status="invalid_course_index",
-            request_id=request_id,
-            details=f"url_idx={url_idx};urls={len(urls)}",
-            level="warning",
-        )
-        bot.answer_callback_query(call.id, "Kurs bulunamadı.")
-        return
-
-    course_url = urls[url_idx]
-    files = user_grades[course_url].get("files", [])
-    if file_idx >= len(files):
-        log_user_action(
-            chat_id,
-            "file_download",
-            status="invalid_file_index",
-            request_id=request_id,
-            details=f"file_idx={file_idx};files={len(files)}",
-            level="warning",
-        )
-        bot.answer_callback_query(call.id, "Dosya bulunamadı.")
-        return
-
-    file_data = files[file_idx]
-    file_url = file_data["url"]
-    file_name = (
-        file_data["name"] if "/" not in file_data["name"] else file_data["name"].split("/")[-1]
-    )
-    log_user_action(
-        chat_id,
-        "file_download",
-        status="started",
-        request_id=request_id,
-        details=f"name={file_name}",
-    )
-
-    # 1. Check Cache
-    cached_id = CACHE_MANAGER.get(file_url)
-    if cached_id:
-        log_user_action(
-            chat_id,
-            "file_download",
-            status="cache_hit",
+            status="started",
             request_id=request_id,
             details=f"name={file_name}",
         )
-        bot.answer_callback_query(call.id, "🚀 Hızlı gönderiliyor...")
-        send_telegram_document(
-            chat_id,
-            cached_id,
-            caption=f"{get_file_icon(file_name)} {file_name}",
-            is_file_id=True,
-            filename=file_name,
-        )
-        log_user_action(
-            chat_id,
-            "file_download",
-            status="completed",
-            request_id=request_id,
-            details="source=cache",
-        )
-        return
 
-    # 2. Download and Send
-    bot.answer_callback_query(call.id, "Dosya indiriliyor...")
-    bot.send_chat_action(chat_id, "upload_document")
-
-    user_info = load_user_profile(chat_id)
-    username = user_info.get("username")
-    password = decrypt_password(user_info.get("password", ""))
-
-    from common.config import get_user_session
-
-    session = get_user_session(chat_id)
-
-    # Download to buffer (RAM)
-    result = download_file(
-        session,
-        file_url,
-        file_name,
-        chat_id=chat_id,
-        username=username,
-        password=password,
-        to_buffer=True,
-    )
-
-    if result:
-        file_buffer, final_filename = result
-        log_user_action(
-            chat_id,
-            "file_download",
-            status="downloaded",
-            request_id=request_id,
-            details=f"name={final_filename}",
-        )
-        # Send
-        sent_id = send_telegram_document(
-            chat_id,
-            file_buffer,
-            caption=f"{get_file_icon(final_filename)} {final_filename}",
-            filename=final_filename,
-        )
-
-        # Cache the file ID for future
-        if sent_id:
-            CACHE_MANAGER.set(file_url, sent_id)
-            CACHE_MANAGER.sync()
+        # 1. Check Cache
+        cached_id = CACHE_MANAGER.get(file_url)
+        if cached_id:
+            log_user_action(
+                chat_id,
+                "file_download",
+                status="cache_hit",
+                request_id=request_id,
+                details=f"name={file_name}",
+            )
+            bot.answer_callback_query(call.id, "🚀 Hızlı gönderiliyor...")
+            send_telegram_document(
+                chat_id,
+                cached_id,
+                caption=f"{get_file_icon(file_name)} {file_name}",
+                is_file_id=True,
+                filename=file_name,
+            )
             log_user_action(
                 chat_id,
                 "file_download",
                 status="completed",
                 request_id=request_id,
-                details="source=remote;cached=true",
+                details="source=cache",
             )
+            return
+
+        # 2. Download and Send
+        bot.answer_callback_query(call.id, "Dosya indiriliyor...")
+        bot.send_chat_action(chat_id, "upload_document")
+
+        user_info = load_user_profile(chat_id)
+        username = user_info.get("username")
+        password = decrypt_password(user_info.get("password", ""))
+
+        from common.config import get_user_session
+
+        session = get_user_session(chat_id)
+
+        # Download to buffer (RAM)
+        result = download_file(
+            session,
+            file_url,
+            file_name,
+            chat_id=chat_id,
+            username=username,
+            password=password,
+            to_buffer=True,
+        )
+
+        if result:
+            file_buffer, final_filename = result
+            log_user_action(
+                chat_id,
+                "file_download",
+                status="downloaded",
+                request_id=request_id,
+                details=f"name={final_filename}",
+            )
+            # Send
+            sent_id = send_telegram_document(
+                chat_id,
+                file_buffer,
+                caption=f"{get_file_icon(final_filename)} {final_filename}",
+                filename=final_filename,
+            )
+
+            # Cache the file ID for future
+            if sent_id:
+                CACHE_MANAGER.set(file_url, sent_id)
+                CACHE_MANAGER.sync()
+                log_user_action(
+                    chat_id,
+                    "file_download",
+                    status="completed",
+                    request_id=request_id,
+                    details="source=remote;cached=true",
+                )
+            else:
+                log_user_action(
+                    chat_id,
+                    "file_download",
+                    status="send_failed",
+                    request_id=request_id,
+                    details="source=remote",
+                    level="warning",
+                )
+
+            file_buffer.close()
         else:
             log_user_action(
                 chat_id,
                 "file_download",
-                status="send_failed",
+                status="download_failed",
                 request_id=request_id,
-                details="source=remote",
+                details=f"name={file_name}",
                 level="warning",
             )
-
-        file_buffer.close()
-    else:
-        log_user_action(
-            chat_id,
-            "file_download",
-            status="download_failed",
-            request_id=request_id,
-            details=f"name={file_name}",
-            level="warning",
-        )
-        bot.send_message(chat_id, "❌ Dosya indirilemedi.")
+            bot.send_message(chat_id, "❌ Dosya indirilemedi.")
+    finally:
+        clear_log_context()
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dir_"))
@@ -558,7 +563,19 @@ def handle_directory_navigation(call):
             "Geçersiz klasor isteği.",
         )
         return
-    path_str = parts[2] if len(parts) > 2 else ""
+    path_token = parts[2] if len(parts) > 2 else ""
+    if path_token:
+        path_str = resolve_path_token(
+            str(call.message.chat.id), call.message.message_id, path_token
+        )
+        if path_str is None:
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg),
+                "Klasor bilgisi gecersiz veya sure asimina ugradi.",
+            )
+            return
+    else:
+        path_str = ""
 
     show_file_browser(str(call.message.chat.id), call.message.message_id, course_idx, path_str)
 
@@ -573,7 +590,19 @@ def handle_folder_navigation(call):
             "Geçersiz klasor isteği.",
         )
         return
-    path_str = parts[2] if len(parts) > 2 else ""
+    path_token = parts[2] if len(parts) > 2 else ""
+    if path_token:
+        path_str = resolve_path_token(
+            str(call.message.chat.id), call.message.message_id, path_token
+        )
+        if path_str is None:
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg),
+                "Klasor bilgisi gecersiz veya sure asimina ugradi.",
+            )
+            return
+    else:
+        path_str = ""
     bot.answer_callback_query(call.id)
     show_file_browser(str(call.message.chat.id), call.message.message_id, course_idx, path_str)
 

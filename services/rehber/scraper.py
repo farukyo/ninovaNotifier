@@ -5,6 +5,9 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from common.http_logging import http_request
+from common.log_context import log_with_context
+
 logger = logging.getLogger("rehber")
 
 
@@ -31,7 +34,14 @@ class RehberScraper:
     def is_logged_in(self):
         """Rehber sistemine giriş yapılıp yapılmadığını kontrol eder."""
         try:
-            resp = self.session.get(self.BASE_URL, timeout=10)
+            resp = http_request(
+                logger,
+                self.session,
+                "GET",
+                self.BASE_URL,
+                action="rehber_session_check",
+                timeout=10,
+            )
             return "Çıkış" in resp.text or "/Account/Logout" in resp.text
         except Exception:
             return False
@@ -44,7 +54,15 @@ class RehberScraper:
         try:
             # 1. Rehber login sayfasına git -> girisv3'e yönlendirecek
             login_url = f"{self.BASE_URL}/Account/Login?ReturnUrl=https://rehber.itu.edu.tr/"
-            resp = self.session.get(login_url, allow_redirects=True, timeout=15)
+            resp = http_request(
+                logger,
+                self.session,
+                "GET",
+                login_url,
+                action="rehber_login_page",
+                timeout=15,
+                allow_redirects=True,
+            )
 
             # girisv3.itu.edu.tr login sayfasına yönlenmeli
             if "girisv3.itu.edu.tr" not in resp.url:
@@ -52,9 +70,19 @@ class RehberScraper:
                 if "rehber.itu.edu.tr" in resp.url and (
                     "Çıkış" in resp.text or "/Account/Logout" in resp.text
                 ):
-                    logger.info("Rehber SSO: Oturum zaten açık, login adımı atlandı.")
+                    log_with_context(
+                        logger,
+                        "info",
+                        "Rehber SSO: Oturum zaten acik, login adimi atlandi.",
+                        action="rehber_login",
+                    )
                     return True
-                logger.info(f"Rehber SSO: Beklenmeyen URL, anonim devam edilecek: {resp.url}")
+                log_with_context(
+                    logger,
+                    "info",
+                    f"Rehber SSO: Beklenmeyen URL, anonim devam edilecek: {resp.url}",
+                    action="rehber_login",
+                )
                 return False
 
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -80,20 +108,45 @@ class RehberScraper:
                 action = form_tag["action"]
                 post_url = urljoin(resp.url, action)
 
-            resp2 = self.session.post(post_url, data=form_data, allow_redirects=True, timeout=15)
+            resp2 = http_request(
+                logger,
+                self.session,
+                "POST",
+                post_url,
+                action="rehber_login_submit",
+                data=form_data,
+                allow_redirects=True,
+                timeout=15,
+            )
 
             # Başarı kontrolü: rehber.itu.edu.tr'ye geri dönmeli ve "Çıkış" butonu görünmeli.
             if "rehber.itu.edu.tr" in resp2.url and (
                 "Çıkış" in resp2.text or "/Account/Logout" in resp2.text
             ):
-                logger.info("Rehber SSO: Giriş başarılı!")
+                log_with_context(
+                    logger,
+                    "info",
+                    "Rehber SSO: Giris basarili!",
+                    action="rehber_login",
+                )
                 return True
 
-            logger.warning(f"Rehber SSO: Giriş başarısız. Son URL: {resp2.url}")
+            log_with_context(
+                logger,
+                "warning",
+                f"Rehber SSO: Giris basarisiz. Son URL: {resp2.url}",
+                action="rehber_login",
+            )
             return False
 
         except Exception as e:
-            logger.error(f"Rehber SSO login error: {e}")
+            log_with_context(
+                logger,
+                "error",
+                f"Rehber SSO login error: {e}",
+                action="rehber_login",
+                exc_info=True,
+            )
             return False
 
     def search_person(self, first_name: str, last_name: str):
@@ -108,7 +161,14 @@ class RehberScraper:
         url_home = f"{self.BASE_URL}/"
 
         try:
-            res = self.session.get(url_home, timeout=10)
+            res = http_request(
+                logger,
+                self.session,
+                "GET",
+                url_home,
+                action="rehber_search_home",
+                timeout=10,
+            )
             soup = BeautifulSoup(res.text, "html.parser")
 
             token_input = soup.find("input", {"name": "__RequestVerificationToken"})
@@ -121,7 +181,15 @@ class RehberScraper:
                 "__RequestVerificationToken": req_token,
             }
 
-            post_res = self.session.post(url_search, data=data, timeout=15)
+            post_res = http_request(
+                logger,
+                self.session,
+                "POST",
+                url_search,
+                action="rehber_search",
+                data=data,
+                timeout=15,
+            )
             results = self._parse_search_results(post_res.text)
 
             # Eğer giriş yapılmışsa, detay sayfalarına gidip eksik e-posta/telefon/ek bilgileri çekelim
@@ -140,7 +208,13 @@ class RehberScraper:
             return results
 
         except Exception as e:
-            logger.error(f"Rehber search error: {e}")
+            log_with_context(
+                logger,
+                "error",
+                f"Rehber search error: {e}",
+                action="rehber_search",
+                exc_info=True,
+            )
             return []
 
     def get_person_detail(self, detail_path: str):
@@ -153,7 +227,14 @@ class RehberScraper:
             if not url.startswith("http"):
                 url = f"{self.BASE_URL}{detail_path}"
 
-            res = self.session.get(url, timeout=10)
+            res = http_request(
+                logger,
+                self.session,
+                "GET",
+                url,
+                action="rehber_detail",
+                timeout=10,
+            )
             soup = BeautifulSoup(res.text, "html.parser")
 
             detail = {"email": "", "phone": "", "extras": {}}
@@ -197,7 +278,13 @@ class RehberScraper:
 
             return detail
         except Exception as e:
-            logger.error(f"Rehber detail error: {e}")
+            log_with_context(
+                logger,
+                "error",
+                f"Rehber detail error: {e}",
+                action="rehber_detail",
+                exc_info=True,
+            )
             return {"email": "", "phone": "", "extras": {}}
 
     def _parse_search_results(self, html: str):

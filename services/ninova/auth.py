@@ -10,6 +10,8 @@ from common.config import (
     RETRY_BACKOFF_BASE,
     RETRY_BACKOFF_MAX,
 )
+from common.http_logging import http_request
+from common.log_context import log_with_context
 
 logger = logging.getLogger("ninova")
 
@@ -59,7 +61,13 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
     """
     with get_user_lock(chat_id):
         if not username or not password:
-            logger.error(f"[{chat_id}] Login failed: missing username or password")
+            log_with_context(
+                logger,
+                "error",
+                "Login failed: missing username or password",
+                chat_id=str(chat_id),
+                action="ninova_login",
+            )
             raise LoginFailedError(
                 "SESSION_ERROR",
                 "Kullanıcı adı veya şifre eksik",
@@ -72,18 +80,44 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
             try:
                 # Önce halihazırda giriş yapılmış mı kontrol et
                 try:
-                    check_resp = session.get(
-                        "https://ninova.itu.edu.tr/Kampus", timeout=10, allow_redirects=False
+                    check_resp = http_request(
+                        logger,
+                        session,
+                        "GET",
+                        "https://ninova.itu.edu.tr/Kampus",
+                        action="ninova_login_check",
+                        chat_id=str(chat_id),
+                        timeout=10,
+                        allow_redirects=False,
+                        retry_count=attempt - 1,
                     )
                     if check_resp.status_code == 200:
                         if not quiet:
                             logger.debug(f"[{chat_id}] Session already active, skipping login")
                         return True
                 except Exception as e:
-                    logger.debug(f"[{chat_id}] Session check failed (attempt {attempt}): {e}")
+                    log_with_context(
+                        logger,
+                        "debug",
+                        f"Session check failed (attempt {attempt}): {e}",
+                        chat_id=str(chat_id),
+                        action="ninova_login_check",
+                        retry_count=attempt - 1,
+                        error_stage="http",
+                    )
 
                 login_url = "https://ninova.itu.edu.tr/Login.aspx"
-                resp = session.get(login_url, allow_redirects=True, timeout=20)
+                resp = http_request(
+                    logger,
+                    session,
+                    "GET",
+                    login_url,
+                    action="ninova_login_page",
+                    chat_id=str(chat_id),
+                    timeout=20,
+                    allow_redirects=True,
+                    retry_count=attempt - 1,
+                )
                 soup = BeautifulSoup(resp.text, "html.parser")
 
                 data = {}
@@ -100,11 +134,27 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     }
                 )
 
-                resp = session.post(resp.url, data=data, allow_redirects=True, timeout=20)
+                resp = http_request(
+                    logger,
+                    session,
+                    "POST",
+                    resp.url,
+                    action="ninova_login_submit",
+                    chat_id=str(chat_id),
+                    data=data,
+                    allow_redirects=True,
+                    timeout=20,
+                    retry_count=attempt - 1,
+                )
 
                 if "Hatalı" in resp.text or "Login.aspx" in resp.url:
-                    logger.warning(
-                        f"[{chat_id}] Login failed: invalid credentials (attempt {attempt}/{MAX_LOGIN_RETRIES})"
+                    log_with_context(
+                        logger,
+                        "warning",
+                        f"Login failed: invalid credentials (attempt {attempt}/{MAX_LOGIN_RETRIES})",
+                        chat_id=str(chat_id),
+                        action="ninova_login",
+                        retry_count=attempt - 1,
                     )
                     # Invalid credentials - don't retry
                     raise LoginFailedError(
@@ -115,7 +165,14 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     )
 
                 if not quiet:
-                    logger.info(f"[{chat_id}] Login successful")
+                    log_with_context(
+                        logger,
+                        "info",
+                        "Login successful",
+                        chat_id=str(chat_id),
+                        action="ninova_login",
+                        retry_count=attempt - 1,
+                    )
 
                 return True
 
@@ -123,14 +180,25 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                 # Network error - retry with backoff
                 if attempt < MAX_LOGIN_RETRIES:
                     backoff = min(RETRY_BACKOFF_BASE**attempt, RETRY_BACKOFF_MAX)
-                    logger.warning(
-                        f"[{chat_id}] Network error (attempt {attempt}/{MAX_LOGIN_RETRIES}): {e}. "
-                        f"Retrying in {backoff}s..."
+                    log_with_context(
+                        logger,
+                        "warning",
+                        f"Network error (attempt {attempt}/{MAX_LOGIN_RETRIES}): {e}. Retrying in {backoff}s...",
+                        chat_id=str(chat_id),
+                        action="ninova_login",
+                        retry_count=attempt - 1,
+                        error_stage="http",
                     )
                     time.sleep(backoff)
                 else:
-                    logger.error(
-                        f"[{chat_id}] Login failed after {MAX_LOGIN_RETRIES} attempts: {e}"
+                    log_with_context(
+                        logger,
+                        "error",
+                        f"Login failed after {MAX_LOGIN_RETRIES} attempts: {e}",
+                        chat_id=str(chat_id),
+                        action="ninova_login",
+                        retry_count=attempt - 1,
+                        error_stage="http",
                     )
                     raise LoginFailedError(
                         "NETWORK_TIMEOUT",
@@ -143,7 +211,14 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                 raise
 
             except Exception as e:
-                logger.exception(f"[{chat_id}] Unexpected error during login: {e}")
+                log_with_context(
+                    logger,
+                    "error",
+                    f"Unexpected error during login: {e}",
+                    chat_id=str(chat_id),
+                    action="ninova_login",
+                    exc_info=True,
+                )
                 raise LoginFailedError(
                     "UNKNOWN",
                     f"Bilinmeyen hata: {str(e)[:100]}",
