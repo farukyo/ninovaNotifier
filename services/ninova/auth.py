@@ -109,7 +109,7 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                     # Invalid credentials - don't retry
                     raise LoginFailedError(
                         "INVALID_CREDENTIALS",
-                        "Ninova kullanıcı adı veya şifresi hanlış",
+                        "Ninova kullanıcı adı veya şifresi yanlış",
                         username=username,
                         chat_id=chat_id,
                     )
@@ -138,6 +138,9 @@ def login_to_ninova(session, chat_id, username, password, quiet=False):
                         username=username,
                         chat_id=chat_id,
                     ) from e
+
+            except LoginFailedError:
+                raise
 
             except Exception as e:
                 logger.exception(f"[{chat_id}] Unexpected error during login: {e}")
