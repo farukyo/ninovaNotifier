@@ -143,8 +143,10 @@ def handle_delete_course_confirm(call):
 
 
 @bot.callback_query_handler(
-    func=lambda call: call.data.startswith("adm_clearcourses_")
-    and not call.data.startswith("adm_clearcourses_conf_")
+    func=lambda call: (
+        call.data.startswith("adm_clearcourses_")
+        and not call.data.startswith("adm_clearcourses_conf_")
+    )
 )
 def handle_clear_courses(call):
     """

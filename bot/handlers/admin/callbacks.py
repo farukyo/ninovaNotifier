@@ -33,12 +33,14 @@ logger = logging.getLogger("ninova")
 
 
 @bot.callback_query_handler(
-    func=lambda call: call.data.startswith("adm_")
-    and not call.data.startswith("adm_coursemgmt_")
-    and not call.data.startswith("adm_delcourse_")
-    and not call.data.startswith("adm_delconf_")
-    and not call.data.startswith("adm_clearcourses_")
-    and call.data != "adm_manage_courses"
+    func=lambda call: (
+        call.data.startswith("adm_")
+        and not call.data.startswith("adm_coursemgmt_")
+        and not call.data.startswith("adm_delcourse_")
+        and not call.data.startswith("adm_delconf_")
+        and not call.data.startswith("adm_clearcourses_")
+        and call.data != "adm_manage_courses"
+    )
 )
 def handle_admin_callbacks(call):
     """

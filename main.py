@@ -543,16 +543,15 @@ def _compare_course_data(
     # Guard against transient empty file lists that would cause mass delete/add noise.
     files_suspect_count = saved_data.get("files_suspect_count", 0)
     skip_file_diff = False
-    if saved_files and not current_files:
+    if saved_files and not current_files and files_suspect_count < 1:
         # First empty snapshot after having files: treat as suspicious and skip file diffs.
-        if files_suspect_count < 1:
-            skip_file_diff = True
-            current_data["_files_suspect"] = True
-            current_data["_files_suspect_count"] = files_suspect_count + 1
-            logger.warning(
-                "Dosya listesi bos dondu; toplu silme/ekleme bildirimini atliyorum. course=%s",
-                course_name,
-            )
+        skip_file_diff = True
+        current_data["_files_suspect"] = True
+        current_data["_files_suspect_count"] = files_suspect_count + 1
+        logger.warning(
+            "Dosya listesi bos dondu; toplu silme/ekleme bildirimini atliyorum. course=%s",
+            course_name,
+        )
 
     saved_file_map = {f.get("url"): f for f in saved_files}
     for file_idx, file in enumerate(current_files):
@@ -1065,9 +1064,7 @@ def check_for_updates():
             files_suspect_count = saved_data.get("files_suspect_count", 0)
             if current_data.get("_files_suspect"):
                 files_to_save = saved_data.get("files", [])
-                files_suspect_count = current_data.get(
-                    "_files_suspect_count", files_suspect_count
-                )
+                files_suspect_count = current_data.get("_files_suspect_count", files_suspect_count)
             else:
                 files_suspect_count = 0
 
