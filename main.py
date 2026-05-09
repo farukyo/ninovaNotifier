@@ -540,8 +540,24 @@ def _compare_course_data(
                 assign["reminders_sent"] = saved_assign.get("reminders_sent", [])
 
     # --- 3. DOSYA KONTROLÜ ---
+    # Guard against transient empty file lists that would cause mass delete/add noise.
+    files_suspect_count = saved_data.get("files_suspect_count", 0)
+    skip_file_diff = False
+    if saved_files and not current_files:
+        # First empty snapshot after having files: treat as suspicious and skip file diffs.
+        if files_suspect_count < 1:
+            skip_file_diff = True
+            current_data["_files_suspect"] = True
+            current_data["_files_suspect_count"] = files_suspect_count + 1
+            logger.warning(
+                "Dosya listesi bos dondu; toplu silme/ekleme bildirimini atliyorum. course=%s",
+                course_name,
+            )
+
     saved_file_map = {f.get("url"): f for f in saved_files}
     for file_idx, file in enumerate(current_files):
+        if skip_file_diff:
+            break
         f_url = file["url"]
         if f_url not in saved_file_map:
             file_name = file["name"]
@@ -615,13 +631,14 @@ def _compare_course_data(
                 sections_changes.append(f"🗑️ <b>ÖDEV SİLİNDİ:</b> {e_name}")
                 changes.append(f"ÖDEV SİLİNDİ: {sa.get('name')}")
 
-        current_file_urls = {f.get("url") for f in current_files}
-        for sf in saved_files:
-            if sf.get("url") not in current_file_urls:
-                e_name = escape_html(sf.get("name", "Bilinmeyen Dosya"))
-                icon = get_file_icon(sf.get("name", "").split("/")[-1])
-                sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_name}")
-                changes.append(f"DOSYA SİLİNDİ: {sf.get('name')}")
+        if not skip_file_diff:
+            current_file_urls = {f.get("url") for f in current_files}
+            for sf in saved_files:
+                if sf.get("url") not in current_file_urls:
+                    e_name = escape_html(sf.get("name", "Bilinmeyen Dosya"))
+                    icon = get_file_icon(sf.get("name", "").split("/")[-1])
+                    sections_changes.append(f"{icon} <b>DOSYA SİLİNDİ:</b> {e_name}")
+                    changes.append(f"DOSYA SİLİNDİ: {sf.get('name')}")
 
         for s_ann_id, s_ann in saved_ann_map.items():
             if s_ann_id not in current_ann_ids:
@@ -801,13 +818,22 @@ def check_user_updates(
             msg = f"📚 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
             telegram_messages.append(msg)
 
+        files_to_save = current_data.get("files", [])
+        files_suspect_count = saved_data.get("files_suspect_count", 0)
+        if current_data.get("_files_suspect"):
+            files_to_save = saved_data.get("files", [])
+            files_suspect_count = current_data.get("_files_suspect_count", files_suspect_count)
+        else:
+            files_suspect_count = 0
+
         # Kaydet
         user_saved_grades[url] = {
             "course_name": course_name,
             "grades": current_data.get("grades", {}),
             "assignments": current_data.get("assignments", []),
-            "files": current_data.get("files", []),
+            "files": files_to_save,
             "announcements": current_data.get("announcements", []),
+            "files_suspect_count": files_suspect_count,
         }
 
     # Başarılı veri çekimi - hata sayacını sıfırla
@@ -1035,13 +1061,24 @@ def check_for_updates():
                 msg = f"📚 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
                 telegram_messages.append(msg)
 
+            files_to_save = current_data.get("files", [])
+            files_suspect_count = saved_data.get("files_suspect_count", 0)
+            if current_data.get("_files_suspect"):
+                files_to_save = saved_data.get("files", [])
+                files_suspect_count = current_data.get(
+                    "_files_suspect_count", files_suspect_count
+                )
+            else:
+                files_suspect_count = 0
+
             # Kaydet
             user_saved_grades[url] = {
                 "course_name": course_name,
                 "grades": current_data.get("grades", {}),
                 "assignments": current_data.get("assignments", []),
-                "files": current_data.get("files", []),
+                "files": files_to_save,
                 "announcements": current_data.get("announcements", []),
+                "files_suspect_count": files_suspect_count,
             }
 
         if all_changes:
