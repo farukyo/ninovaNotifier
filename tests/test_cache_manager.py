@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from common.cache_manager import CacheManager
+from core.cache import CacheManager
 
 
 @pytest.fixture

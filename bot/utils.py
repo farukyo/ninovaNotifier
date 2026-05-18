@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import secrets
 import threading
@@ -8,10 +10,13 @@ from collections import OrderedDict
 from telebot import types
 
 from bot.instance import bot_instance as bot
-from common.log_context import log_with_context
-from common.utils import escape_html, get_file_icon, load_saved_grades
+from core.logger import log_with_context
+from core.utils import escape_html, get_file_icon, load_saved_grades
 
 logger = logging.getLogger("ninova")
+
+FILE_BROWSER_MAX_FILES = 50
+TELEGRAM_CALLBACK_DATA_MAX_LEN = 64
 
 _PATH_TOKEN_TTL_SECONDS = 60 * 60
 _PATH_TOKEN_MAX_ENTRIES = 2000
@@ -59,7 +64,7 @@ def validate_ninova_url(url: str) -> str | None:
     return clean_url
 
 
-def encode_path(path_segments):
+def encode_path(path_segments: list[str]) -> str:
     """
     Dosya yolu segmentlerini URL uyumlu hale getirir ve birleştirir.
 
@@ -69,7 +74,7 @@ def encode_path(path_segments):
     return urllib.parse.quote("/".join(path_segments))
 
 
-def decode_path(path_str):
+def decode_path(path_str: str) -> list[str]:
     """
     URL-encoded dosya yolunu tekrar segment listesine çevirir.
 
@@ -80,7 +85,7 @@ def decode_path(path_str):
 
 
 def _log_callback_size(callback_data: str, chat_id: str, action: str) -> None:
-    if len(callback_data) > 64:
+    if len(callback_data) > TELEGRAM_CALLBACK_DATA_MAX_LEN:
         log_with_context(
             logger,
             "warning",
@@ -131,7 +136,9 @@ def resolve_path_token(chat_id: str, message_id: int, token: str) -> str | None:
         return encoded_path
 
 
-def show_file_browser(chat_id, message_id, course_idx, path_str=""):
+def show_file_browser(
+    chat_id: str | int, message_id: int, course_idx: int, path_str: str = ""
+) -> None:
     """
     Ders için klasör tabanlı dosya tarayıcısını gösterir.
     Klasörler ve dosyalar arasında gezinmeyi sağlar.
@@ -194,8 +201,7 @@ def show_file_browser(chat_id, message_id, course_idx, path_str=""):
         else:
             folders.add(segments[prefix_len])
 
-    # Limit files to last 50
-    file_entries = file_entries[-50:]
+    file_entries = file_entries[-FILE_BROWSER_MAX_FILES:]
 
     markup = types.InlineKeyboardMarkup()
 

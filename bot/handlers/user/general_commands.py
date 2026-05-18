@@ -19,9 +19,9 @@ from bot.keyboards import (
     build_user_menu_keyboard,
 )
 from bot.utils import is_cancel_text
-from common.background_tasks import submit_background_task
-from common.config import load_all_users
-from common.utils import escape_html, split_long_message, update_user_data
+from core.config import load_all_users
+from core.scheduler import submit_background_task
+from core.utils import escape_html, split_long_message, update_user_data
 from services.calendar.itu_calendar import ITUCalendarService
 
 logger = logging.getLogger("ninova")

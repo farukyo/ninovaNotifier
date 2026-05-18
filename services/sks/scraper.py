@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
 
-from common.config import HEADERS
+from core.config import HEADERS
 
 logger = logging.getLogger("ninova.sks")
 
@@ -16,7 +18,7 @@ SKS_API_URL = (
 )
 
 
-def get_meal_menu(meal_type="lunch"):
+def get_meal_menu(meal_type: str = "lunch") -> str | None:
     """
     Fetches the daily meal menu from ITU SKS direct endpoint.
     :param meal_type: "lunch" or "dinner"

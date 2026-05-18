@@ -5,8 +5,8 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from common.http_logging import http_request
-from common.log_context import log_with_context
+from core.http_logging import http_request
+from core.logger import log_with_context
 
 logger = logging.getLogger("rehber")
 

@@ -1,29 +1,33 @@
+from __future__ import annotations
+
 from telebot import types
 
+COURSE_NAME_MAX_LEN = 40
 
-def get_back_button(callback_data: str, text: str = "↩️ Geri"):
+
+def get_back_button(callback_data: str, text: str = "↩️ Geri") -> types.InlineKeyboardButton:
     """Standart bir geri butonu döndürür."""
     return types.InlineKeyboardButton(text, callback_data=callback_data)
 
 
-def get_main_menu_button(text: str = "↩️ Ana Menü"):
+def get_main_menu_button(text: str = "↩️ Ana Menü") -> types.InlineKeyboardButton:
     """Ana menüye dönüş butonu döndürür."""
     return types.InlineKeyboardButton(text, callback_data="main_menu")
 
 
-def get_global_kontrol_button(text: str = "🔄 Tümünü Kontrol Et"):
+def get_global_kontrol_button(text: str = "🔄 Tümünü Kontrol Et") -> types.InlineKeyboardButton:
     """Tümünü kontrol et butonu döndürür."""
     return types.InlineKeyboardButton(text, callback_data="global_kontrol")
 
 
-def build_back_keyboard(callback_data: str):
+def build_back_keyboard(callback_data: str) -> types.InlineKeyboardMarkup:
     """Sadece 'Geri' butonu içeren basit bir klavye oluşturur."""
     markup = types.InlineKeyboardMarkup()
     markup.add(get_back_button(callback_data))
     return markup
 
 
-def build_course_detail_keyboard(course_idx: int):
+def build_course_detail_keyboard(course_idx: int) -> types.InlineKeyboardMarkup:
     """Ders detay sayfası (Not, Ödev, Dosya, Duyuru) klavyesini oluşturur."""
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
@@ -39,7 +43,7 @@ def build_course_detail_keyboard(course_idx: int):
 
 def build_confirm_keyboard(
     yes_data: str, no_data: str, yes_text: str = "Evet", no_text: str = "Hayır"
-):
+) -> types.InlineKeyboardMarkup:
     """Evet/Hayır onay ekranı klavyesi oluşturur."""
     markup = types.InlineKeyboardMarkup()
     markup.add(
@@ -49,18 +53,22 @@ def build_confirm_keyboard(
     return markup
 
 
-def build_manual_manage_courses_keyboard(urls, user_grades):
+def build_manual_manage_courses_keyboard(
+    urls: list, user_grades: dict
+) -> types.InlineKeyboardMarkup:
     """Manuel ders yönetimi (Silme) sayfasındaki ders listesi klavyesini oluşturur."""
     markup = types.InlineKeyboardMarkup()
     for i, url in enumerate(urls):
         course_name = user_grades.get(url, {}).get("course_name", f"Ders {i + 1}")
-        display_text = course_name if len(course_name) <= 40 else course_name[:37] + "..."
+        display_text = (
+            course_name if len(course_name) <= COURSE_NAME_MAX_LEN else course_name[:37] + "..."
+        )
         markup.add(types.InlineKeyboardButton(f"🗑️ {display_text}", callback_data=f"del_req_{i}"))
     markup.add(get_back_button("manual_back"))
     return markup
 
 
-def build_main_dashboard_keyboard(user_grades):
+def build_main_dashboard_keyboard(user_grades: dict) -> types.InlineKeyboardMarkup:
     """Kullanıcının takip ettiği dersleri listeleyen ana menü klavyesi."""
     markup = types.InlineKeyboardMarkup()
     for i, (_url, data) in enumerate(user_grades.items()):
@@ -77,7 +85,7 @@ def build_main_dashboard_keyboard(user_grades):
     return markup
 
 
-def build_manual_menu():
+def build_manual_menu() -> types.InlineKeyboardMarkup:
     """Return an InlineKeyboardMarkup for the manual course menu."""
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(

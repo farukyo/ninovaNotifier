@@ -1,17 +1,73 @@
-"""
-Logging altyapısı: DailyFileHandler ve JSON formatter.
+"""Logging configuration: DailyFileHandler, JSON formatter, ContextVar filter.
 
-main.py'de çağrılır; diğer modüller sadece logging.getLogger("ninova") kullanır.
+migrated from:
+  common/logging_setup.py  — DailyFileHandler, _JsonFormatter, setup_logging
+  common/log_context.py    — ContextVar-based context helpers
 """
+
+# migrated from: common/logging_setup.py, common/log_context.py
+from __future__ import annotations
 
 import json
 import logging
 import time
 from contextlib import suppress
+from contextvars import ContextVar
 from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from common.log_context import get_log_context
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# ContextVar helpers (migrated from: common/log_context.py)
+# ---------------------------------------------------------------------------
+
+_LOG_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar("log_context", default=None)
+
+
+def get_log_context() -> dict[str, Any]:
+    """Return the current logging context."""
+    return _LOG_CONTEXT.get() or {}
+
+
+def set_log_context(**fields: Any) -> None:
+    """Set or update context fields for the current execution."""
+    ctx = dict(get_log_context())
+    ctx.update({key: value for key, value in fields.items() if value is not None})
+    _LOG_CONTEXT.set(ctx)
+
+
+def clear_log_context(*keys: str) -> None:
+    """Clear specific context keys (or all if none provided)."""
+    if not keys:
+        _LOG_CONTEXT.set({})
+        return
+    ctx = dict(get_log_context())
+    for key in keys:
+        ctx.pop(key, None)
+    _LOG_CONTEXT.set(ctx)
+
+
+def log_with_context(
+    logger: logging.Logger,
+    level: str,
+    message: str,
+    *,
+    exc_info: bool | BaseException | None = None,
+    **fields: Any,
+) -> None:
+    """Log a message with merged context and extra fields."""
+    extra = dict(get_log_context())
+    extra.update({key: value for key, value in fields.items() if value is not None})
+    log_method: Callable = getattr(logger, level, logger.info)
+    log_method(message, extra=extra, exc_info=exc_info)
+
+
+# ---------------------------------------------------------------------------
+# Logging setup (migrated from: common/logging_setup.py)
+# ---------------------------------------------------------------------------
 
 _EXTRA_FIELDS = (
     "chat_id",
@@ -107,8 +163,7 @@ def setup_logging(logs_dir: Path) -> DailyFileHandler:
     """
     Logging'i yapılandırır; DailyFileHandler döndürür.
 
-    main.py'de bir kez çağrılmalı. Dönen handler üzerinden current_log_path
-    alınabilir (admin show_logs için).
+    main.py'de bir kez çağrılmalı.
     """
     cleanup_old_logs(logs_dir)
     handler = DailyFileHandler(logs_dir, encoding="utf-8")

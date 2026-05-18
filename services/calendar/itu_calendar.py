@@ -1,7 +1,10 @@
+import logging
 from dataclasses import dataclass
 
 import requests
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger("ninova")
 
 
 @dataclass
@@ -85,14 +88,14 @@ class ITUCalendarService:
             return sections
 
         except Exception as e:
-            print(f"Error fetching calendar: {e}")
+            logger.error(f"Error fetching calendar: {e}")  # fix: BUG-E2
             return []
 
     @staticmethod
     def get_filtered_calendar(show_past: bool = False, show_future: bool = False) -> str:
         from datetime import datetime, timedelta
 
-        from common.utils import parse_turkish_date
+        from core.utils import parse_turkish_date
 
         sections = ITUCalendarService.fetch_calendar()
         if not sections:

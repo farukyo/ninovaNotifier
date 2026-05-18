@@ -8,17 +8,18 @@ import sys
 
 from telebot import types
 
+import core.error_tracker as error_tracker
 from bot.callback_parsing import callback_parse_fail, split_callback_data
 from bot.instance import bot_instance as bot
 from bot.instance import get_check_callback
-from common.background_tasks import submit_background_task
-from common.config import (
+from core.config import (
     cleanup_inactive_sessions,
     close_user_session,
     get_user_session,
     save_all_users,
 )
-from common.utils import (
+from core.scheduler import submit_background_task
+from core.utils import (
     decrypt_password,
     save_grades,
     update_user_data,
@@ -176,139 +177,133 @@ def handle_admin_callbacks(call):
 
         bot.send_message(
             chat_id,
-            f"🔄 {len(users)} kullanıcı için ders taraması başlatılıyor...",
+            f"🔄 {len(users)} kullanıcı için ders taraması arka planda başlatılıyor...",
         )
 
-        updated = 0
-        failed = 0
-        total_new_courses = 0
-        all_grades = load_admin_grades()
+        # fix: run the heavy Ninova scraping loop in background thread so the
+        # Telegram polling thread is not blocked for minutes (BUG-C1)
+        def _run_forceoto(chat_id=chat_id, users=users, request_id=request_id):
+            updated = 0
+            failed = 0
+            total_new_courses = 0
+            all_grades = load_admin_grades()
 
-        for target_chat_id, user_data in users.items():
-            username = user_data.get("username")
-            password = decrypt_password(user_data.get("password", ""))
+            for target_chat_id, user_data in users.items():
+                username = user_data.get("username")
+                password = decrypt_password(user_data.get("password", ""))
 
-            if not username or not password:
-                failed += 1
-                from main import _record_user_error
-
-                _record_user_error(
-                    target_chat_id,
-                    "MISSING_CREDENTIALS",
-                    "Eksik kullanıcı adı/şifre",
-                    username,
-                )
-                continue
-
-            try:
-                # Create/get session (managed by SessionManager)
-                session = get_user_session(target_chat_id)
-
-                if not login_to_ninova(session, target_chat_id, username, password):
+                if not username or not password:
                     failed += 1
-                    from main import _record_user_error
-
-                    _record_user_error(
+                    # fix: BUG-L1 — _record_user_error never existed in main.py
+                    error_tracker.record_error(
                         target_chat_id,
-                        "LOGIN_FAILED",
-                        "Admin forceoto callback sırasında giriş başarısız",
-                        username,
+                        "MISSING_CREDENTIALS",
+                        "Eksik kullanıcı adı/şifre",
+                        username or "",
                     )
                     continue
 
-                # Tüm dersleri çek
-                courses = get_user_courses(session)
-                if not courses:
-                    failed += 1
-                    continue
+                try:
+                    session = get_user_session(target_chat_id)
 
-                # Mevcut verileri kontrol et
-                user_grades = all_grades.get(target_chat_id, {})
-                current_urls = set(user_data.get("urls", []))
-
-                # Yeni ve mevcut dersleri ayır
-                already_added = []
-                newly_added = []
-                new_urls_list = list(current_urls)
-
-                for course in courses:
-                    course_url = course.get("url")
-                    course_name = course.get("name", "Bilinmeyen Ders")
-
-                    if not course_url:
+                    if not login_to_ninova(session, target_chat_id, username, password):
+                        failed += 1
+                        # fix: BUG-L1
+                        error_tracker.record_error(
+                            target_chat_id,
+                            "LOGIN_FAILED",
+                            "Admin forceoto callback sırasında giriş başarısız",
+                            username or "",
+                        )
                         continue
 
-                    if course_url in user_grades:
-                        already_added.append(course_name)
-                    elif course_url in current_urls:
-                        newly_added.append({"name": course_name, "url": course_url})
+                    courses = get_user_courses(session)
+                    if not courses:
+                        failed += 1
+                        continue
+
+                    user_grades = all_grades.get(target_chat_id, {})
+                    current_urls = set(user_data.get("urls", []))
+
+                    already_added = []
+                    newly_added = []
+                    new_urls_list = list(current_urls)
+
+                    for course in courses:
+                        course_url = course.get("url")
+                        course_name = course.get("name", "Bilinmeyen Ders")
+
+                        if not course_url:
+                            continue
+
+                        if course_url in user_grades:
+                            already_added.append(course_name)
+                        elif course_url in current_urls:
+                            newly_added.append({"name": course_name, "url": course_url})
+                        else:
+                            newly_added.append({"name": course_name, "url": course_url})
+                            new_urls_list.append(course_url)
+
+                    update_user_data(target_chat_id, "urls", new_urls_list)
+                    total_new_courses += len(newly_added)
+
+                    response = "📊 <b>Ders Tarama Sonucu</b>\n\n"
+                    if already_added:
+                        response += f"✅ <b>Zaten Ekli:</b> {len(already_added)} ders\n"
+                    if newly_added:
+                        response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
+                        for c in newly_added[:5]:
+                            response += f"  ➕ {c['name']}\n"
+                        if len(newly_added) > 5:
+                            response += f"  ... ve {len(newly_added) - 5} daha\n"
                     else:
-                        newly_added.append({"name": course_name, "url": course_url})
-                        new_urls_list.append(course_url)
+                        response += "ℹ️ Yeni ders bulunamadı.\n"
 
-                # URL'leri güncelle
-                update_user_data(target_chat_id, "urls", new_urls_list)
-                total_new_courses += len(newly_added)
+                    bot.send_message(target_chat_id, response, parse_mode="HTML")
+                    updated += 1
 
-                # Kullanıcıya bildir
-                response = "📊 <b>Ders Tarama Sonucu</b>\n\n"
+                except Exception as e:
+                    logger.exception(f"[admin] forceoto failed for user {target_chat_id}: {e}")
+                    failed += 1
+                    # fix: BUG-L1
+                    error_tracker.record_error(
+                        target_chat_id, "FORCEOTO_EXCEPTION", str(e), username or ""
+                    )
+                    continue
 
-                if already_added:
-                    response += f"✅ <b>Zaten Ekli:</b> {len(already_added)} ders\n"
+            summary = (
+                f"✅ <b>Force Otoders Tamamlandı</b>\n\n"
+                f"✔️ Başarılı: {updated} kullanıcı\n"
+                f"❌ Başarısız: {failed} kullanıcı\n"
+                f"📚 Yeni eklenen ders: {total_new_courses}\n\n"
+                f"🔄 Kontrol başlatılıyor..."
+            )
+            bot.send_message(chat_id, summary, parse_mode="HTML")
+            log_admin_action(
+                chat_id,
+                "force_otoders",
+                status="completed",
+                request_id=request_id,
+                details=f"updated={updated};failed={failed};new_courses={total_new_courses}",
+            )
 
-                if newly_added:
-                    response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
-                    for c in newly_added[:5]:
-                        response += f"  ➕ {c['name']}\n"
-                    if len(newly_added) > 5:
-                        response += f"  ... ve {len(newly_added) - 5} daha\n"
-                else:
-                    response += "ℹ️ Yeni ders bulunamadı.\n"
+            cb = get_check_callback()
+            if cb:
+                try:
+                    cb()
+                    bot.send_message(chat_id, "✅ Kontrol tamamlandı.", parse_mode="HTML")
+                except Exception as e:
+                    bot.send_message(chat_id, f"⚠️ Kontrol hatası: {e!s}", parse_mode="HTML")
+                    log_admin_action(
+                        chat_id,
+                        "force_check_post_otoders",
+                        status="failed",
+                        request_id=request_id,
+                        level="error",
+                    )
 
-                bot.send_message(target_chat_id, response, parse_mode="HTML")
-                updated += 1
-
-            except Exception as e:
-                logger.exception(f"[admin] forceoto failed for user {target_chat_id}: {e}")
-                failed += 1
-                from main import _record_user_error
-
-                _record_user_error(target_chat_id, "FORCEOTO_EXCEPTION", str(e), username)
-                continue
-
-        # Admin'e özet bildir
-        summary = (
-            f"✅ <b>Force Otoders Tamamlandı</b>\n\n"
-            f"✔️ Başarılı: {updated} kullanıcı\n"
-            f"❌ Başarısız: {failed} kullanıcı\n"
-            f"📚 Yeni eklenen ders: {total_new_courses}\n\n"
-            f"🔄 Kontrol başlatılıyor..."
-        )
-
-        bot.send_message(chat_id, summary, parse_mode="HTML")
-        log_admin_action(
-            chat_id,
-            "force_otoders",
-            status="completed",
-            request_id=request_id,
-            details=f"updated={updated};failed={failed};new_courses={total_new_courses}",
-        )
-
-        # Kontrol başlat - tüm kullanıcılar için ders bilgilerini çek
-        cb = get_check_callback()
-        if cb:
-            try:
-                cb()
-                bot.send_message(chat_id, "✅ Kontrol tamamlandı.", parse_mode="HTML")
-            except Exception as e:
-                bot.send_message(chat_id, f"⚠️ Kontrol hatası: {e!s}", parse_mode="HTML")
-                log_admin_action(
-                    chat_id,
-                    "force_check_post_otoders",
-                    status="failed",
-                    request_id=request_id,
-                    level="error",
-                )
+        if not submit_background_task("admin_forceoto_callback", _run_forceoto):
+            bot.send_message(chat_id, "⏳ Sistem yoğun, işlem kuyruğa alınamadı.")
 
     elif action == "logs":
         log_admin_action(chat_id, "show_logs", status="requested", request_id=request_id)

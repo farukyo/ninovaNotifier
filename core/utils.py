@@ -1,27 +1,45 @@
+"""Utility functions: HTML helpers, crypto wrappers, date parsing, Telegram senders.
+
+migrated from: common/utils.py
+Storage functions (load_saved_grades, save_grades, update_user_data, delete_course_data)
+are in core/storage.py but re-exported here for backward compatibility.
+"""
+
+from __future__ import annotations
+
 import contextlib
-import json
 import logging
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from common.config import (
-    DATA_FILE,
-    TELEGRAM_TOKEN,
-    _atomic_json_write,
-    _data_lock,
-    cipher_suite,
-    console,
-    load_all_users,
-    save_all_users,
-)
-from common.http_logging import http_request
-from common.log_context import log_with_context
+from core.http_logging import http_request
+from core.logger import log_with_context
+from core.storage import delete_course_data, load_saved_grades, save_grades, update_user_data
 
 logger = logging.getLogger("ninova")
+
+# Re-export storage symbols so callers of `common.utils` continue to work.
+__all__ = [
+    "decrypt_password",
+    "delete_course_data",
+    "encrypt_password",
+    "escape_html",
+    "get_assignment_status",
+    "get_file_icon",
+    "load_saved_grades",
+    "parse_turkish_date",
+    "sanitize_html_for_telegram",
+    "save_grades",
+    "send_telegram_document",
+    "send_telegram_message",
+    "split_long_message",
+    "update_user_data",
+]
 
 DATE_MONTHS = {
     "ocak": 1,
@@ -39,21 +57,17 @@ DATE_MONTHS = {
 }
 
 
-def parse_turkish_date(date_str):
-    """
-    Parses dates like '10 Ekim 2025 00:00' or '06 Ekim 2025 10:54'
-    Returns datetime object or None
-    """
+def parse_turkish_date(date_str: str) -> datetime | None:
+    """Parses dates like '10 Ekim 2025 00:00'. Returns datetime or None."""
     try:
         parts = date_str.strip().split()
         if len(parts) >= 4:
             day = int(parts[0])
-            month_name = parts[1].lower()  # Case insensitive yapıldı
+            month_name = parts[1].lower()
             year = int(parts[2])
             time_parts = parts[3].split(":")
             hour = int(time_parts[0])
             minute = int(time_parts[1])
-
             month = DATE_MONTHS.get(month_name, 1)
             return datetime(year, month, day, hour, minute)
     except (ValueError, IndexError, AttributeError) as e:
@@ -61,26 +75,20 @@ def parse_turkish_date(date_str):
     return None
 
 
-def encrypt_password(password):
-    """
-    Şifreyi Fernet algoritması ile şifreler.
+def encrypt_password(password: str) -> str:
+    """Şifreyi global cipher_suite ile şifreler."""
+    from core.config import cipher_suite  # deferred to avoid import-time side effects
 
-    :param password: Düz metin şifre
-    :return: Şifrelenen şifre (string) veya boş string
-    """
     if not password:
         return ""
     encrypted = cipher_suite.encrypt(password.encode())
     return encrypted.decode()
 
 
-def decrypt_password(encrypted_password):
-    """
-    Şifrelenen şifreyi çözer.
+def decrypt_password(encrypted_password: str) -> str | None:
+    """Şifrelenmiş şifreyi global cipher_suite ile çözer."""
+    from core.config import cipher_suite  # deferred to avoid import-time side effects
 
-    :param encrypted_password: Şifrelenen şifre string'i
-    :return: Düz metin şifre veya hata durumunda None
-    """
     if not encrypted_password:
         return ""
     try:
@@ -91,65 +99,29 @@ def decrypt_password(encrypted_password):
         return None
 
 
-def update_user_data(chat_id, key, value):
-    """
-    Kullanıcı verisini günceller. Password alanı için otomatik şifreleme yapar.
-
-    :param chat_id: Kullanıcının Telegram chat ID'si
-    :param key: Güncellenecek alan adı (username, password, urls vb.)
-    :param value: Yeni değer
-    :return: Güncellenmiş kullanıcı verisi
-    """
-    users = load_all_users()
-    chat_id = str(chat_id)
-    if chat_id not in users:
-        users[chat_id] = {"username": "", "password": "", "urls": []}
-
-    if key == "password":
-        value = encrypt_password(value)
-    users[chat_id][key] = value
-    save_all_users(users)
-    return users[chat_id]
-
-
-def escape_html(text):
-    """
-    HTML özel karakterlerini kaçırarak güvenli hale getirir.
-
-    :param text: Kaçırılacak metin
-    :return: Güvenli HTML metni
-    """
+def escape_html(text: str) -> str:
+    """HTML özel karakterlerini kaçırarak güvenli hale getirir."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def sanitize_html_for_telegram(html_content):
-    """
-    Parses HTML content and returns a Telegram-safe version.
-    Supports <b>, <i>, <a>, <code>, <pre>.
-    Converts <p>, <div>, <br> and lists to appropriate spacing/bullet points.
-
-    :param html_content: Raw HTML string
-    :return: Telegram-safe HTML string
-    """
+def sanitize_html_for_telegram(html_content: str) -> str:
+    """Parses HTML content and returns a Telegram-safe version."""
     if not html_content:
         return ""
 
     try:
-        # If it seems like plain text (no tags), just escape and return
         if "<" not in html_content and ">" not in html_content:
             return escape_html(html_content)
 
         soup = BeautifulSoup(html_content, "html.parser")
 
-        def process_node(node):
+        def process_node(node: Any) -> str:
             if isinstance(node, NavigableString):
-                # Only escape text that isn't inside a tag we're processing
                 return escape_html(str(node))
 
             if isinstance(node, Tag):
                 name = node.name.lower()
 
-                # Inline formatting tags Telegram supports
                 if name in ("b", "strong"):
                     inner = "".join(process_node(c) for c in node.contents)
                     return f"<b>{inner}</b>"
@@ -168,11 +140,8 @@ def sanitize_html_for_telegram(html_content):
                 if name == "pre":
                     inner = "".join(process_node(c) for c in node.contents)
                     return f"<pre>{inner}</pre>"
-
-                # Links
                 if name == "a":
                     href = node.get("href", "")
-                    # Ensure href is properly escaped/safe
                     href = href.replace('"', "%22")
                     if not href:
                         return "".join(process_node(c) for c in node.contents)
@@ -180,8 +149,6 @@ def sanitize_html_for_telegram(html_content):
                     if not inner:
                         inner = href
                     return f'<a href="{href}">{inner}</a>'
-
-                # Block elements -> spacing
                 if name == "br":
                     return "\n"
                 if name in (
@@ -198,8 +165,6 @@ def sanitize_html_for_telegram(html_content):
                 ):
                     inner = "".join(process_node(c) for c in node.contents).strip()
                     return f"{inner}\n\n" if inner else ""
-
-                # Lists
                 if name in ("ul", "ol"):
                     items = []
                     for li in node.find_all("li", recursive=False):
@@ -207,39 +172,29 @@ def sanitize_html_for_telegram(html_content):
                         if li_text:
                             items.append(f"• {li_text}")
                     return "\n".join(items) + "\n\n" if items else ""
-
                 if name == "li":
                     inner = "".join(process_node(c) for c in node.contents).strip()
                     return f"• {inner}\n" if inner else ""
 
-                # Ignore other tags but keep their contents
                 return "".join(process_node(c) for c in node.contents)
 
             return ""
 
         result = "".join(process_node(c) for c in soup.contents).strip()
-        # Clean up excessive whitespace/newlines
         return re.sub(r"\n{3,}", "\n\n", result)
     except Exception as e:
+        from core.config import console
+
         console.print(f"[yellow]HTML Sanitization Error: {e}[/yellow]")
-        # Fallback: simple text extract
         try:
             return escape_html(BeautifulSoup(html_content, "html.parser").get_text())
         except Exception:
             return escape_html(str(html_content))
 
 
-def get_file_icon(filename):
-    """
-    Dosya uzantısına göre uygun emoji ikonunu döndürür.
-
-    :param filename: Dosya adı (uzantı ile)
-    :return: Dosya tipi için uygun emoji (varsayılan: 📄)
-    """
-
-    # Tüm desteklenen uzantı/tip -> emoji eşleşmeleri
+def get_file_icon(filename: str) -> str:
+    """Dosya uzantısına göre uygun emoji ikonunu döndürür."""
     icons = {
-        # Dökümanlar
         "pdf": "📕",
         "doc": "📘",
         "docx": "📘",
@@ -258,7 +213,6 @@ def get_file_icon(filename):
         "rtf": "📝",
         "text": "📝",
         "md": "📝",
-        # Arşivler
         "zip": "📦",
         "rar": "📦",
         "7z": "📦",
@@ -266,7 +220,6 @@ def get_file_icon(filename):
         "gz": "📦",
         "bz2": "📦",
         "arsiv": "📦",
-        # Görseller
         "jpg": "🖼️",
         "jpeg": "🖼️",
         "png": "🖼️",
@@ -278,7 +231,6 @@ def get_file_icon(filename):
         "resim": "🖼️",
         "image": "🖼️",
         "img": "🖼️",
-        # Videolar
         "mp4": "🎬",
         "avi": "🎬",
         "mov": "🎬",
@@ -287,7 +239,6 @@ def get_file_icon(filename):
         "flv": "🎬",
         "webm": "🎬",
         "video": "🎬",
-        # Ses
         "mp3": "🎵",
         "wav": "🎵",
         "ogg": "🎵",
@@ -296,7 +247,6 @@ def get_file_icon(filename):
         "m4a": "🎵",
         "audio": "🎵",
         "ses": "🎵",
-        # Kod dosyaları
         "py": "🐍",
         "js": "📜",
         "ts": "📜",
@@ -339,43 +289,22 @@ def get_file_icon(filename):
         "ipynb": "📓",
         "bib": "📚",
     }
-
     if not isinstance(filename, str):
         return "📄"
-
-    # Dosya adından uzantıyı kontrol et
     ext = filename.split(".")[-1].lower() if "." in filename else ""
     return icons.get(ext, "📄")
 
 
-def get_assignment_status(assignment_dict):
-    """
-    Calculates the status icon and active state of an assignment.
-
-    :param assignment_dict: The assignment dictionary containing 'is_submitted' and 'end_date'
-    :return: tuple (status_icon, is_active_future_assignment)
-    """
+def get_assignment_status(assignment_dict: dict) -> tuple[str, bool]:
+    """Calculates the status icon and active state of an assignment."""
     is_submitted = assignment_dict.get("is_submitted", False)
     end_date_str = assignment_dict.get("end_date", "")
 
-    # ✅ If submitted, always show green check
     if is_submitted:
-        return (
-            "✅",
-            False,
-        )  # It is completed, so 'active' depending on context, but here we treat it as fine.
-        # Wait, if submitted, user wants to see it? "active" usually means "ToDo".
-        # But let's check the requirement: "Show only active (future) assignments".
-        # If I submitted it, it's done. Should it be hidden by default?
-        # User said: "ödev tamamlandıysa ✅göstersin".
-        # Usually completed assignments are good to see.
-        # Let's consider 'active' = 'not expired OR submitted'.
-        # If expired and not submitted -> ❌ (Hidden by default)
+        return "✅", False
 
-    # Convert date
     due_date = parse_turkish_date(end_date_str)
     if not due_date:
-        # Cannot parse, treat as neutral
         return "⚪", True
 
     now = datetime.now()
@@ -383,57 +312,70 @@ def get_assignment_status(assignment_dict):
     days_left = delta.total_seconds() / (3600 * 24)
 
     if days_left < 0:
-        # ❌ Expired (and not submitted, captured above)
-        return "❌", False  # Expired -> Not active
+        return "❌", False
     if days_left <= 3:
-        # ⚠️ Warning
         return "⚠️", True
-    # 🟡 Info
     return "🟡", True
 
 
-def send_telegram_message(chat_id, message, is_error=False):
-    """
-    Telegram botu üzerinden belirli bir kullanıcıya mesaj gönderir.
-    Uzun mesajları otomatik olarak parçalara ayırır.
+def split_long_message(text: str, limit: int = 4000) -> list[str]:
+    """Splits a long message into chunks respecting newline boundaries."""
+    if len(text) <= limit:
+        return [text]
 
-    :param chat_id: Telegram chat ID
-    :param message: Gönderilecek mesaj metni (HTML formatında olabilir)
-    :param is_error: Hata mesajı ise True, ön ek olarak uyarı ekler
-    """
+    chunks = []
+    current_chunk = ""
+
+    for line in text.split("\n"):
+        if len(line) > limit:
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = ""
+            chunks.extend(line[i : i + limit] for i in range(0, len(line), limit))
+            continue
+
+        if len(current_chunk) + len(line) + 1 > limit:
+            chunks.append(current_chunk)
+            current_chunk = line
+        else:
+            current_chunk += ("\n" if current_chunk else "") + line
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+def send_telegram_message(chat_id: Any, message: str, is_error: bool = False) -> None:
+    """Telegram botu üzerinden belirli bir kullanıcıya mesaj gönderir."""
+    from core.config import TELEGRAM_TOKEN, console  # deferred
+
     if not TELEGRAM_TOKEN or not chat_id:
         return
 
     prefix = "⚠️ <b>HATA</b>\n\n" if is_error else ""
     full_message = prefix + message
-
-    # Telegram limit: 4096 characters. Use 3500 to be safe with HTML tags.
     limit = 3500
-    messages = []
+    messages: list[str] = []
 
     if len(full_message) <= limit:
         messages.append(full_message)
     else:
-        # Mesajı satır bazlı böl
         lines = full_message.split("\n")
         current_msg = ""
         for line in lines:
-            # Eğer tek bir satır limitin üzerindeyse (çok nadir), onu da karakter bazlı böl
             if len(line) > limit:
                 if current_msg:
                     messages.append(current_msg)
                     current_msg = ""
-                # Satırı parçala
                 messages.extend(line[i : i + limit] for i in range(0, len(line), limit))
                 continue
-
             if len(current_msg) + len(line) + 1 > limit:
                 if current_msg:
                     messages.append(current_msg)
                 current_msg = line
             else:
                 current_msg += ("\n" if current_msg else "") + line
-
         if current_msg:
             messages.append(current_msg)
 
@@ -441,11 +383,7 @@ def send_telegram_message(chat_id, message, is_error=False):
     for msg in messages:
         if not msg.strip():
             continue
-        payload = {
-            "chat_id": chat_id,
-            "text": msg,
-            "parse_mode": "HTML",
-        }
+        payload = {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}
         try:
             response = http_request(
                 logger,
@@ -483,18 +421,15 @@ def send_telegram_message(chat_id, message, is_error=False):
 
 
 def send_telegram_document(
-    chat_id, document, caption="", filename="document.pdf", is_file_id=False
-):
-    """
-    Telegram üzerinden dosya gönderir. Path, BytesIO veya File ID destekler.
+    chat_id: Any,
+    document: Any,
+    caption: str = "",
+    filename: str = "document.pdf",
+    is_file_id: bool = False,
+) -> str | None:
+    """Telegram üzerinden dosya gönderir. Path, BytesIO veya File ID destekler."""
+    from core.config import TELEGRAM_TOKEN, console  # deferred
 
-    :param chat_id: Telegram chat ID
-    :param document: Dosya yolu (str), BytesIO nesnesi veya File ID (str)
-    :param caption: Dosya açıklaması
-    :param filename: Dosya adı (BytesIO kullanılıyorsa gereklidir)
-    :param is_file_id: True ise document parametresi File ID olarak işlenir
-    :return: Gönderilen dosyanın file_id'si veya None
-    """
     if not TELEGRAM_TOKEN or not chat_id:
         return None
 
@@ -502,7 +437,6 @@ def send_telegram_document(
     sent_file_id = None
 
     try:
-        # 1. Send by File ID
         if is_file_id:
             data = {
                 "chat_id": chat_id,
@@ -520,8 +454,6 @@ def send_telegram_document(
                 data=data,
                 timeout=30,
             )
-
-        # 2. Send by File Path
         elif isinstance(document, str) and Path(document).exists():
             filename = Path(document).name
             with Path(document).open("rb") as f:
@@ -538,14 +470,9 @@ def send_telegram_document(
                     files=files,
                     timeout=60,
                 )
-
-            # Delete temp file if it was a path
             with contextlib.suppress(OSError):
                 Path(document).unlink()
-
-        # 3. Send by BytesIO / Buffer
         else:
-            # Assume document is a file-like object (BytesIO)
             if hasattr(document, "seek"):
                 document.seek(0)
             files = {"document": (filename, document)}
@@ -568,7 +495,6 @@ def send_telegram_document(
                 doc = resp_json["result"].get("document")
                 if doc:
                     sent_file_id = doc.get("file_id")
-
             console.print(f"[green][Telegram] Dosya gönderildi ({chat_id}): {filename}")
         else:
             log_with_context(
@@ -593,100 +519,3 @@ def send_telegram_document(
         console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {e}")
 
     return sent_file_id
-
-
-def load_saved_grades():
-    """
-    Kaydedilmiş notları ninova_data.json dosyasından okur (thread-safe).
-
-    :return: Not verileri sözlüğü (chat_id: grades) veya boş dict
-    """
-    with _data_lock:
-        if Path(DATA_FILE).exists():
-            try:
-                with Path(DATA_FILE).open(encoding="utf-8") as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
-                logger.error(f"{DATA_FILE} dosyası bozuk!")
-                console.print(f"[red]⚠️ {DATA_FILE} dosyası bozuk! Boş dict döndürülüyor.")
-                return {}
-        return {}
-
-
-def save_grades(grades):
-    """
-    Notları ninova_data.json dosyasına kaydeder (thread-safe, atomik).
-
-    :param grades: Kaydedilecek not verileri sözlüğü
-    """
-    with _data_lock:
-        _atomic_json_write(DATA_FILE, grades)
-
-
-def split_long_message(text, limit=4000):
-    """
-    Splits a long message into chunks while respecting newline boundaries to avoid breaking HTML tags.
-    Default Telegram limit is 4096, but we use 4000 to be safe.
-
-    :param text: The text to split.
-    :param limit: Maximum characters per chunk.
-    :return: List of text chunks.
-    """
-    if len(text) <= limit:
-        return [text]
-
-    chunks = []
-    current_chunk = ""
-
-    lines = text.split("\n")
-    for line in lines:
-        # If a single line is too long, force split it (rare case)
-        if len(line) > limit:
-            if current_chunk:
-                chunks.append(current_chunk)
-                current_chunk = ""
-
-            # Split line by chars
-            chunks.extend(line[i : i + limit] for i in range(0, len(line), limit))
-            continue
-
-        # Check if adding this line would exceed the limit
-        # +1 accounts for the newline character we'll eventually need to join with (or implicit newlines)
-        if len(current_chunk) + len(line) + 1 > limit:
-            chunks.append(current_chunk)
-            current_chunk = line
-        else:
-            if current_chunk:
-                current_chunk += "\n" + line
-            else:
-                current_chunk = line
-
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    return chunks
-
-
-def delete_course_data(chat_id, course_url):
-    """
-    Belirli bir dersin verilerini (not, ödev vb.) ninova_data.json dosyasından siler.
-
-    :param chat_id: Kullanıcı ID
-    :param course_url: Silinecek dersin URL'i
-    """
-    chat_id = str(chat_id)
-    all_grades = load_saved_grades()
-
-    if chat_id in all_grades:
-        user_grades = all_grades[chat_id]
-        if course_url in user_grades:
-            del user_grades[course_url]
-            # Eğer kullanıcının hiç dersi kalmadıysa, kullanıcı kaydını da data'dan silebiliriz (opsiyonel)
-            if not user_grades:
-                del all_grades[chat_id]
-            else:
-                all_grades[chat_id] = user_grades
-
-            save_grades(all_grades)
-            return True
-    return False

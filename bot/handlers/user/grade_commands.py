@@ -12,8 +12,8 @@ from telebot import types
 from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_grades
 from bot.instance import bot_instance as bot
-from common.background_tasks import submit_background_task
-from common.utils import split_long_message
+from core.scheduler import submit_background_task
+from core.utils import split_long_message
 
 from .course_commands import _resolve_main_callable, interactive_menu
 
@@ -133,7 +133,7 @@ def list_assignments(message, show_all=False):
         bot.reply_to(message, "Henüz kayıtlı veri bulunamadı.")
         return
 
-    from common.utils import get_assignment_status, parse_turkish_date
+    from core.utils import get_assignment_status, parse_turkish_date
 
     total_assignments_count = 0
     hidden_assignments_count = 0

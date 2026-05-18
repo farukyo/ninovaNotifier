@@ -5,8 +5,8 @@ import logging
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text
-from common.config import get_user_session
-from common.utils import update_user_data
+from core.config import get_user_session
+from core.utils import update_user_data
 from services.ninova import get_user_courses, login_to_ninova
 
 from .audit import log_user_action

@@ -1,18 +1,30 @@
-"""HTTP request helpers with structured logging."""
+"""HTTP request helpers with structured logging.
+
+migrated from: common/http_logging.py
+"""
 
 from __future__ import annotations
 
+import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
 
-from common.log_context import log_with_context
+from core.logger import log_with_context
+
+if TYPE_CHECKING:
+    import logging
+
+
+def _redact_url(url: str) -> str:
+    # fix: prevent bot token from appearing in log files (BUG-S1)
+    return re.sub(r"(api\.telegram\.org/bot)[^/]+", r"\1[REDACTED]", url)
 
 
 def http_request(
-    logger,
-    session,
+    logger: logging.Logger,
+    session: Any,
     method: str,
     url: str,
     *,
@@ -21,7 +33,7 @@ def http_request(
     retry_count: int | None = None,
     error_stage: str | None = None,
     **kwargs: Any,
-):
+) -> requests.Response:
     """Execute an HTTP request and emit structured logs."""
     start = time.perf_counter()
     try:
@@ -34,7 +46,7 @@ def http_request(
             chat_id=chat_id,
             action=action,
             http_method=method,
-            http_url=url,
+            http_url=_redact_url(url),
             http_status=response.status_code,
             http_elapsed_ms=elapsed_ms,
             retry_count=retry_count,
@@ -49,7 +61,7 @@ def http_request(
             chat_id=chat_id,
             action=action,
             http_method=method,
-            http_url=url,
+            http_url=_redact_url(url),
             http_elapsed_ms=elapsed_ms,
             retry_count=retry_count,
             error_stage=error_stage,

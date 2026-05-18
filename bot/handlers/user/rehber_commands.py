@@ -12,8 +12,8 @@ from bot.keyboards import (
     build_rehber_soyad_keyboard,
 )
 from bot.utils import is_cancel_text
-from common.config import get_user_session, load_all_users
-from common.utils import decrypt_password, escape_html
+from core.config import get_user_session, load_all_users
+from core.utils import decrypt_password, escape_html
 from services.rehber.scraper import RehberScraper
 
 logger = logging.getLogger("ninova")

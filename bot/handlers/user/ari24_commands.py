@@ -6,7 +6,7 @@ from bot.callback_parsing import callback_parse_fail, parse_int_part, split_call
 from bot.handlers.user.audit import log_user_action
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_ari24_menu_keyboard
-from common.config import load_all_users, save_all_users
+from core.config import load_all_users, save_all_users
 from services.ari24.client import Ari24Client
 
 logger = logging.getLogger("ninova")
@@ -57,7 +57,7 @@ def discover_events(message):
                 bot.send_message(chat_id, caption, parse_mode="HTML")
             count += 1
         except Exception as e:
-            print(f"Error sending event message: {e}")
+            logger.warning(f"Error sending event message: {e}")
             bot.send_message(chat_id, caption, parse_mode="HTML", disable_web_page_preview=False)
             count += 1
 

@@ -3,7 +3,7 @@
 import logging
 import uuid
 
-from common.log_context import log_with_context
+from core.logger import log_with_context
 
 logger = logging.getLogger("ninova")
 

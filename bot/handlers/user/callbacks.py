@@ -11,11 +11,11 @@ from bot.inline_keyboards import build_manual_menu
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text, resolve_path_token, show_file_browser, validate_ninova_url
-from common.background_tasks import submit_background_task
-from common.cache_manager import get_cache_manager
-from common.config import close_user_session, load_all_users, save_all_users
-from common.log_context import clear_log_context, set_log_context
-from common.utils import (
+from core.cache import get_cache_manager
+from core.config import close_user_session, load_all_users, save_all_users
+from core.logger import clear_log_context, set_log_context
+from core.scheduler import submit_background_task
+from core.utils import (
     decrypt_password,
     delete_course_data,
     escape_html,
@@ -475,7 +475,7 @@ def handle_file_download(call):
         username = user_info.get("username")
         password = decrypt_password(user_info.get("password", ""))
 
-        from common.config import get_user_session
+        from core.config import get_user_session
 
         session = get_user_session(chat_id)
 
@@ -738,7 +738,7 @@ def handle_manual_delete(call):
     users = load_all_users()
     user_data = users.get(chat_id, {})
     urls = user_data.get("urls", [])
-    from common.utils import load_saved_grades
+    from core.utils import load_saved_grades
 
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
@@ -773,7 +773,7 @@ def handle_manual_list(call):
     users = load_all_users()
     user_data = users.get(chat_id, {})
     urls = user_data.get("urls", [])
-    from common.utils import load_saved_grades
+    from core.utils import load_saved_grades
 
     all_grades = load_saved_grades()
     user_grades = all_grades.get(chat_id, {})
@@ -1171,7 +1171,7 @@ def handle_show_past_calendar(call):
 
         from telebot import types
 
-        from common.utils import split_long_message
+        from core.utils import split_long_message
 
         chunks = split_long_message(data)
 
@@ -1222,7 +1222,7 @@ def handle_show_future_calendar(call):
 
         from telebot import types
 
-        from common.utils import split_long_message
+        from core.utils import split_long_message
 
         chunks = split_long_message(data)
 

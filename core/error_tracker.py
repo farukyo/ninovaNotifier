@@ -1,22 +1,21 @@
-"""
-Kullanıcı bazlı hata takip modülü.
+"""Kullanıcı bazlı hata takip modülü.
+
+migrated from: common/error_tracker.py
 
 Ardışık Ninova hatalarını sayar; eşik aşılınca admin/kullanıcıya bildirim gönderir.
 Başarılı kontrol sonrası sayacı sıfırlar ve "düzeldi" mesajı atar.
-
-Eşikler:
-  3+ ardışık hata → admin'e bildirim (bir kez)
-  6+ ardışık hata → kullanıcıya bilgilendirme mesajı (bir kez)
 """
+
+from __future__ import annotations
 
 import logging
 import threading
 from datetime import datetime
 from pathlib import Path
 
-from common.config import ADMIN_TELEGRAM_IDS, DATA_DIR, atomic_json_write, load_all_users
-from common.log_context import log_with_context
-from common.utils import send_telegram_message
+from core.config import ADMIN_TELEGRAM_IDS, DATA_DIR, atomic_json_write, load_all_users
+from core.logger import log_with_context
+from core.utils import send_telegram_message
 
 logger = logging.getLogger("ninova")
 
@@ -45,12 +44,7 @@ def _empty_entry() -> dict:
 
 
 def load(known_user_ids: set[str] | None = None) -> None:
-    """
-    error_tracker.json'dan yükler.
-
-    known_user_ids verilirse, artık sistemde bulunmayan kullanıcıların
-    kayıtları temizlenir.
-    """
+    """error_tracker.json'dan yükler."""
     global _tracker
     if _ERROR_TRACKER_FILE.exists():
         import json
@@ -206,10 +200,7 @@ def record_success(
 
 
 def purge_deleted_users() -> int:
-    """
-    users.json'da artık bulunmayan kullanıcıların tracker kayıtlarını temizler.
-    Temizlenen kayıt sayısını döndürür.
-    """
+    """users.json'da artık bulunmayan kullanıcıların tracker kayıtlarını temizler."""
     known = set(load_all_users().keys())
     stale = [k for k in list(_tracker) if k not in known]
     for k in stale:

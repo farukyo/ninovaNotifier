@@ -8,15 +8,16 @@ import sys
 
 from telebot import types
 
+import core.error_tracker as error_tracker
 from bot.instance import bot_instance as bot
 from bot.instance import get_check_callback
-from common.background_tasks import submit_background_task
-from common.config import (
+from core.config import (
     cleanup_inactive_sessions,
     get_active_user_sessions,
     get_user_session,
 )
-from common.utils import (
+from core.scheduler import submit_background_task
+from core.utils import (
     decrypt_password,
     save_grades,
     update_user_data,
@@ -440,10 +441,9 @@ def admin_force_otoders_cmd(message):
 
         if not username or not password:
             failed_users += 1
-            from main import _record_user_error
-
-            _record_user_error(
-                chat_id, "MISSING_CREDENTIALS", "Eksik kullanıcı adı/şifre", username
+            # fix: _record_user_error never existed in main.py (BUG-L1)
+            error_tracker.record_error(
+                chat_id, "MISSING_CREDENTIALS", "Eksik kullanıcı adı/şifre", username or ""
             )
             continue
 
@@ -453,13 +453,12 @@ def admin_force_otoders_cmd(message):
 
             if not login_to_ninova(session, chat_id, username, password):
                 failed_users += 1
-                from main import _record_user_error
-
-                _record_user_error(
+                # fix: BUG-L1
+                error_tracker.record_error(
                     chat_id,
                     "LOGIN_FAILED",
                     "Admin force otoders sırasında giriş başarısız",
-                    username,
+                    username or "",
                 )
                 continue
 
@@ -508,9 +507,8 @@ def admin_force_otoders_cmd(message):
         except Exception as e:
             logger.exception(f"[admin] force_otoders failed for user {chat_id}: {e}")
             failed_users += 1
-            from main import _record_user_error
-
-            _record_user_error(chat_id, "FORCE_OTODERS_EXCEPTION", str(e), username)
+            # fix: BUG-L1
+            error_tracker.record_error(chat_id, "FORCE_OTODERS_EXCEPTION", str(e), username or "")
             continue
 
     # Admin'e özet bildir

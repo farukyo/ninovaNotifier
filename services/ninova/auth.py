@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import threading
 import time
@@ -5,13 +7,13 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
-from common.config import (
+from core.config import (
     MAX_LOGIN_RETRIES,
     RETRY_BACKOFF_BASE,
     RETRY_BACKOFF_MAX,
 )
-from common.http_logging import http_request
-from common.log_context import log_with_context
+from core.http_logging import http_request
+from core.logger import log_with_context
 
 logger = logging.getLogger("ninova")
 
@@ -19,7 +21,7 @@ _LOGIN_LOCKS: dict[str, threading.Lock] = {}
 _GLOBAL_LOCK = threading.Lock()
 
 
-def get_user_lock(chat_id):
+def get_user_lock(chat_id: str) -> threading.Lock:
     with _GLOBAL_LOCK:
         if chat_id not in _LOGIN_LOCKS:
             _LOGIN_LOCKS[chat_id] = threading.Lock()
@@ -44,7 +46,13 @@ class LoginFailedError(Exception):
         super().__init__(message)
 
 
-def login_to_ninova(session, chat_id, username, password, quiet=False):
+def login_to_ninova(
+    session: requests.Session,
+    chat_id: str,
+    username: str,
+    password: str,
+    quiet: bool = False,
+) -> bool:
     """
     Belirli bir kullanıcı için Ninova'ya giriş yapar (exponential backoff retry ile).
 

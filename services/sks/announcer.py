@@ -4,8 +4,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from common.config import DATA_DIR, atomic_json_write, load_all_users
-from common.utils import send_telegram_message
+from core.config import DATA_DIR, atomic_json_write, load_all_users
+from core.utils import send_telegram_message
 from services.sks.scraper import get_meal_menu
 
 logger = logging.getLogger("ninova.sks")

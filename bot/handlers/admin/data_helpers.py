@@ -2,8 +2,8 @@
 Admin handler'lari icin ortak veri erisim helper'lari.
 """
 
-from common.config import load_all_users
-from common.utils import load_saved_grades
+from core.config import load_all_users
+from core.utils import load_saved_grades
 
 
 def load_admin_users():

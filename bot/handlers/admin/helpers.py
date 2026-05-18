@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 
 from bot.instance import START_TIME
-from common.config import ADMIN_TELEGRAM_IDS
+from core.config import ADMIN_TELEGRAM_IDS
 
 # Admin state'leri (duyuru/msg için)
 ADMIN_STATE_TTL_SECONDS = 30 * 60

@@ -20,9 +20,9 @@ from rich.progress import (
 )
 from rich.table import Table
 
-import common.error_tracker as error_tracker
+import core.error_tracker as error_tracker
 from bot import bot, set_check_callback, update_last_check_time
-from common.config import (
+from core.config import (
     CHECK_INTERVAL,
     DATA_DIR,
     LOGS_DIR,
@@ -36,9 +36,8 @@ from common.config import (
     save_all_users,
     sync_cache_to_disk,
 )
-from common.log_context import clear_log_context, set_log_context
-from common.logging_setup import setup_logging
-from common.utils import (
+from core.logger import clear_log_context, set_log_context, setup_logging
+from core.utils import (
     decrypt_password,
     escape_html,
     get_file_icon,
@@ -46,6 +45,7 @@ from common.utils import (
     parse_turkish_date,
     save_grades,
     send_telegram_message,
+    update_user_data,
 )
 from services.ari24.client import Ari24Client
 from services.ninova import LoginFailedError, get_announcement_detail, get_grades
@@ -927,6 +927,11 @@ def check_for_updates():
     changes_table.add_column("Değişiklik", style="yellow")
 
     users = load_all_users()
+    # fix: guard against corrupt users.json returning {} and then save_all_users
+    # overwriting the file with an empty dict (BUG-E1)
+    if not users:
+        logger.warning("Kullanıcı listesi boş veya yüklenemedi, kontrol atlanıyor.")
+        return
     saved_grades = load_saved_grades()
     changed_usernames = set()
     total_changes_count = 0
@@ -934,8 +939,6 @@ def check_for_updates():
     for chat_id, user_data in users.items():
         request_id = f"auto-{chat_id}-{int(time.time())}"
         set_log_context(chat_id=str(chat_id), action="check_for_updates", request_id=request_id)
-        # Son kontrol zamanını güncelle
-        user_data["last_check"] = datetime.now().isoformat()
         urls = user_data.get("urls", [])
         if not urls:
             clear_log_context()
@@ -1130,15 +1133,16 @@ def check_for_updates():
                         logger.error(f"File notification send error for {chat_id}: {e}")
                     time.sleep(1)
 
-                clear_log_context()
         elif SHOW_VERBOSE_TERMINAL:
             console.print(f"[dim]Değişiklik yok ({chat_id})")
+        # fix: clear_log_context was only called inside if new_file_notifications,
+        # leaking context into subsequent users on the same thread (BUG-L3)
+        clear_log_context()
+        # fix: save last_check per-user atomically instead of bulk-saving a stale
+        # in-memory snapshot; prevents concurrent update_user_data calls losing data (BUG-C3)
+        update_user_data(chat_id, "last_check", datetime.now().isoformat())
 
     logger.info("Kontrol tamamlandı.")
-
-    # Kullanıcı verilerini kaydet (last_check güncellemeleri için)
-    save_all_users(users)
-    logger.info("Veriler kaydedildi.")
 
     # Değişiklikler tablosunu göster (eğer değişiklik varsa)
     if SHOW_VERBOSE_TERMINAL and changes_table.rows:

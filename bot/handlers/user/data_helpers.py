@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from common.config import load_all_users
-from common.utils import load_saved_grades
+from core.config import load_all_users
+from core.utils import load_saved_grades
 
 
 def load_user_snapshot(chat_id: str, *, urls_source: str = "user_data") -> tuple[dict, dict, list]:

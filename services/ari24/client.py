@@ -1,11 +1,16 @@
+from __future__ import annotations
+
 import contextlib
 import json
+import logging
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger("ninova")
 
 _CLUBS_FILE = Path("data") / "ari24_clubs.json"
 
@@ -47,7 +52,7 @@ class Ari24Client:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
-    def get_events(self):
+    def get_events(self) -> list[dict]:
         """
         Fetches events from ari24.com/etkinlikler.
         Returns a list of dictionaries with keys:
@@ -151,16 +156,16 @@ class Ari24Client:
                     )
 
                 except Exception as e:
-                    print(f"Skipping an event item due to parse error: {e}")
+                    logger.debug(f"Skipping event item due to parse error: {e}")  # fix: BUG-E2
                     continue
 
             return events
 
         except Exception as e:
-            print(f"Error fetching Arı24 events: {e}")
+            logger.error(f"Error fetching Arı24 events: {e}")  # fix: BUG-E2
             return []
 
-    def get_weekly_events(self):
+    def get_weekly_events(self) -> list[dict]:
         """Returns events for the current week (Monday to Sunday)."""
         events = self.get_events()
         data = []
@@ -180,28 +185,21 @@ class Ari24Client:
         end_date = current_monday + timedelta(days=13)
         end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        for ev in events:
-            if ev["date_dt"]:
+        for event in events:
+            if event["date_dt"]:
                 # Check if event is within range AND in the future/today
                 # logic: event must be >= start_date (Today) AND <= end_date (Next Sunday)
-                if start_date <= ev["date_dt"] <= end_date:
-                    data.append(ev)
+                if start_date <= event["date_dt"] <= end_date:
+                    data.append(event)
             else:
                 # If date parsing failed, maybe include?
                 # Better safe than sorry, but might spam. Let's include if unsure.
                 pass
         return data
 
-    def get_upcoming_events(self):
+    def get_upcoming_events(self) -> list[dict]:
         """Returns events that represent 'this week' or future."""
-        events = self.get_events()
-        data = []
-        for ev in events:
-            if ev["date_dt"]:
-                data.append(ev)
-            else:
-                data.append(ev)
-        return data
+        return list(self.get_events())
 
     def get_all_clubs(self) -> list[str]:
         """Extracts unique list of organizers/clubs from current events + data/ari24_clubs.json."""
@@ -210,7 +208,7 @@ class Ari24Client:
         static_clubs = set(_load_static_clubs())
         return sorted(static_clubs | active_clubs)
 
-    def get_news(self, limit=5):
+    def get_news(self, limit: int = 5) -> list[dict]:
         """
         Fetches news articles from ari24.com/haberler.
         Returns a list of dictionaries with keys:
@@ -263,5 +261,5 @@ class Ari24Client:
 
             return news
         except Exception as e:
-            print(f"Error fetching news: {e}")
+            logger.error(f"Error fetching news: {e}")  # fix: BUG-E2
             return []

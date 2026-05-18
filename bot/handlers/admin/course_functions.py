@@ -7,7 +7,7 @@ import logging
 from telebot import types
 
 from bot.instance import bot_instance as bot
-from common.utils import (
+from core.utils import (
     update_user_data,
 )
 

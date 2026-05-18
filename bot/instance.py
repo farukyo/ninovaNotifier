@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import logging
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import telebot
 from telebot import apihelper
 
-from common.config import TELEGRAM_TOKEN
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+from core.config import TELEGRAM_TOKEN
 
 logger = logging.getLogger("ninova")
 
@@ -12,7 +18,7 @@ logger = logging.getLogger("ninova")
 class _BotExceptionHandler(telebot.ExceptionHandler):
     """Catch handler exceptions so transient network issues don't stop polling."""
 
-    def handle(self, exception):
+    def handle(self, exception: Exception) -> bool:
         logger.warning(
             f"TeleBot handler exception captured: {type(exception).__name__}: {exception}"
         )
@@ -41,7 +47,7 @@ LAST_CHECK_TIME = None
 _check_callback = None
 
 
-def set_check_callback(callback):
+def set_check_callback(callback: Callable) -> None:
     """
     Otomatik kontrol (polling) fonksiyonunu ayarlar.
 
@@ -51,7 +57,7 @@ def set_check_callback(callback):
     _check_callback = callback
 
 
-def get_check_callback():
+def get_check_callback() -> Callable | None:
     """
     Ayarlanmış olan kontrol fonksiyonunu döndürür.
 
@@ -60,7 +66,7 @@ def get_check_callback():
     return _check_callback
 
 
-def update_last_check_time():
+def update_last_check_time() -> None:
     """Son başarılı kontrol zamanını (LAST_CHECK_TIME) günceller."""
     global LAST_CHECK_TIME
     LAST_CHECK_TIME = datetime.now()

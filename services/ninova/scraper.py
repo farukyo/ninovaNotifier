@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 import logging
 import re
+from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup
 
-from common.config import console
-from common.http_logging import http_request
-from common.log_context import log_with_context
-from common.utils import sanitize_html_for_telegram
+if TYPE_CHECKING:
+    import requests
+
+from core.config import console
+from core.http_logging import http_request
+from core.logger import log_with_context
+from core.utils import sanitize_html_for_telegram
 
 from .auth import LoginFailedError, login_to_ninova
 
@@ -26,7 +32,7 @@ def _looks_like_login_page(html: str, url: str = "") -> bool:
     )
 
 
-def get_announcements(session, base_url):
+def get_announcements(session: requests.Session, base_url: str) -> list[dict] | None:
     """
     Sınıf duyurularını çeker.
 
@@ -128,7 +134,7 @@ def get_announcements(session, base_url):
         return None
 
 
-def get_announcement_detail(session, url):
+def get_announcement_detail(session: requests.Session, url: str) -> str:
     """
     Duyuru içeriğini detay sayfasından çeker.
 
@@ -185,7 +191,7 @@ def get_announcement_detail(session, url):
     return ""
 
 
-def get_assignment_detail(session, url):
+def get_assignment_detail(session: requests.Session, url: str) -> dict | None:
     """
     Ödev detay sayfasından tarih ve teslim bilgilerini çeker.
 
@@ -262,7 +268,7 @@ def get_assignment_detail(session, url):
         if any(submitted_indicators) and not any(not_submitted_indicators):
             result["is_submitted"] = True
         # Eğer not_submitted göstergesi varsa -> not submitted
-        elif any(not_submitted_indicators) or any(not_submitted_indicators):
+        elif any(not_submitted_indicators):  # fix: was duplicate condition (BUG-L2)
             result["is_submitted"] = False
 
         return result
@@ -271,7 +277,7 @@ def get_assignment_detail(session, url):
         return None
 
 
-def get_assignments(session, base_url):
+def get_assignments(session: requests.Session, base_url: str) -> list[dict] | None:
     """Ödevleri çeker.
 
     Ninova ödev listesi HTML yapısı:
@@ -454,7 +460,13 @@ def get_assignments(session, base_url):
         return None
 
 
-def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type="SinifDosyalari"):
+def get_class_files(
+    session: requests.Session,
+    base_url: str,
+    sub_url: str | None = None,
+    folder_prefix: str = "",
+    file_type: str = "SinifDosyalari",
+) -> list[dict] | None:
     """Sınıf veya ders dosyalarını çeker.
 
     HTML yapısı:
@@ -574,22 +586,22 @@ def get_class_files(session, base_url, sub_url=None, folder_prefix="", file_type
         return None
 
 
-def get_all_files(session, base_url):
+def get_all_files(session: requests.Session, base_url: str) -> list[dict] | None:
     """Hem sınıf dosyalarını hem ders dosyalarını çeker."""
     all_files = []
 
     # Sınıf dosyaları
     sinif_files = get_class_files(session, base_url, file_type="SinifDosyalari")
     if sinif_files is not None:
-        for f in sinif_files:
-            f["source"] = "Sınıf"
+        for file_ in sinif_files:
+            file_["source"] = "Sınıf"
         all_files.extend(sinif_files)
 
     # Ders dosyaları
     ders_files = get_class_files(session, base_url, file_type="DersDosyalari")
     if ders_files is not None:
-        for f in ders_files:
-            f["source"] = "Ders"
+        for file_ in ders_files:
+            file_["source"] = "Ders"
         all_files.extend(ders_files)
 
     # Her iki uç nokta da başarısızsa üst akış fetch_success=False olarak işaretlesin.
@@ -599,7 +611,7 @@ def get_all_files(session, base_url):
     return all_files
 
 
-def get_user_courses(session):
+def get_user_courses(session: requests.Session) -> list[dict]:
     """Kullanıcının ana sayfasından dersleri çeker.
 
     HTML yapısı (menuErisimAgaci div):
@@ -716,7 +728,13 @@ def get_user_courses(session):
         return []
 
 
-def get_grades(session, base_url, chat_id, username, password):
+def get_grades(
+    session: requests.Session,
+    base_url: str,
+    chat_id: str,
+    username: str,
+    password: str,
+) -> dict | None:
     """Notları çeker. base_url artık /Notlar olmadan gelir.
 
     HTML yapısı (table.data):
@@ -939,7 +957,7 @@ def get_grades(session, base_url, chat_id, username, password):
         return None
 
 
-def get_class_info(session, class_url):
+def get_class_info(session: requests.Session, class_url: str) -> dict:
     """
     Sınıf bilgileri sayfasından dersin bitiş tarihini çeker.
 
@@ -947,7 +965,7 @@ def get_class_info(session, class_url):
     :param class_url: Dersin ana sayfası (örn: .../Sinif/123.456)
     :return: dict {'end_date': datetime or None}
     """
-    from common.utils import parse_turkish_date
+    from core.utils import parse_turkish_date
 
     url = f"{class_url}/SinifBilgileri"
     try:

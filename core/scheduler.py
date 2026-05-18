@@ -1,5 +1,10 @@
-"""Bounded background task runner for lightweight async work."""
+"""Background task execution via ThreadPoolExecutor with bounded queue.
 
+migrated from: common/background_tasks.py
+Uses threading (not asyncio) to match the synchronous bot architecture.
+"""
+
+# migrated from: common/background_tasks.py
 from __future__ import annotations
 
 import logging

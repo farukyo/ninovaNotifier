@@ -2,8 +2,8 @@ import io
 import logging
 from pathlib import Path
 
-from common.http_logging import http_request
-from common.log_context import log_with_context
+from core.http_logging import http_request
+from core.logger import log_with_context
 
 from .auth import login_to_ninova
 

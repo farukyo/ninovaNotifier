@@ -1,17 +1,28 @@
+"""Application configuration loaded from environment variables.
+
+migrated from: common/config.py
+AppConfig dataclass (Step 6 target) is defined here as a stub alongside
+the migrated module-level globals and functions.
+"""
+
+# migrated from: common/config.py
+from __future__ import annotations
+
 import contextlib
 import json
 import logging
 import os
 import tempfile
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from rich.console import Console
 
-from common.cache_manager import get_cache_manager
-from common.session import get_session_manager
+from core.cache import get_cache_manager
+from core.http_client import get_session_manager
 
 load_dotenv(Path("secrets") / ".env")
 console = Console()
@@ -66,7 +77,6 @@ def _atomic_json_write(filepath, data):
             json.dump(data, f, indent=4, ensure_ascii=False)
         Path(tmp_path).replace(filepath)
     except BaseException:
-        # Hata durumunda geçici dosyayı temizle
         with contextlib.suppress(OSError):
             Path(tmp_path).unlink()
         raise
@@ -89,8 +99,8 @@ def load_all_users():
                 with Path(USERS_FILE).open(encoding="utf-8") as f:
                     return json.load(f)
             except json.JSONDecodeError:
-                logger.error(f"{USERS_FILE} dosyası bozuk!")
-                console.print(f"[red]⚠️ {USERS_FILE} dosyası bozuk! Boş dict döndürülüyor.")
+                logger.critical(f"{USERS_FILE} dosyası bozuk! Kontrol döngüsü atlanıyor.")
+                console.print(f"[red bold]⚠️ {USERS_FILE} dosyası bozuk![/red bold]")
                 return {}
         return {}
 
@@ -107,11 +117,9 @@ def save_all_users(users):
 
 CHECK_INTERVAL = 300
 
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TOKEN")
 
-# Çoklu admin desteği: virgülle ayrılmış ID listesi desteklenir (örn. "123,456,789")
-# Geriye dönük uyumlu: tek değer de çalışır.
+# Çoklu admin desteği: virgülle ayrılmış ID listesi desteklenir
 _raw_admin_ids = os.getenv("ADMIN_TELEGRAM_ID", "0")
 ADMIN_TELEGRAM_IDS: list[int] = [
     int(x.strip()) for x in _raw_admin_ids.split(",") if x.strip().lstrip("-").isdigit()
@@ -122,107 +130,97 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
-# ============================================================================
-# Session ve Cache Yönetimi - SessionManager ve CacheManager ile
-# ============================================================================
-
 # SessionManager'ı başlat (TTL: 15 dakika, Max: 5000 oturum)
 _session_manager = get_session_manager(ttl_seconds=15 * 60)
 
 # CacheManager'ı başlat (Max: 10000 entry, TTL: 7 gün)
 _cache_manager = get_cache_manager(max_entries=10000, ttl_seconds=7 * 24 * 3600)
 
-# Backward compatibility: USER_SESSIONS referansı (ama SessionManager tarafından yönetilir)
-# Eski kod hala USER_SESSIONS kullanabilir, ama asıl yönetim SessionManager'da olur
 USER_SESSIONS = {}
 
 
 def get_user_session(chat_id: int):
-    """
-    Kullanıcı için HTTP session alır (SessionManager tarafından yönetilir).
-
-    :param chat_id: Kullanıcı chat ID
-    :return: requests.Session nesnesi
-    """
     return _session_manager.get_session(chat_id, headers=HEADERS)
 
 
 def close_user_session(chat_id: int) -> bool:
-    """
-    Kullanıcı oturumunu kapat.
-
-    :param chat_id: Kullanıcı chat ID
-    :return: Başarılı kapatma durumu
-    """
     return _session_manager.close_session(chat_id)
 
 
 def cleanup_inactive_sessions(force: bool = False) -> int:
-    """
-    Inaktif oturumları temizle.
-
-    :param force: Tüm oturumları kapat mı?
-    :return: Temizlenen oturum sayısı
-    """
     return _session_manager.cleanup_inactive_sessions(force=force)
 
 
 def get_session_stats() -> dict:
-    """Session yöneticisi istatistikleri döndür."""
     return _session_manager.stats()
 
 
 def has_user_session(chat_id: int) -> bool:
-    """
-    Bir kullanıcının aktif oturumu olup olmadığını kontrol et.
-
-    :param chat_id: Kullanıcı chat ID
-    :return: Aktif oturum varsa True, yoksa False
-    """
     return _session_manager.has_session(chat_id)
 
 
 def get_active_user_sessions() -> list[int]:
-    """
-    Aktif oturumu olan tüm kullanıcıları döndür.
-
-    :return: Aktif oturumu olan chat ID'lerin listesi
-    """
     return _session_manager.get_active_sessions()
 
 
 def get_cache_stats() -> dict:
-    """Cache yöneticisi istatistikleri döndür."""
     return _cache_manager.stats()
 
 
 def sync_cache_to_disk() -> None:
-    """Flush in-memory cache entries to disk safely."""
     _cache_manager.sync()
 
 
-# ============================================================================
-# Sabitler (Magic Numbers)
-# ============================================================================
+# Sabitler
+MAX_NOTIFIED_URLS = 500
+MAX_ARI24_EVENTS = 200
+MAX_SKS_MENU = 100
 
-# Loglama ve Durum Dosyaları
-MAX_NOTIFIED_URLS = 500  # Notified URLs liste sınırı
-MAX_ARI24_EVENTS = 200  # Arı24 events cache sınırı
-MAX_SKS_MENU = 100  # SKS menüsü cache sınırı
+REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT_LONG = 30
 
-# Request Timeout'ları
-REQUEST_TIMEOUT = 15  # requests.get() timeout (saniye)
-REQUEST_TIMEOUT_LONG = 30  # Uzun işlemler için timeout
+SESSION_CLEANUP_INTERVAL = 5 * 60
+SESSION_TTL = 15 * 60
 
-# Session Temizlik
-SESSION_CLEANUP_INTERVAL = 5 * 60  # 5 dakikada bir temizlik
-SESSION_TTL = 15 * 60  # 15 dakika
-
-# Cache
-CACHE_FILE_TTL = 7 * 24 * 3600  # 7 gün
+CACHE_FILE_TTL = 7 * 24 * 3600
 CACHE_MAX_ENTRIES = 10000
 
-# Retry Mekanizması
-MAX_LOGIN_RETRIES = 5  # Sunucu yavaşlığına karşı daha fazla deneme
-RETRY_BACKOFF_BASE = 2  # exponential backoff için base
-RETRY_BACKOFF_MAX = 60  # max backoff (saniye) - 30'dan 60'a çıkardık
+MAX_LOGIN_RETRIES = 5
+RETRY_BACKOFF_BASE = 2
+RETRY_BACKOFF_MAX = 60
+
+
+# --- Step 6 target: AppConfig dataclass replaces module-level globals above ---
+
+
+@dataclass
+class AppConfig:
+    """All tuneable parameters in one place. Instantiate via from_env()."""
+
+    telegram_token: str = ""
+    admin_telegram_ids: list[int] = field(default_factory=list)
+
+    data_dir: Path = Path("data")
+    logs_dir: Path = Path("logs")
+    secrets_dir: Path = Path("secrets")
+
+    check_interval_seconds: int = 300
+    session_ttl_seconds: int = 900
+    session_cleanup_interval_seconds: int = 300
+
+    cache_max_entries: int = 10_000
+    cache_ttl_seconds: int = 7 * 24 * 3600
+
+    request_timeout_seconds: int = 15
+    request_timeout_long_seconds: int = 30
+
+    max_login_retries: int = 5
+    retry_backoff_base: int = 2
+    retry_backoff_max_seconds: int = 60
+
+    max_notified_urls: int = 500
+
+    @classmethod
+    def from_env(cls) -> AppConfig:
+        """Load configuration from environment / .env file. Stub for Step 6."""
+        raise NotImplementedError("Populate in Step 6")

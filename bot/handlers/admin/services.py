@@ -9,7 +9,7 @@ from pathlib import Path
 
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_main_keyboard
-from common.config import (
+from core.config import (
     DATA_FILE,
     LOGS_DIR,
     USERS_FILE,

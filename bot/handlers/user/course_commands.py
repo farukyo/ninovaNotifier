@@ -10,9 +10,9 @@ from telebot import types
 from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_profile, load_user_snapshot
 from bot.instance import bot_instance as bot
-from common.background_tasks import submit_background_task
-from common.config import get_user_session
-from common.utils import (
+from core.config import get_user_session
+from core.scheduler import submit_background_task
+from core.utils import (
     decrypt_password,
     escape_html,
     load_saved_grades,
@@ -137,7 +137,7 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                         del user_grades[url]
                     all_grades[chat_id] = user_grades
 
-                    from common.utils import save_grades
+                    from core.utils import save_grades
 
                     save_grades(all_grades)
                 # --- End cleanup ---
