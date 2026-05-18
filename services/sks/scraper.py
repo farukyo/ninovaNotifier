@@ -43,11 +43,15 @@ def get_meal_menu(meal_type="lunch"):
             return None
 
         rows = table.find_all("tr")
+        side_item_index = 0
         for row in rows:
             cells = row.find_all("td")
             if len(cells) >= 2:
                 # Category is usually in the first cell
                 category = cells[0].get_text(strip=True)
+                if category == "Tatlı-Salata-Meyve-İçecek Çeşitleri":
+                    side_item_index += 1
+                    category = f"Yan Ürün {side_item_index}"
 
                 # Meal names are in the second cell
                 meal_cell = cells[1]
