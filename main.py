@@ -392,20 +392,19 @@ def _content_diff(old: str, new: str, context: int = 2) -> str:
     matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            # Show limited context lines around changes
             ctx = old_lines[i1:i2]
             if len(ctx) > context * 2:
-                result += [f"  {l}" for l in ctx[:context]]
+                result += [f"  {line}" for line in ctx[:context]]
                 result.append("  ...")
-                result += [f"  {l}" for l in ctx[-context:]]
+                result += [f"  {line}" for line in ctx[-context:]]
             else:
-                result += [f"  {l}" for l in ctx]
+                result += [f"  {line}" for line in ctx]
         elif tag in ("replace", "delete"):
-            result += [f"➖ {l}" for l in old_lines[i1:i2]]
+            result += [f"➖ {line}" for line in old_lines[i1:i2]]
             if tag == "replace":
-                result += [f"➕ {l}" for l in new_lines[j1:j2]]
+                result += [f"➕ {line}" for line in new_lines[j1:j2]]
         elif tag == "insert":
-            result += [f"➕ {l}" for l in new_lines[j1:j2]]
+            result += [f"➕ {line}" for line in new_lines[j1:j2]]
     return "\n".join(result)
 
 
@@ -538,7 +537,9 @@ def _compare_course_data(
             if assign.get("source_files"):
                 new_assign_msg += f"\n\n📦 <b>Kaynak Dosyalar ({len(assign['source_files'])}):</b>"
                 for sf_idx, sf in enumerate(assign["source_files"]):
-                    assignment_source_entries.append((assign_idx, sf_idx, sf["name"], sf["size"], assign["name"], True))
+                    assignment_source_entries.append(
+                        (assign_idx, sf_idx, sf["name"], sf["size"], assign["name"], True)
+                    )
             sections_changes.append(new_assign_msg)
             changes.append(f"YENİ ÖDEV: {assign['name']}")
             if include_console_log and changes_table:
@@ -587,7 +588,9 @@ def _compare_course_data(
             old_src_names = {f["name"] for f in saved_assign.get("source_files", [])}
             for sf_idx, sf in enumerate(assign.get("source_files", [])):
                 if sf["name"] not in old_src_names:
-                    assignment_source_entries.append((assign_idx, sf_idx, sf["name"], sf["size"], assign["name"], False))
+                    assignment_source_entries.append(
+                        (assign_idx, sf_idx, sf["name"], sf["size"], assign["name"], False)
+                    )
                     changes.append(f"YENİ KAYNAK DOSYA: {sf['name']}")
 
             # Kaynak dosya silindi mi?
@@ -700,11 +703,17 @@ def _compare_course_data(
                 ann["content"] = full_content
                 diff_lines = []
                 if ann["title"] != saved_ann.get("title"):
-                    diff_lines.append(f"📌 Başlık: {escape_html(saved_ann.get('title', ''))} ➡️ {e_ann_title}")
+                    diff_lines.append(
+                        f"📌 Başlık: {escape_html(saved_ann.get('title', ''))} ➡️ {e_ann_title}"
+                    )
                 if ann.get("author") != saved_ann.get("author"):
-                    diff_lines.append(f"👤 Yazar: {escape_html(saved_ann.get('author', ''))} ➡️ {e_ann_author}")
+                    diff_lines.append(
+                        f"👤 Yazar: {escape_html(saved_ann.get('author', ''))} ➡️ {e_ann_author}"
+                    )
                 if ann.get("date") != saved_ann.get("date"):
-                    diff_lines.append(f"📅 Tarih: {saved_ann.get('date', '?')} ➡️ {ann.get('date', '?')}")
+                    diff_lines.append(
+                        f"📅 Tarih: {saved_ann.get('date', '?')} ➡️ {ann.get('date', '?')}"
+                    )
                 old_content = saved_ann.get("content", "")
                 ann_upd_msg = (
                     f"🔄 <b>DUYURU GÜNCELLENDİ:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
@@ -728,8 +737,12 @@ def _compare_course_data(
             if saved_key not in current_grade_keys:
                 e_saved_key = escape_html(saved_key)
                 saved_entry = saved_grades[saved_key]
-                old_val = (saved_entry.get("not") if isinstance(saved_entry, dict) else saved_entry) or "?"
-                sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key} (eski: {escape_html(old_val)})")
+                old_val = (
+                    saved_entry.get("not") if isinstance(saved_entry, dict) else saved_entry
+                ) or "?"
+                sections_changes.append(
+                    f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key} (eski: {escape_html(old_val)})"
+                )
                 changes.append(f"NOT SİLİNDİ: {saved_key}")
 
         current_assign_ids = {a.get("id") for a in current_assignments}
@@ -754,7 +767,13 @@ def _compare_course_data(
                 sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_title}")
                 changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
 
-    return sections_changes, changes, new_file_entries, updated_file_entries, assignment_source_entries
+    return (
+        sections_changes,
+        changes,
+        new_file_entries,
+        updated_file_entries,
+        assignment_source_entries,
+    )
 
 
 def check_user_updates(
@@ -915,9 +934,13 @@ def check_user_updates(
         saved_data = user_saved_grades.get(url, {})
         e_course = escape_html(course_name)
 
-        sections_changes, changes, new_file_entries, updated_file_entries, assignment_source_entries = _compare_course_data(
-            current_data, saved_data, user_session, course_name
-        )
+        (
+            sections_changes,
+            changes,
+            new_file_entries,
+            updated_file_entries,
+            assignment_source_entries,
+        ) = _compare_course_data(current_data, saved_data, user_session, course_name)
 
         all_changes.extend(changes)
 
@@ -927,8 +950,26 @@ def check_user_updates(
         for file_idx, file_name, change_type in updated_file_entries:
             updated_file_notifications.append((url, course_name, file_idx, file_name, change_type))
 
-        for assign_idx, sf_idx, file_name, file_size, assign_name, is_new_assign in assignment_source_entries:
-            assignment_source_notifications.append((url, course_name, assign_idx, sf_idx, file_name, file_size, assign_name, is_new_assign))
+        for (
+            assign_idx,
+            sf_idx,
+            file_name,
+            file_size,
+            assign_name,
+            is_new_assign,
+        ) in assignment_source_entries:
+            assignment_source_notifications.append(
+                (
+                    url,
+                    course_name,
+                    assign_idx,
+                    sf_idx,
+                    file_name,
+                    file_size,
+                    assign_name,
+                    is_new_assign,
+                )
+            )
 
         if sections_changes and not silent:
             msg = f"📚 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
@@ -998,7 +1039,13 @@ def check_user_updates(
                     logger.error(f"File notification send error for {chat_id}: {e}")
                 time.sleep(1)
         if not silent and updated_file_notifications:
-            for course_url, file_course_name, file_idx, file_name, change_type in updated_file_notifications:
+            for (
+                course_url,
+                file_course_name,
+                file_idx,
+                file_name,
+                change_type,
+            ) in updated_file_notifications:
                 try:
                     url_idx = urls_list.index(course_url)
                 except ValueError:
@@ -1027,7 +1074,16 @@ def check_user_updates(
                     logger.error(f"File update notification send error for {chat_id}: {e}")
                 time.sleep(1)
         if not silent and assignment_source_notifications:
-            for course_url, file_course_name, assign_idx, sf_idx, file_name, file_size, assign_name, is_new_assign in assignment_source_notifications:
+            for (
+                course_url,
+                file_course_name,
+                assign_idx,
+                sf_idx,
+                file_name,
+                file_size,
+                assign_name,
+                is_new_assign,
+            ) in assignment_source_notifications:
                 try:
                     url_idx = urls_list.index(course_url)
                 except ValueError:
@@ -1054,7 +1110,9 @@ def check_user_updates(
                         disable_web_page_preview=True,
                     )
                 except Exception as e:
-                    logger.error(f"Assignment source file notification send error for {chat_id}: {e}")
+                    logger.error(
+                        f"Assignment source file notification send error for {chat_id}: {e}"
+                    )
                 time.sleep(1)
 
     # Kullanıcı verilerini kaydet

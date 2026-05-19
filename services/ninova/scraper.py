@@ -258,13 +258,17 @@ def get_assignment_detail(session: requests.Session, url: str) -> dict | None:
                     a_tag = cols[0].find("a", href=True)
                     if a_tag:
                         href = a_tag["href"]
-                        full_url = f"https://ninova.itu.edu.tr{href}" if href.startswith("/") else href
-                        result["source_files"].append({
-                            "name": a_tag.get_text(strip=True),
-                            "url": full_url,
-                            "size": cols[1].get_text(strip=True),
-                            "date": cols[2].get_text(strip=True),
-                        })
+                        full_url = (
+                            f"https://ninova.itu.edu.tr{href}" if href.startswith("/") else href
+                        )
+                        result["source_files"].append(
+                            {
+                                "name": a_tag.get_text(strip=True),
+                                "url": full_url,
+                                "size": cols[1].get_text(strip=True),
+                                "date": cols[2].get_text(strip=True),
+                            }
+                        )
 
         # İstenen dosyaları çek (gvOdevDosyaTipleri tablosu)
         req_table = soup.find("table", id=re.compile(".*gvOdevDosyaTipleri.*"))
@@ -279,11 +283,13 @@ def get_assignment_detail(session: requests.Session, url: str) -> dict | None:
                     desc = strong.get_text(strip=True) if strong else ""
                     filename_hint = desc_cell.get_text(" ", strip=True).replace(desc, "").strip()
                     extensions = cols[1].get_text(strip=True)
-                    result["required_files"].append({
-                        "description": desc,
-                        "filename": filename_hint,
-                        "extensions": extensions,
-                    })
+                    result["required_files"].append(
+                        {
+                            "description": desc,
+                            "filename": filename_hint,
+                            "extensions": extensions,
+                        }
+                    )
 
         # Teslim durumunu kontrol et
         page_text = soup.get_text(" ", strip=True).lower()

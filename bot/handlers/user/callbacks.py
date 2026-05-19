@@ -548,7 +548,9 @@ def handle_assignment_source_file_download(call):
     """Ödev kaynak dosyası indirir. Callback: asf_{url_idx}_{assign_idx}_{file_idx}"""
     chat_id = str(call.message.chat.id)
     request_id = new_user_request_id("asf")
-    set_log_context(chat_id=chat_id, action="assignment_source_file_download", request_id=request_id)
+    set_log_context(
+        chat_id=chat_id, action="assignment_source_file_download", request_id=request_id
+    )
     try:
         parts = split_callback_data(call.data)
         url_idx = parse_int_part(parts, 1)
@@ -602,6 +604,7 @@ def handle_assignment_source_file_download(call):
         password = decrypt_password(user_info.get("password", ""))
 
         from core.config import get_user_session
+
         session = get_user_session(chat_id)
 
         result = download_file(
