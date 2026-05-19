@@ -429,8 +429,10 @@ def _compare_course_data(
     :param include_console_log: Rich console'a log yazılsın mı
     :param username: Kullanıcı adı (console log için)
     :param changes_table: Rich Table nesnesi (console log için)
-    :return: (sections_changes, change_descriptions, new_file_entries) tuple
-        new_file_entries: list of (file_idx, file_name) for newly added files
+    :return: (sections_changes, change_descriptions, new_file_entries, updated_file_entries, assignment_source_entries) tuple
+        new_file_entries: list of (file_idx, file_name) for newly added course files
+        updated_file_entries: list of (file_idx, file_name, change_type) for updated course files
+        assignment_source_entries: list of (assign_idx, sf_idx, file_name, file_size, assign_name, is_new_assign) for assignment source files
     """
     if not isinstance(saved_data, dict):
         saved_data = {}
