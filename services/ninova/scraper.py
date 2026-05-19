@@ -223,27 +223,73 @@ def get_assignment_detail(session: requests.Session, url: str) -> dict | None:
             "start_date": "",
             "end_date": "",
             "is_submitted": False,
+            "description": "",
+            "source_files": [],
+            "required_files": [],
         }
 
-        # Tarih bilgilerini çek
-        # title_field ve data_field span'larını bul
+        # Tarih ve açıklama bilgilerini çek
         title_fields = soup.find_all("span", class_="title_field")
         for title_span in title_fields:
             title_text = title_span.get_text(strip=True).lower()
-            # Sonraki sibling data_field
             data_span = title_span.find_next_sibling("span", class_="data_field")
             if not data_span:
-                # Bazen aynı parent içinde değil
                 next_elem = title_span.find_next("span", class_="data_field")
                 if next_elem:
                     data_span = next_elem
 
             if data_span:
-                value = data_span.get_text(strip=True)
+                value = data_span.get_text(" ", strip=True)
                 if "başlangıç" in title_text or "start" in title_text:
                     result["start_date"] = value
                 elif "bitiş" in title_text or "end" in title_text or "due" in title_text:
                     result["end_date"] = value
+                elif "açıklama" in title_text or "description" in title_text:
+                    result["description"] = value
+
+        # Kaynak dosyaları çek (gvDosyalar tablosu)
+        src_table = soup.find("table", id=re.compile(".*gvDosyalar.*"))
+        if src_table:
+            for row in src_table.find_all("tr"):
+                if row.find("th"):
+                    continue
+                cols = row.find_all("td")
+                if len(cols) >= 3:
+                    a_tag = cols[0].find("a", href=True)
+                    if a_tag:
+                        href = a_tag["href"]
+                        full_url = (
+                            f"https://ninova.itu.edu.tr{href}" if href.startswith("/") else href
+                        )
+                        result["source_files"].append(
+                            {
+                                "name": a_tag.get_text(strip=True),
+                                "url": full_url,
+                                "size": cols[1].get_text(strip=True),
+                                "date": cols[2].get_text(strip=True),
+                            }
+                        )
+
+        # İstenen dosyaları çek (gvOdevDosyaTipleri tablosu)
+        req_table = soup.find("table", id=re.compile(".*gvOdevDosyaTipleri.*"))
+        if req_table:
+            for row in req_table.find_all("tr"):
+                if row.find("th"):
+                    continue
+                cols = row.find_all("td")
+                if len(cols) >= 2:
+                    desc_cell = cols[0]
+                    strong = desc_cell.find("strong")
+                    desc = strong.get_text(strip=True) if strong else ""
+                    filename_hint = desc_cell.get_text(" ", strip=True).replace(desc, "").strip()
+                    extensions = cols[1].get_text(strip=True)
+                    result["required_files"].append(
+                        {
+                            "description": desc,
+                            "filename": filename_hint,
+                            "extensions": extensions,
+                        }
+                    )
 
         # Teslim durumunu kontrol et
         page_text = soup.get_text(" ", strip=True).lower()
@@ -440,18 +486,18 @@ def get_assignments(session: requests.Session, base_url: str) -> list[dict] | No
                 logger.debug(f"Ödev parse hatası: {e}")
                 continue
 
-        # Detay sayfalarından eksik bilgileri tamamla
+        # Her ödev için detay sayfasını çek (açıklama, kaynak/istenen dosyalar için)
         for assign in assignments:
-            # Tarih veya teslim durumu eksikse detay sayfasını kontrol et
-            if not assign["end_date"] or assign["end_date"] == "-":
-                detail = get_assignment_detail(session, assign["url"])
-                if detail:
-                    if detail.get("start_date"):
-                        assign["start_date"] = detail["start_date"]
-                    if detail.get("end_date"):
-                        assign["end_date"] = detail["end_date"]
-                    # Teslim durumunu detay sayfasından al (daha güvenilir)
-                    assign["is_submitted"] = detail.get("is_submitted", False)
+            detail = get_assignment_detail(session, assign["url"])
+            if detail:
+                if detail.get("start_date"):
+                    assign["start_date"] = detail["start_date"]
+                if detail.get("end_date"):
+                    assign["end_date"] = detail["end_date"]
+                assign["is_submitted"] = detail.get("is_submitted", False)
+                assign["description"] = detail.get("description", "")
+                assign["source_files"] = detail.get("source_files", [])
+                assign["required_files"] = detail.get("required_files", [])
 
         return assignments
     except Exception as e:

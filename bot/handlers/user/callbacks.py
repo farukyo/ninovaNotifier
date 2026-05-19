@@ -543,6 +543,98 @@ def handle_file_download(call):
         clear_log_context()
 
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("asf_"))
+def handle_assignment_source_file_download(call):
+    """Ödev kaynak dosyası indirir. Callback: asf_{url_idx}_{assign_idx}_{file_idx}"""
+    chat_id = str(call.message.chat.id)
+    request_id = new_user_request_id("asf")
+    set_log_context(
+        chat_id=chat_id, action="assignment_source_file_download", request_id=request_id
+    )
+    try:
+        parts = split_callback_data(call.data)
+        url_idx = parse_int_part(parts, 1)
+        assign_idx = parse_int_part(parts, 2)
+        file_idx = parse_int_part(parts, 3)
+        if any(x is None for x in (url_idx, assign_idx, file_idx)):
+            callback_parse_fail(
+                lambda msg: bot.answer_callback_query(call.id, msg),
+                "Geçersiz dosya isteği.",
+            )
+            return
+
+        _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
+
+        if url_idx >= len(urls):
+            bot.answer_callback_query(call.id, "Kurs bulunamadı.")
+            return
+
+        course_url = urls[url_idx]
+        assignments = user_grades[course_url].get("assignments", [])
+        if assign_idx >= len(assignments):
+            bot.answer_callback_query(call.id, "Ödev bulunamadı.")
+            return
+
+        source_files = assignments[assign_idx].get("source_files", [])
+        if file_idx >= len(source_files):
+            bot.answer_callback_query(call.id, "Dosya bulunamadı.")
+            return
+
+        file_data = source_files[file_idx]
+        file_url = file_data["url"]
+        file_name = file_data["name"].split("/")[-1]
+
+        cached_id = CACHE_MANAGER.get(file_url)
+        if cached_id:
+            bot.answer_callback_query(call.id, "🚀 Hızlı gönderiliyor...")
+            send_telegram_document(
+                chat_id,
+                cached_id,
+                caption=f"{get_file_icon(file_name)} {file_name}",
+                is_file_id=True,
+                filename=file_name,
+            )
+            return
+
+        bot.answer_callback_query(call.id, "Dosya indiriliyor...")
+        bot.send_chat_action(chat_id, "upload_document")
+
+        user_info = load_user_profile(chat_id)
+        username = user_info.get("username")
+        password = decrypt_password(user_info.get("password", ""))
+
+        from core.config import get_user_session
+
+        session = get_user_session(chat_id)
+
+        result = download_file(
+            session,
+            file_url,
+            file_name,
+            chat_id=chat_id,
+            username=username,
+            password=password,
+            to_buffer=True,
+        )
+
+        if result:
+            file_buffer, final_filename = result
+            sent_id = send_telegram_document(
+                chat_id,
+                file_buffer,
+                caption=f"{get_file_icon(final_filename)} {final_filename}",
+                filename=final_filename,
+            )
+            if sent_id:
+                CACHE_MANAGER.set(file_url, sent_id)
+                CACHE_MANAGER.sync()
+            file_buffer.close()
+        else:
+            bot.send_message(chat_id, "❌ Dosya indirilemedi.")
+    finally:
+        clear_log_context()
+
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dir_"))
 def handle_directory_navigation(call):
     """

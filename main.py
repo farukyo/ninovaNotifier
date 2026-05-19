@@ -382,6 +382,32 @@ def check_daily_bulletin():
         logger.error(f"Daily bulletin error: {e}")
 
 
+def _content_diff(old: str, new: str, context: int = 2) -> str:
+    """Return a compact line-based diff with ➖/➕ prefixes for Telegram."""
+    import difflib
+
+    old_lines = old.splitlines()
+    new_lines = new.splitlines()
+    result = []
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            ctx = old_lines[i1:i2]
+            if len(ctx) > context * 2:
+                result += [f"  {line}" for line in ctx[:context]]
+                result.append("  ...")
+                result += [f"  {line}" for line in ctx[-context:]]
+            else:
+                result += [f"  {line}" for line in ctx]
+        elif tag in ("replace", "delete"):
+            result += [f"➖ {line}" for line in old_lines[i1:i2]]
+            if tag == "replace":
+                result += [f"➕ {line}" for line in new_lines[j1:j2]]
+        elif tag == "insert":
+            result += [f"➕ {line}" for line in new_lines[j1:j2]]
+    return "\n".join(result)
+
+
 def _compare_course_data(
     current_data,
     saved_data,
@@ -422,6 +448,8 @@ def _compare_course_data(
     sections_changes = []
     changes = []
     new_file_entries = []  # (file_idx, file_name) for newly added files
+    updated_file_entries = []  # (file_idx, file_name, change_type) for updated files
+    assignment_source_entries = []  # (assign_idx, sf_idx, file_name, assign_name, is_new_assign) for source file buttons
 
     # --- 1. NOT KONTROLÜ ---
     for key, entry in current_grades.items():
@@ -429,7 +457,7 @@ def _compare_course_data(
         e_key, e_new_val = escape_html(key), escape_html(new_val)
 
         if key not in saved_grades:
-            not_msg = f"📝 <b>YENİ NOT:</b> {e_key} -> {e_new_val}"
+            not_msg = f"📝 <b>YENİ NOT:</b> {e_key}\n➡️ {e_new_val}"
             details = entry.get("detaylar", {})
             detail_lines = []
             if entry.get("agirlik"):
@@ -443,7 +471,7 @@ def _compare_course_data(
             if "rank" in details:
                 detail_lines.append(f"Sıralama: {details['rank']}")
             if detail_lines:
-                not_msg += "\n" + " | ".join(detail_lines)
+                not_msg += "\n" + "\n".join(detail_lines)
             sections_changes.append(not_msg)
             changes.append(f"YENİ NOT: {key} -> {new_val}")
             if include_console_log and changes_table:
@@ -453,17 +481,32 @@ def _compare_course_data(
             old_val = (old_entry.get("not") if isinstance(old_entry, dict) else old_entry) or "?"
             if old_val != new_val:
                 e_old_val = escape_html(old_val)
-                upd_msg = f"🔄 <b>NOT GÜNCELLENDİ:</b> {e_key}\n{e_old_val} ➡️ {e_new_val}"
+                try:
+                    diff = float(new_val.replace(",", ".")) - float(old_val.replace(",", "."))
+                    if diff > 0:
+                        trend_icon = "📈"
+                        trend_label = "NOT GÜNCELLENDİ (ARTTI)"
+                    else:
+                        trend_icon = "📉"
+                        trend_label = "NOT GÜNCELLENDİ (DÜŞTÜ)"
+                except (ValueError, AttributeError):
+                    trend_icon = "🔄"
+                    trend_label = "NOT GÜNCELLENDİ"
+                upd_msg = f"{trend_icon} <b>{trend_label}:</b> {e_key}\n{e_old_val} ➡️ {e_new_val}"
                 details = entry.get("detaylar", {})
                 detail_lines = []
                 if entry.get("agirlik"):
                     detail_lines.append(f"Ağırlık: %{entry['agirlik']}")
                 if "class_avg" in details:
-                    detail_lines.append(f"Ort: {details['class_avg']}")
+                    detail_lines.append(f"Sınıf Ort: {details['class_avg']}")
+                if "std_dev" in details:
+                    detail_lines.append(f"Std. Sapma: {details['std_dev']}")
+                if "student_count" in details:
+                    detail_lines.append(f"Kişi Sayısı: {details['student_count']}")
                 if "rank" in details:
-                    detail_lines.append(f"Sıra: {details['rank']}")
+                    detail_lines.append(f"Sıralama: {details['rank']}")
                 if detail_lines:
-                    upd_msg += "\n" + " | ".join(detail_lines)
+                    upd_msg += "\n" + "\n".join(detail_lines)
                 sections_changes.append(upd_msg)
                 changes.append(f"NOT GÜNCELLENDİ: {key} ({old_val} -> {new_val})")
                 if include_console_log and changes_table:
@@ -472,23 +515,41 @@ def _compare_course_data(
                     )
 
     # --- 2. ÖDEV KONTROLÜ & HATIRLATMA ---
-    for assign in current_assignments:
+    for assign_idx, assign in enumerate(current_assignments):
         saved_assign = next((a for a in saved_assignments if a.get("id") == assign.get("id")), None)
         e_assign_name = escape_html(assign["name"])
 
         if not saved_assign:
-            sections_changes.append(
+            new_assign_msg = (
                 f"📅 <b>YENİ ÖDEV:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
-                f"Son Teslim: {assign['end_date']}"
+                f"🗓 {assign['start_date']} ➡️ {assign['end_date']}"
             )
+            if assign.get("description"):
+                new_assign_msg += f"\n\n📝 {escape_html(assign['description'])}"
+            if assign.get("required_files"):
+                req_lines = "\n".join(
+                    f"  • {escape_html(r['description'])}"
+                    + (f" (<code>{escape_html(r['filename'])}</code>)" if r.get("filename") else "")
+                    + f" [{escape_html(r['extensions'])}]"
+                    for r in assign["required_files"]
+                )
+                new_assign_msg += f"\n\n📋 <b>İstenen Dosyalar:</b>\n{req_lines}"
+            if assign.get("source_files"):
+                new_assign_msg += f"\n\n📦 <b>Kaynak Dosyalar ({len(assign['source_files'])}):</b>"
+                for sf_idx, sf in enumerate(assign["source_files"]):
+                    assignment_source_entries.append(
+                        (assign_idx, sf_idx, sf["name"], sf["size"], assign["name"], True)
+                    )
+            sections_changes.append(new_assign_msg)
             changes.append(f"YENİ ÖDEV: {assign['name']}")
             if include_console_log and changes_table:
                 changes_table.add_row(username, course_name, f"📄 Yeni Ödev: {assign['name']}")
         else:
             if assign["end_date"] != saved_assign.get("end_date"):
+                old_date = saved_assign.get("end_date", "?")
                 sections_changes.append(
                     f"🕒 <b>TESLİM TARİHİ DEĞİŞTİ:</b> {e_assign_name}\n"
-                    f"Yeni Tarih: {assign['end_date']}"
+                    f"{old_date} ➡️ {assign['end_date']}"
                 )
                 changes.append(f"ÖDEV TARİHİ DEĞİŞTİ: {assign['name']}")
                 if include_console_log and changes_table:
@@ -502,9 +563,45 @@ def _compare_course_data(
             if old_status is not None and old_status != new_status:
                 status_str = "✅ TESLİM EDİLDİ" if new_status else "❌ TESLİM GERİ ÇEKİLDİ"
                 sections_changes.append(
-                    f"🔄 <b>ÖDEV DURUMU GÜNCELLENDİ:</b> {e_assign_name}\nDurum: {status_str}"
+                    f"🔄 <b>ÖDEV DURUMU GÜNCELLENDİ:</b> <a href='{assign['url']}'>{e_assign_name}</a>\nDurum: {status_str}"
                 )
                 changes.append(f"ÖDEV DURUMU DEĞİŞTİ: {assign['name']} ({status_str})")
+
+            # Açıklama değişti mi?
+            old_desc = saved_assign.get("description", "")
+            new_desc = assign.get("description", "")
+            if new_desc and new_desc != old_desc:
+                if old_desc:
+                    diff_text = _content_diff(old_desc, new_desc)
+                    sections_changes.append(
+                        f"📝 <b>ÖDEV AÇIKLAMASI DEĞİŞTİ:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
+                        f"<pre>{escape_html(diff_text)}</pre>"
+                    )
+                else:
+                    sections_changes.append(
+                        f"📝 <b>ÖDEV AÇIKLAMASI EKLENDİ:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
+                        f"{escape_html(new_desc)}"
+                    )
+                changes.append(f"ÖDEV AÇIKLAMASI DEĞİŞTİ: {assign['name']}")
+
+            # Yeni kaynak dosya eklendi mi?
+            old_src_names = {f["name"] for f in saved_assign.get("source_files", [])}
+            for sf_idx, sf in enumerate(assign.get("source_files", [])):
+                if sf["name"] not in old_src_names:
+                    assignment_source_entries.append(
+                        (assign_idx, sf_idx, sf["name"], sf["size"], assign["name"], False)
+                    )
+                    changes.append(f"YENİ KAYNAK DOSYA: {sf['name']}")
+
+            # Kaynak dosya silindi mi?
+            new_src_names = {f["name"] for f in assign.get("source_files", [])}
+            for sf in saved_assign.get("source_files", []):
+                if sf["name"] not in new_src_names:
+                    sections_changes.append(
+                        f"🗑️ <b>KAYNAK DOSYA SİLİNDİ:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
+                        f"  • {escape_html(sf['name'])}"
+                    )
+                    changes.append(f"KAYNAK DOSYA SİLİNDİ: {sf['name']}")
 
         # Hatırlatma sistemi
         if include_reminders and not assign.get("is_submitted", False) and assign.get("end_date"):
@@ -569,12 +666,8 @@ def _compare_course_data(
             name_changed = file["name"] != saved_file.get("name")
             date_changed = file["date"] != saved_file.get("date")
             if name_changed or date_changed:
-                e_file_name = escape_html(file["name"])
-                icon = get_file_icon(file["name"].split("/")[-1])
                 change_type = "GÜNCELLENDİ" if date_changed else "ADI DEĞİŞTİ"
-                sections_changes.append(
-                    f"{icon} <b>DOSYA {change_type}:</b> <a href='{f_url}'>{e_file_name}</a>"
-                )
+                updated_file_entries.append((file_idx, file["name"], change_type))
                 changes.append(f"DOSYA {change_type}: {file['name']}")
 
     # --- 4. DUYURU KONTROLÜ ---
@@ -590,8 +683,10 @@ def _compare_course_data(
             full_content = get_announcement_detail(user_session, ann["url"])
             ann["content"] = full_content
             ann_msg = f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
-            if include_reminders and e_ann_author:
-                ann_msg += f"\n👤 {e_ann_author} | 📅 {ann['date']}\n\n{full_content}"
+            if e_ann_author:
+                ann_msg += f"\n👤 {e_ann_author} | 📅 {ann['date']}"
+            if full_content:
+                ann_msg += f"\n\n{full_content}"
             sections_changes.append(ann_msg)
             changes.append(f"YENİ DUYURU: {ann['title']}")
             if include_console_log and changes_table:
@@ -606,10 +701,31 @@ def _compare_course_data(
             if changed:
                 full_content = get_announcement_detail(user_session, ann["url"])
                 ann["content"] = full_content
-                sections_changes.append(
+                diff_lines = []
+                if ann["title"] != saved_ann.get("title"):
+                    diff_lines.append(
+                        f"📌 Başlık: {escape_html(saved_ann.get('title', ''))} ➡️ {e_ann_title}"
+                    )
+                if ann.get("author") != saved_ann.get("author"):
+                    diff_lines.append(
+                        f"👤 Yazar: {escape_html(saved_ann.get('author', ''))} ➡️ {e_ann_author}"
+                    )
+                if ann.get("date") != saved_ann.get("date"):
+                    diff_lines.append(
+                        f"📅 Tarih: {saved_ann.get('date', '?')} ➡️ {ann.get('date', '?')}"
+                    )
+                old_content = saved_ann.get("content", "")
+                ann_upd_msg = (
                     f"🔄 <b>DUYURU GÜNCELLENDİ:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
-                    f"\n👤 {e_ann_author} | 📅 {ann.get('date', '')}\n\n{full_content}"
                 )
+                if diff_lines:
+                    ann_upd_msg += "\n" + "\n".join(diff_lines)
+                if full_content and full_content != old_content and old_content:
+                    diff_text = _content_diff(old_content, full_content)
+                    ann_upd_msg += f"\n\n<pre>{escape_html(diff_text)}</pre>"
+                elif full_content:
+                    ann_upd_msg += f"\n\n{full_content}"
+                sections_changes.append(ann_upd_msg)
                 changes.append(f"DUYURU GÜNCELLENDİ: {ann['title']}")
             else:
                 ann["content"] = saved_ann.get("content", "")
@@ -620,7 +736,13 @@ def _compare_course_data(
         for saved_key in saved_grades:
             if saved_key not in current_grade_keys:
                 e_saved_key = escape_html(saved_key)
-                sections_changes.append(f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key}")
+                saved_entry = saved_grades[saved_key]
+                old_val = (
+                    saved_entry.get("not") if isinstance(saved_entry, dict) else saved_entry
+                ) or "?"
+                sections_changes.append(
+                    f"🗑️ <b>NOT SİLİNDİ:</b> {e_saved_key} (eski: {escape_html(old_val)})"
+                )
                 changes.append(f"NOT SİLİNDİ: {saved_key}")
 
         current_assign_ids = {a.get("id") for a in current_assignments}
@@ -645,7 +767,13 @@ def _compare_course_data(
                 sections_changes.append(f"🗑️ <b>DUYURU SİLİNDİ:</b> {e_title}")
                 changes.append(f"DUYURU SİLİNDİ: {s_ann.get('title')}")
 
-    return sections_changes, changes, new_file_entries
+    return (
+        sections_changes,
+        changes,
+        new_file_entries,
+        updated_file_entries,
+        assignment_source_entries,
+    )
 
 
 def check_user_updates(
@@ -798,20 +926,50 @@ def check_user_updates(
 
     # Değişiklikleri kontrol et — ortak fonksiyon kullan
     new_file_notifications = []  # (course_url, course_name, file_idx, file_name)
+    updated_file_notifications = []  # (course_url, course_name, file_idx, file_name, change_type)
+    assignment_source_notifications = []  # (course_url, course_name, assign_idx, sf_idx, file_name, file_size, assign_name, is_new_assign)
 
     for url, current_data in all_current_grades.items():
         course_name = current_data.get("course_name", "Bilinmeyen Ders")
         saved_data = user_saved_grades.get(url, {})
         e_course = escape_html(course_name)
 
-        sections_changes, changes, new_file_entries = _compare_course_data(
-            current_data, saved_data, user_session, course_name
-        )
+        (
+            sections_changes,
+            changes,
+            new_file_entries,
+            updated_file_entries,
+            assignment_source_entries,
+        ) = _compare_course_data(current_data, saved_data, user_session, course_name)
 
         all_changes.extend(changes)
 
         for file_idx, file_name in new_file_entries:
             new_file_notifications.append((url, course_name, file_idx, file_name))
+
+        for file_idx, file_name, change_type in updated_file_entries:
+            updated_file_notifications.append((url, course_name, file_idx, file_name, change_type))
+
+        for (
+            assign_idx,
+            sf_idx,
+            file_name,
+            file_size,
+            assign_name,
+            is_new_assign,
+        ) in assignment_source_entries:
+            assignment_source_notifications.append(
+                (
+                    url,
+                    course_name,
+                    assign_idx,
+                    sf_idx,
+                    file_name,
+                    file_size,
+                    assign_name,
+                    is_new_assign,
+                )
+            )
 
         if sections_changes and not silent:
             msg = f"📚 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
@@ -848,9 +1006,10 @@ def check_user_updates(
         for t_msg in telegram_messages:
             send_telegram_message(chat_id, t_msg)
             time.sleep(1)
-        if not silent and new_file_notifications:
+        if not silent and (new_file_notifications or updated_file_notifications):
             from telebot import types as tg_types
 
+        if not silent and new_file_notifications:
             for course_url, file_course_name, file_idx, file_name in new_file_notifications:
                 try:
                     url_idx = urls_list.index(course_url)
@@ -878,6 +1037,82 @@ def check_user_updates(
                     )
                 except Exception as e:
                     logger.error(f"File notification send error for {chat_id}: {e}")
+                time.sleep(1)
+        if not silent and updated_file_notifications:
+            for (
+                course_url,
+                file_course_name,
+                file_idx,
+                file_name,
+                change_type,
+            ) in updated_file_notifications:
+                try:
+                    url_idx = urls_list.index(course_url)
+                except ValueError:
+                    continue
+                basename = file_name.split("/")[-1]
+                icon = get_file_icon(basename)
+                markup = tg_types.InlineKeyboardMarkup()
+                markup.add(
+                    tg_types.InlineKeyboardButton(
+                        "📥 İndir", callback_data=f"dl_{url_idx}_{file_idx}"
+                    )
+                )
+                text = (
+                    f"📚 <b>{escape_html(file_course_name)}</b>\n"
+                    f"{icon} <b>DOSYA {change_type}:</b> {escape_html(basename)}"
+                )
+                try:
+                    bot.send_message(
+                        chat_id,
+                        text,
+                        reply_markup=markup,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True,
+                    )
+                except Exception as e:
+                    logger.error(f"File update notification send error for {chat_id}: {e}")
+                time.sleep(1)
+        if not silent and assignment_source_notifications:
+            for (
+                course_url,
+                file_course_name,
+                assign_idx,
+                sf_idx,
+                file_name,
+                file_size,
+                assign_name,
+                is_new_assign,
+            ) in assignment_source_notifications:
+                try:
+                    url_idx = urls_list.index(course_url)
+                except ValueError:
+                    continue
+                icon = get_file_icon(file_name)
+                label = "YENİ ÖDEV KAYNAK DOSYASI" if is_new_assign else "YENİ KAYNAK DOSYA"
+                markup = tg_types.InlineKeyboardMarkup()
+                markup.add(
+                    tg_types.InlineKeyboardButton(
+                        "📥 İndir", callback_data=f"asf_{url_idx}_{assign_idx}_{sf_idx}"
+                    )
+                )
+                text = (
+                    f"📚 <b>{escape_html(file_course_name)}</b>\n"
+                    f"📅 {escape_html(assign_name)}\n"
+                    f"{icon} <b>{label}:</b> {escape_html(file_name)} ({escape_html(file_size)})"
+                )
+                try:
+                    bot.send_message(
+                        chat_id,
+                        text,
+                        reply_markup=markup,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Assignment source file notification send error for {chat_id}: {e}"
+                    )
                 time.sleep(1)
 
     # Kullanıcı verilerini kaydet
