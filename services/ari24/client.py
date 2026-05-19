@@ -6,6 +6,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -39,6 +40,18 @@ MONTH_MAP = {
     "Eki": 10,
     "Kas": 11,
     "Ara": 12,
+    "Ocak": 1,
+    "Şubat": 2,
+    "Mart": 3,
+    "Nisan": 4,
+    "Mayıs": 5,
+    "Haziran": 6,
+    "Temmuz": 7,
+    "Ağustos": 8,
+    "Eylül": 9,
+    "Ekim": 10,
+    "Kasım": 11,
+    "Aralık": 12,
 }
 
 
@@ -46,11 +59,71 @@ class Ari24Client:
     BASE_URL = "https://ari24.com"
     EVENTS_URL = "https://ari24.com/etkinlikler"
     NEWS_URL = "https://ari24.com/haberler"
+    CLUBS_URL = "https://ari24.com/kulupler"
 
     def __init__(self):
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
+
+    def _parse_month(self, month_str: str) -> int | None:
+        return MONTH_MAP.get(month_str.strip())
+
+    def _parse_date_from_text(self, text: str) -> tuple[str, datetime | None]:
+        match = re.search(r"\b(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü]+)\b", text)
+        if not match:
+            return "", None
+
+        day_str, month_str = match.groups()
+        month_num = self._parse_month(month_str)
+        if not month_num:
+            return f"{day_str} {month_str}", None
+
+        now = datetime.now()
+        year = now.year
+        if month_num < now.month - 2:
+            year += 1
+
+        with contextlib.suppress(ValueError):
+            return f"{day_str} {month_str}", datetime(year, month_num, int(day_str))
+
+        return f"{day_str} {month_str}", None
+
+    def _extract_image_url(self, tag) -> str:
+        img_tag = tag.find("img") if tag else None
+        if not img_tag:
+            return ""
+
+        for attr in ("src", "data-src"):
+            raw_src = img_tag.get(attr)
+            if raw_src:
+                return self._normalize_image_url(raw_src)
+
+        srcset = img_tag.get("srcset") or ""
+        if srcset:
+            last_src = srcset.split(",")[-1].strip().split(" ")[0]
+            return self._normalize_image_url(last_src)
+
+        return ""
+
+    def _normalize_image_url(self, url: str) -> str:
+        if not url:
+            return ""
+
+        if url.startswith("/"):
+            url = self.BASE_URL + url
+
+        parsed = urlparse(url)
+        if parsed.path.endswith("/_next/image"):
+            params = parse_qs(parsed.query)
+            raw = params.get("url", [""])[0]
+            if raw:
+                raw = unquote(raw)
+                if raw.startswith("/"):
+                    return self.BASE_URL + raw
+                return raw
+
+        return url
 
     def get_events(self) -> list[dict]:
         """
@@ -69,7 +142,7 @@ class Ari24Client:
             soup = BeautifulSoup(response.content, "html.parser")
 
             events = []
-            event_items = soup.find_all("a", class_="etkinlik")
+            event_items = soup.find_all("a", href=lambda x: x and "/etkinlik/" in x)
 
             for item in event_items:
                 try:
@@ -77,72 +150,40 @@ class Ari24Client:
                     if link and not link.startswith("http"):
                         link = self.BASE_URL + link
 
-                    title_tag = item.find("h2")
-                    title = title_tag.get_text(strip=True) if title_tag else "Başlıksız Etkinlik"
+                    raw_text = " ".join(item.get_text(" ", strip=True).split())
+                    raw_text = raw_text.replace("Etkinlik kapağı ", "")
 
-                    organizer_tag = item.find("span", class_="duzenleyen")
-                    organizer = (
-                        organizer_tag.get_text(strip=True) if organizer_tag else "Bilinmiyor"
-                    )
+                    date_str, date_dt = self._parse_date_from_text(raw_text)
 
-                    # Parse Date
-                    day_tag = item.find("span", class_="gun")
-                    month_tag = item.find("span", class_="ay")
+                    title = "Başlıksız Etkinlik"
+                    organizer = "Bilinmiyor"
 
-                    date_dt = None
-                    date_str = ""
-
-                    if day_tag and month_tag:
-                        day = day_tag.get_text(strip=True)
-                        month_str = month_tag.get_text(strip=True)
-                        date_str = f"{day} {month_str}"
-
-                        # Try to construct datetime
-                        # Assuming current year if month is future, next year if month passed?
-                        # Or just basic parsing. Let's try to assume current year first.
-                        now = datetime.now()
-                        month_num = MONTH_MAP.get(month_str, 1)
-                        try:
-                            # A naive assumption about year
-                            year = now.year
-                            # If month is much earlier than now, maybe it's next year?
-                            # But usually these are upcoming.
-                            # If month < current month - 2, maybe next year.
-                            if month_num < now.month - 2:
-                                year += 1
-
-                            date_dt = datetime(year, month_num, int(day))
-                        except ValueError:
-                            pass
+                    if date_str:
+                        parts = raw_text.split(date_str, 1)
+                        if parts[0].strip():
+                            title = parts[0].strip()
+                        if len(parts) > 1 and parts[1].strip():
+                            organizer = parts[1].strip()
                     else:
-                        # Fallback for alternative structure: <time>02 Ocak 2026 23:59</time>
+                        title = raw_text or title
+
+                    if not date_dt:
                         time_tag = item.find("time")
                         if time_tag:
                             full_date_text = time_tag.get_text(strip=True)
-                            date_str = full_date_text
-                            # Try parsing "DD Month YYYY HH:MM"
-                            # Regex to capture components
-                            # Example: "02 Ocak 2026 23:59"
-                            match = re.search(r"(\d+)\s+(\w+)\s+(\d+)", full_date_text)
+                            match = re.search(
+                                r"(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü]+)\s+(\d{4})",
+                                full_date_text,
+                            )
                             if match:
                                 day_str, month_str, year_str = match.groups()
-                                month_num = MONTH_MAP.get(month_str, 1)
-                                with contextlib.suppress(ValueError):
-                                    date_dt = datetime(int(year_str), month_num, int(day_str))
+                                month_num = self._parse_month(month_str)
+                                if month_num:
+                                    with contextlib.suppress(ValueError):
+                                        date_dt = datetime(int(year_str), month_num, int(day_str))
+                            date_str = date_str or full_date_text
 
-                    # Extract Image
-                    # style="background-image: url(/uploads/...)"
-                    image_url = ""
-                    figure = item.find("figure")
-                    if figure and figure.get("style"):
-                        style = figure["style"]
-                        match = re.search(r"url\((.*?)\)", style)
-                        if match:
-                            img_path = match.group(1).strip("'\"")
-                            if img_path.startswith("/"):
-                                image_url = self.BASE_URL + img_path
-                            else:
-                                image_url = img_path
+                    image_url = self._extract_image_url(item)
 
                     events.append(
                         {
@@ -206,7 +247,41 @@ class Ari24Client:
         events = self.get_events()
         active_clubs = {ev["organizer"] for ev in events if ev["organizer"]}
         static_clubs = set(_load_static_clubs())
-        return sorted(static_clubs | active_clubs)
+        scraped_clubs = set(self.get_clubs())
+        return sorted(static_clubs | active_clubs | scraped_clubs)
+
+    def _fetch_club_page(self, page: int) -> list[str]:
+        params = {"page": page} if page > 1 else None
+        response = requests.get(self.CLUBS_URL, headers=self.headers, params=params, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, "html.parser")
+
+        clubs = []
+        for tag in soup.select('a[class*="ClubCard"][class*="title"]'):
+            name = " ".join(tag.get_text(" ", strip=True).split())
+            if name:
+                clubs.append(name)
+
+        return clubs
+
+    def get_clubs(self, max_pages: int = 20) -> list[str]:
+        """Fetches club names from ari24.com/kulupler across multiple pages."""
+        try:
+            clubs = []
+            seen = set()
+
+            for page in range(1, max_pages + 1):
+                page_clubs = self._fetch_club_page(page)
+                new_clubs = [name for name in page_clubs if name not in seen]
+                if not new_clubs:
+                    break
+                clubs.extend(new_clubs)
+                seen.update(new_clubs)
+
+            return clubs
+        except Exception as e:
+            logger.error(f"Error fetching Arı24 clubs: {e}")  # fix: BUG-E2
+            return []
 
     def get_news(self, limit: int = 5) -> list[dict]:
         """
@@ -243,16 +318,7 @@ class Ari24Client:
                 if not title:
                     continue
 
-                # Try to get image
-                image_url = ""
-                figure = item.find("figure")
-                if figure:
-                    style = figure.get("style", "")
-                    match = re.search(r"url\((.*?)\)", style)
-                    if match:
-                        image_url = match.group(1).strip("'\"")
-                        if not image_url.startswith("http"):
-                            image_url = self.BASE_URL + image_url
+                image_url = self._extract_image_url(item)
 
                 news.append({"title": title, "link": link, "image_url": image_url})
 
