@@ -192,6 +192,33 @@ def cleanup_old_logs(logs_dir: Path, keep_days: int = 30) -> None:
                 log_path.unlink()
 
 
+def install_thread_excepthook() -> None:
+    """
+    Yakalanmamış thread exception'larını logging üzerinden (token maskelenerek) yazar.
+
+    Python varsayılan olarak bunları doğrudan stderr'e basar; logging filtresi
+    devreye girmediği için Telegram API URL'indeki bot token'ı pm2 log'larına düşüyordu.
+    """
+    import sys
+    import threading
+    import traceback
+
+    def _hook(args: threading.ExceptHookArgs) -> None:
+        if args.exc_type is SystemExit:
+            return
+        thread_name = args.thread.name if args.thread else "?"
+        logging.getLogger("ninova").error(
+            f"Unhandled exception in thread {thread_name}",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+        text = "".join(
+            traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
+        )
+        sys.stderr.write(redact_secrets(f"Exception in thread {thread_name}:\n{text}"))
+
+    threading.excepthook = _hook
+
+
 def setup_logging(logs_dir: Path) -> DailyFileHandler:
     """
     Logging'i yapılandırır; DailyFileHandler döndürür.

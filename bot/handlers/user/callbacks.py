@@ -11,6 +11,7 @@ from bot.callback_parsing import (
     parse_int_part,
     split_callback_data,
 )
+from bot.check_service import check_user_updates
 from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_grades, load_user_profile, load_user_snapshot
 from bot.inline_keyboards import build_manual_menu
@@ -33,8 +34,6 @@ from core.utils import (
     update_user_data,
 )
 from services.ninova import download_file
-
-from .course_commands import _resolve_main_callable
 
 logger = logging.getLogger("ninova")
 CACHE_MANAGER = get_cache_manager()
@@ -1005,9 +1004,6 @@ def handle_kontrol(call):
 
     def run_check():
         try:
-            # `from main import ...` uygulama `python main.py` ile çalışırken main.py'yi
-            # ikinci kez import ediyor (log handler'ları, global state ikilenir).
-            check_user_updates = _resolve_main_callable("check_user_updates")
             result = check_user_updates(chat_id, course_idx=course_idx, request_id=request_id)
 
             if result.get("success"):
@@ -1190,7 +1186,6 @@ def handle_add_expired_yes(call):
 
     # Senkronizasyon başlat
     def run_sync():
-        check_user_updates = _resolve_main_callable("check_user_updates")
         result = check_user_updates(chat_id, silent=True)
 
         if result.get("success"):

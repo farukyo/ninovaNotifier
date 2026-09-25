@@ -9,13 +9,12 @@ from datetime import datetime
 
 from telebot import types
 
+from bot.check_service import check_user_updates
 from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_grades
 from bot.instance import bot_instance as bot
 from core.scheduler import submit_background_task
 from core.utils import split_long_message
-
-from .course_commands import _resolve_main_callable
 
 logger = logging.getLogger("ninova")
 
@@ -237,18 +236,6 @@ def kontrol_command_handler(message):
     )
 
     def run_user_check():
-        check_user_updates = _resolve_main_callable("check_user_updates")
-        if not check_user_updates:
-            log_user_action(
-                chat_id,
-                "manual_check",
-                status="missing_check_handler",
-                request_id=request_id,
-                level="warning",
-            )
-            bot.send_message(chat_id, "⚠️ Kontrol servisi hazır değil. Lütfen tekrar deneyin.")
-            return
-
         result = check_user_updates(chat_id, request_id=request_id)
         if result.get("success"):
             log_user_action(

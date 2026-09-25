@@ -1,8 +1,8 @@
-"""Tests for the change-detection / notification flow in main.py."""
+"""Tests for the change-detection / notification flow in check_service.py."""
 
 import pytest
 
-import main
+from bot import check_service
 from bot.callback_parsing import url_token
 from core import storage
 from services.ninova import diff_engine
@@ -89,19 +89,21 @@ def test_missing_assignment_detail_does_not_report_deleted_source_files():
 def isolated_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "USERS_FILE", str(tmp_path / "users.json"))
     monkeypatch.setattr(storage, "DATA_FILE", str(tmp_path / "ninova_data.json"))
-    monkeypatch.setattr(main.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(check_service.time, "sleep", lambda _s: None)
     storage.save_all_users(
         {"1": {"username": "user", "urls": ["https://ninova.itu.edu.tr/Sinif/1"]}}
     )
 
     sent_messages, sent_buttons = [], []
-    monkeypatch.setattr(main, "send_telegram_message", lambda _cid, msg: sent_messages.append(msg))
+    monkeypatch.setattr(
+        check_service, "send_telegram_message", lambda _cid, msg: sent_messages.append(msg)
+    )
 
     class _FakeBot:
         def send_message(self, _chat_id, _text, reply_markup=None, **_kwargs):
             sent_buttons.append(reply_markup.keyboard[0][0].callback_data)
 
-    monkeypatch.setattr(main, "bot", _FakeBot())
+    monkeypatch.setattr(check_service, "bot", _FakeBot())
     return sent_messages, sent_buttons
 
 
@@ -112,7 +114,7 @@ def test_process_user_results_saves_and_notifies(isolated_storage):
     storage.save_grades({"other": {"x": {"course_name": "keep me"}}})
     url = "https://ninova.itu.edu.tr/Sinif/1"
 
-    changes = main._process_user_results(
+    changes = check_service._process_user_results(
         "1",
         "user",
         None,
@@ -136,7 +138,7 @@ def test_process_user_results_silent_sends_nothing(isolated_storage):
     sent_messages, sent_buttons = isolated_storage
     url = "https://ninova.itu.edu.tr/Sinif/1"
 
-    changes = main._process_user_results(
+    changes = check_service._process_user_results(
         "1", "user", None, {url: _course(announcements=[])}, silent=True, include_reminders=False
     )
 
@@ -151,13 +153,13 @@ def test_detail_cache_metadata_is_saved_without_notifications(isolated_storage):
     # döngüde tüm ödev detayları yeniden çekilir.
     sent_messages, sent_buttons = isolated_storage
     url = "https://ninova.itu.edu.tr/Sinif/1"
-    main._process_user_results(
+    check_service._process_user_results(
         "1", "user", None, {url: _course(announcements=[])}, silent=True, include_reminders=False
     )
 
     refreshed = _course(announcements=[])
     refreshed["assignments"][0]["detail_fetched_at"] = 12345.0
-    changes = main._process_user_results(
+    changes = check_service._process_user_results(
         "1", "user", None, {url: refreshed}, silent=False, include_reminders=False
     )
 
@@ -173,11 +175,11 @@ def test_suspect_empty_file_counter_is_persisted(isolated_storage):
     # olmadığı için kaydedilmiyordu; gerçekten silinen dosyalar asla kabul edilmiyordu.
     sent_messages, _ = isolated_storage
     url = "https://ninova.itu.edu.tr/Sinif/1"
-    main._process_user_results(
+    check_service._process_user_results(
         "1", "user", None, {url: _course(announcements=[])}, silent=True, include_reminders=False
     )
 
-    changes = main._process_user_results(
+    changes = check_service._process_user_results(
         "1",
         "user",
         None,
@@ -200,7 +202,7 @@ def test_course_removed_during_check_is_not_written_back(isolated_storage):
     url = "https://ninova.itu.edu.tr/Sinif/1"
     storage.modify_user("1", lambda data: data.__setitem__("urls", []))
 
-    changes = main._process_user_results(
+    changes = check_service._process_user_results(
         "1",
         "user",
         None,
@@ -219,7 +221,7 @@ def test_deleted_user_grades_are_not_recreated():
     url = "https://ninova.itu.edu.tr/Sinif/1"
     storage.delete_user("1")
 
-    main._process_user_results(
+    check_service._process_user_results(
         "1", "user", None, {url: _course(announcements=[])}, silent=True, include_reminders=False
     )
 
@@ -230,8 +232,8 @@ def test_deleted_user_grades_are_not_recreated():
 def test_touch_last_check_does_not_recreate_deleted_user():
     storage.save_all_users({"2": {"username": "x"}})
 
-    main._touch_last_check("1")
-    main._touch_last_check("2")
+    check_service._touch_last_check("1")
+    check_service._touch_last_check("2")
 
     users = storage.load_all_users()
     assert "1" not in users
@@ -284,18 +286,20 @@ def test_check_single_user_validates_session_once_before_fanout(monkeypatch):
     calls, errors = [], []
 
     def failing_login(*_a, **_kw):
-        raise main.LoginFailedError("NETWORK_TIMEOUT", "timeout")
+        raise check_service.LoginFailedError("NETWORK_TIMEOUT", "timeout")
 
-    monkeypatch.setattr(main, "login_to_ninova", failing_login)
-    monkeypatch.setattr(main, "get_grades", lambda *a, **_k: calls.append(a))
-    monkeypatch.setattr(main.error_tracker, "record_error", lambda *a, **_k: errors.append(a))
+    monkeypatch.setattr(check_service, "login_to_ninova", failing_login)
+    monkeypatch.setattr(check_service, "get_grades", lambda *a, **_k: calls.append(a))
+    monkeypatch.setattr(
+        check_service.error_tracker, "record_error", lambda *a, **_k: errors.append(a)
+    )
     user = {
         "username": "user",
         "password": encrypt_password("pw"),
         "urls": ["https://ninova.itu.edu.tr/Sinif/1", "https://ninova.itu.edu.tr/Sinif/2"],
     }
 
-    changes = main._check_single_user("1", user, main.Table())
+    changes = check_service._check_single_user("1", user, check_service.Table())
 
     assert changes == []
     assert calls == []
