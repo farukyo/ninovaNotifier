@@ -110,7 +110,12 @@ def decrypt_password(encrypted_password: str) -> str | None:
 
 def escape_html(text: str) -> str:
     """HTML özel karakterlerini kaçırarak güvenli hale getirir."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def escape_attr(text: str) -> str:
+    """HTML nitelik değeri (ör. href='...') için kaçırma; tırnakları da kaçırır."""
+    return escape_html(text).replace('"', "&quot;").replace("'", "&#39;")
 
 
 def sanitize_html_for_telegram(html_content: str) -> str:

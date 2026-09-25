@@ -85,6 +85,44 @@ def test_missing_assignment_detail_does_not_report_deleted_source_files():
     assert current["assignments"][0]["reminders_sent"] == ["24h"]
 
 
+def test_notifications_escape_scraped_text():
+    # Regresyon: "&" / "<" içeren ödev adı, tarih veya not detayı Telegram'ın mesajı
+    # "can't parse entities" ile reddetmesine ve bildirimin kaybolmasına yol açıyordu.
+    saved = _saved(_course(assignments=[]))
+    saved["grades"] = {}
+    current = _course(
+        grades={
+            "Lab & Quiz": {
+                "not": "<90>",
+                "agirlik": "10",
+                "detaylar": {"class_avg": "70 & up", "rank": "<3>"},
+            }
+        },
+        assignments=[
+            {
+                "id": "2",
+                "name": "Lab <1> & Report",
+                "url": "https://ninova.itu.edu.tr/Sinif/1/Odev/2?x='y'",
+                "start_date": "01 Ocak 2025 & 00:00",
+                "end_date": "10 Ocak 2025 <23:59>",
+                "is_submitted": False,
+                "description": "",
+                "source_files": [],
+                "required_files": [],
+            }
+        ],
+    )
+
+    sections, *_ = diff_engine.compare_course_data(current, saved, None, "BLG 101E")
+    text = "\n".join(sections)
+
+    for raw in ("Lab <1>", "& Report", "<90>", "70 & up", "<3>", "<23:59>", "?x='y'"):
+        assert raw not in text
+    assert "Lab &lt;1&gt; &amp; Report" in text
+    assert "href='https://ninova.itu.edu.tr/Sinif/1/Odev/2?x=&#39;y&#39;'" in text
+    assert "Sınıf Ort: 70 &amp; up" in text
+
+
 @pytest.fixture
 def isolated_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "USERS_FILE", str(tmp_path / "users.json"))

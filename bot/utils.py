@@ -172,7 +172,7 @@ def show_file_browser(
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=f"🎓 <b>{course_name}</b>\n<i>Dosya bulunamadı.</i>",
+                text=f"🎓 <b>{escape_html(course_name)}</b>\n<i>Dosya bulunamadı.</i>",
                 parse_mode="HTML",
                 reply_markup=markup,
             )
@@ -233,7 +233,7 @@ def show_file_browser(
 
     path_label = "/" + "/".join(path_segments) if path_segments else "/"
     response = (
-        f"🎓 <b>{course_name}</b>\n"
+        f"🎓 <b>{escape_html(course_name)}</b>\n"
         f"📂 <b>Dosyalar</b>\nKonum: <code>{escape_html(path_label)}</code>\n"
         "(İndirmek için dosyaya tıklayın)"
     )

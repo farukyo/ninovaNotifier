@@ -21,7 +21,7 @@ from bot.keyboards import (
 from bot.utils import is_cancel_text
 from core.config import load_all_users
 from core.scheduler import submit_background_task
-from core.utils import escape_html, split_long_message, update_user_data
+from core.utils import escape_attr, escape_html, split_long_message, update_user_data
 from services.calendar.itu_calendar import ITUCalendarService
 
 logger = logging.getLogger("ninova")
@@ -276,7 +276,7 @@ def process_search_term(message):
             content = content[:150] + "..."
         response += f"💬 {escape_html(content)}\n"
         if result["url"]:
-            response += f"🔗 <a href='{result['url']}'>Duyuruyu Görüntüle</a>\n"
+            response += f"🔗 <a href='{escape_attr(result['url'])}'>Duyuruyu Görüntüle</a>\n"
         response += "\n"
         if len(response) > 3500:
             bot.send_message(
@@ -314,7 +314,7 @@ def show_status(message):
 
     course_count = len(user_info.get("urls", []))
     username = user_info.get("username")
-    user_display = username or "❌"
+    user_display = escape_html(username) if username else "❌"
     has_pass = "✅" if user_info.get("password") else "❌"
 
     uptime = datetime.now() - START_TIME
@@ -421,8 +421,12 @@ def show_academic_calendar(message, show_past=False, show_future=False):
                     bot.send_message(message.chat.id, chunk, parse_mode="HTML", reply_markup=markup)
                 else:
                     bot.send_message(message.chat.id, chunk, parse_mode="HTML")
-        except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Hata oluştu: {e!s}")
+        except Exception:
+            logger.exception(f"[user] Akademik takvim gönderilemedi ({message.chat.id})")
+            bot.send_message(
+                message.chat.id,
+                "❌ Takvim yüklenirken bir hata oluştu. Lütfen daha sonra tekrar deneyin.",
+            )
 
     if not submit_background_task("academic_calendar_fetch", run_fetch):
         bot.send_message(message.chat.id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")

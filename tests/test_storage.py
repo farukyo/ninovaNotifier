@@ -81,3 +81,44 @@ def test_update_user_grades_skips_untracked_courses_and_missing_users():
     assert storage.update_user_grades("1", {"u1": {"n": 1}, "gone": {"n": 2}}) == 1
     assert storage.update_user_grades("404", {"u1": {"n": 1}}) == 0
     assert storage.load_saved_grades() == {"1": {"u1": {"n": 1}}}
+
+
+def test_add_user_urls_keeps_courses_deleted_during_scan_deleted():
+    # Regresyon: oto ders / forceoto / manuel ekleme, taramadan önce alınan listeyi
+    # update_user_data ile yazıyordu; tarama sırasında silinen ders geri geliyor ve
+    # list(set(...)) ders sırasını (menü indekslerini) karıştırıyordu.
+    storage.save_all_users({"1": {"urls": ["a", "b", "c"], "username": "x"}})
+
+    # Tarama sürerken kullanıcı "b"yi siliyor.
+    storage.modify_user("1", lambda d: d.__setitem__("urls", ["a", "c"]))
+
+    # Tarama sonunda sadece yeni bulunan dersler eklenir.
+    assert storage.add_user_urls("1", ["d", "e"]) == ["d", "e"]
+
+    user = storage.load_all_users()["1"]
+    assert user["urls"] == ["a", "c", "d", "e"]
+    assert user["username"] == "x"
+
+
+def test_add_user_urls_only_adds_new_and_skips_missing_user():
+    storage.save_all_users({"1": {"urls": ["a", "c"]}})
+
+    assert storage.add_user_urls("1", ["c", "d", "e", "d"]) == ["d", "e"]
+    assert storage.load_all_users()["1"]["urls"] == ["a", "c", "d", "e"]
+    assert storage.add_user_urls("1", ["a"]) == []
+
+    # Silinmiş kullanıcı için hayalet kayıt oluşturulmaz.
+    assert storage.add_user_urls("404", ["x"]) is None
+    assert "404" not in storage.load_all_users()
+
+
+def test_prune_untracked_course_data_uses_current_url_list():
+    storage.save_all_users({"1": {"urls": ["u1", "u2"]}, "2": {"urls": []}})
+    storage.save_grades({"1": {"u1": {}, "u2": {}, "old": {}}, "2": {"x": {}}, "3": {"y": {}}})
+
+    assert storage.prune_untracked_course_data("1") == 1
+    assert storage.prune_untracked_course_data("2") == 1
+    assert storage.prune_untracked_course_data("3") == 0  # kullanıcı kaydı yok, dokunma
+    assert storage.prune_untracked_course_data("1") == 0
+
+    assert storage.load_saved_grades() == {"1": {"u1": {}, "u2": {}}, "3": {"y": {}}}

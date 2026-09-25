@@ -22,16 +22,16 @@ from core.cache import get_cache_manager
 from core.config import close_user_session, load_all_users
 from core.logger import clear_log_context, set_log_context
 from core.scheduler import submit_background_task
-from core.storage import delete_user, delete_user_grades, modify_user
+from core.storage import add_user_urls, delete_user, delete_user_grades, modify_user
 from core.utils import (
     decrypt_password,
     delete_course_data,
+    escape_attr,
     escape_html,
     get_file_icon,
     load_saved_grades,
     sanitize_html_for_telegram,
     send_telegram_document,
-    update_user_data,
 )
 from services.ninova import download_file
 
@@ -75,7 +75,7 @@ def handle_course_selection(call):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text=f"🎓 <b>{course_name}</b>\nLütfen görmek istediğiniz kategoriyi seçin:",
+            text=f"🎓 <b>{escape_html(course_name)}</b>\nLütfen görmek istediğiniz kategoriyi seçin:",
             reply_markup=markup,
             parse_mode="HTML",
         )
@@ -126,8 +126,8 @@ def handle_announcement_detail(call):
 
     text = (
         f"📣 <b>{escape_html(ann['title'])}</b>\n"
-        f"👤 {escape_html(ann.get('author', ''))} | 📅 {ann.get('date', '')}\n"
-        f"🔗 <a href='{ann['url']}'>Ninova'da Oku</a>\n\n"
+        f"👤 {escape_html(ann.get('author', ''))} | 📅 {escape_html(ann.get('date', ''))}\n"
+        f"🔗 <a href='{escape_attr(ann['url'])}'>Ninova'da Oku</a>\n\n"
         f"{content}"
     )
 
@@ -169,7 +169,7 @@ def handle_course_detail(call):
     course_name = data.get("course_name", "Bilinmeyen Ders")
 
     markup = types.InlineKeyboardMarkup()
-    response = f"🎓 <b>{course_name}</b>\n\n"
+    response = f"🎓 <b>{escape_html(course_name)}</b>\n\n"
 
     if detail_type == "not":
         response += "📊 <b>Notlar:</b>\n"
@@ -208,7 +208,7 @@ def handle_course_detail(call):
                 weight_str = f" (%{w_val:g})" if w_val > 0 else ""
 
                 # Format the grade line
-                response += f"▫️ {key}: <b>{score}</b>{weight_str}\n"
+                response += f"▫️ {escape_html(key)}: <b>{escape_html(score)}</b>{weight_str}\n"
 
                 # Sub-line details
                 detail_lines = []
@@ -222,7 +222,7 @@ def handle_course_detail(call):
                     detail_lines.append(f"Sıra: {details['rank']}")
 
                 if detail_lines:
-                    response += f"   <i>└ {', '.join(detail_lines)}</i>\n"
+                    response += f"   <i>└ {escape_html(', '.join(detail_lines))}</i>\n"
 
                 # Cumulative Calculations
                 if w_val > 0:
@@ -269,7 +269,10 @@ def handle_course_detail(call):
         else:
             for assign in assignments:
                 status = "✅" if assign.get("is_submitted") else "❌"
-                response += f"{status} <a href='{assign['url']}'>{assign['name']}</a>\n└ ⏳ Bitiş: <code>{assign['end_date']}</code>\n"
+                response += (
+                    f"{status} <a href='{escape_attr(assign['url'])}'>{escape_html(assign['name'])}</a>\n"
+                    f"└ ⏳ Bitiş: <code>{escape_html(assign['end_date'])}</code>\n"
+                )
 
     elif detail_type == "dosya":
         bot.answer_callback_query(call.id)
@@ -342,7 +345,7 @@ def handle_course_graph(call):
             bot.send_photo(
                 chat_id,
                 image_buffer,
-                caption=f"📈 <b>{course_name}</b> - Başarı Dağılımı",
+                caption=f"📈 <b>{escape_html(course_name)}</b> - Başarı Dağılımı",
                 parse_mode="HTML",
             )
             image_buffer.close()
@@ -351,8 +354,9 @@ def handle_course_graph(call):
 
     except ImportError:
         bot.send_message(chat_id, "⚠️ Görselleştirme modülü yüklenemedi.")
-    except Exception as e:
-        bot.send_message(chat_id, f"❌ Grafik oluşturulurken hata oluştu: {e!s}")
+    except Exception:
+        logger.exception(f"[user] Grafik oluşturulamadı ({chat_id})")
+        bot.send_message(chat_id, "❌ Grafik oluşturulurken bir hata oluştu.")
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
@@ -449,7 +453,7 @@ def handle_file_download(call):
             send_telegram_document(
                 chat_id,
                 cached_id,
-                caption=f"{get_file_icon(file_name)} {file_name}",
+                caption=f"{get_file_icon(file_name)} {escape_html(file_name)}",
                 is_file_id=True,
                 filename=file_name,
             )
@@ -498,7 +502,7 @@ def handle_file_download(call):
             sent_id = send_telegram_document(
                 chat_id,
                 file_buffer,
-                caption=f"{get_file_icon(final_filename)} {final_filename}",
+                caption=f"{get_file_icon(final_filename)} {escape_html(final_filename)}",
                 filename=final_filename,
             )
 
@@ -578,7 +582,7 @@ def handle_assignment_source_file_download(call):
             send_telegram_document(
                 chat_id,
                 cached_id,
-                caption=f"{get_file_icon(file_name)} {file_name}",
+                caption=f"{get_file_icon(file_name)} {escape_html(file_name)}",
                 is_file_id=True,
                 filename=file_name,
             )
@@ -610,7 +614,7 @@ def handle_assignment_source_file_download(call):
             sent_id = send_telegram_document(
                 chat_id,
                 file_buffer,
-                caption=f"{get_file_icon(final_filename)} {final_filename}",
+                caption=f"{get_file_icon(final_filename)} {escape_html(final_filename)}",
                 filename=final_filename,
             )
             if sent_id:
@@ -866,7 +870,7 @@ def handle_manual_list(call):
     response = "📋 <b>Takip Ettiğiniz Dersler:</b>\n\n"
     for i, url in enumerate(urls, 1):
         course_name = user_grades.get(url, {}).get("course_name", f"Ders {i}")
-        response += f"{i}. <b>{course_name}</b>\n<code>{url}</code>\n\n"
+        response += f"{i}. <b>{escape_html(course_name)}</b>\n<code>{escape_html(url)}</code>\n\n"
 
     from bot.inline_keyboards import build_back_keyboard
 
@@ -936,22 +940,26 @@ def process_manual_add(message):
         return
 
     chat_id = str(message.chat.id)
-    users = load_all_users()
-    user_data = users.get(chat_id, {})
-    urls = user_data.get("urls", [])
-
-    if url in urls:
+    # Kilit altında güncel listeye ekle (eski kopyayı yazmak arada yapılan
+    # değişiklikleri ezerdi; kayıtsız kullanıcı için hayalet kayıt da oluşmaz).
+    added = add_user_urls(chat_id, [url])
+    if added is None:
+        bot.send_message(
+            message.chat.id,
+            "❌ Kullanıcı kaydınız bulunamadı. Lütfen önce 👤 Kullanıcı menüsünden giriş yapın.",
+            reply_markup=build_main_keyboard(),
+        )
+        return
+    if not added:
         bot.send_message(
             message.chat.id,
             "⚠️ Bu ders zaten takip ediliyor.",
         )
         return
 
-    urls.append(url)
-    update_user_data(chat_id, "urls", urls)
     bot.send_message(
         message.chat.id,
-        f"✅ Ders başarıyla eklendi!\n<code>{url}</code>",
+        f"✅ Ders başarıyla eklendi!\n<code>{escape_html(url)}</code>",
         parse_mode="HTML",
     )
 
@@ -1068,7 +1076,7 @@ def handle_kontrol(call):
                         bot.edit_message_text(
                             chat_id=chat_id,
                             message_id=call.message.message_id,
-                            text=f"🎓 <b>{course_name}</b> (Güncellendi)\nLütfen bir kategori seçin:",
+                            text=f"🎓 <b>{escape_html(course_name)}</b> (Güncellendi)\nLütfen bir kategori seçin:",
                             reply_markup=markup,
                             parse_mode="HTML",
                         )
@@ -1076,7 +1084,7 @@ def handle_kontrol(call):
                         # Fallback to sending a new message if editing fails
                         bot.send_message(
                             chat_id,
-                            f"🎓 <b>{course_name}</b> (Güncellendi)\nLütfen bir kategori seçin:",
+                            f"🎓 <b>{escape_html(course_name)}</b> (Güncellendi)\nLütfen bir kategori seçin:",
                             reply_markup=markup,
                             parse_mode="HTML",
                         )
@@ -1266,12 +1274,18 @@ def handle_show_past_calendar(call):
                 )
             else:
                 bot.send_message(call.message.chat.id, chunk, parse_mode="HTML")
-    except Exception as e:
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f"❌ Hata: {e!s}",
-        )
+    except Exception:
+        logger.exception(f"[user] Akademik takvim gönderilemedi ({call.message.chat.id})")
+        error_text = "❌ Takvim yüklenirken bir hata oluştu. Lütfen daha sonra tekrar deneyin."
+        try:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=error_text,
+            )
+        except Exception:
+            # Yükleniyor mesajı zaten silinmiş olabilir.
+            bot.send_message(call.message.chat.id, error_text)
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "show_future_calendar")
@@ -1315,12 +1329,18 @@ def handle_show_future_calendar(call):
                 )
             else:
                 bot.send_message(call.message.chat.id, chunk, parse_mode="HTML")
-    except Exception as e:
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f"❌ Hata: {e!s}",
-        )
+    except Exception:
+        logger.exception(f"[user] Akademik takvim gönderilemedi ({call.message.chat.id})")
+        error_text = "❌ Takvim yüklenirken bir hata oluştu. Lütfen daha sonra tekrar deneyin."
+        try:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=error_text,
+            )
+        except Exception:
+            # Yükleniyor mesajı zaten silinmiş olabilir.
+            bot.send_message(call.message.chat.id, error_text)
 
 
 # Admin callback handlers - admin/callbacks.py'de tanımlı

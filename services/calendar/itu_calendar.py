@@ -5,6 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from core.ttl_cache import ttl_cache
+from core.utils import escape_html
 
 logger = logging.getLogger("ninova")
 
@@ -205,7 +206,7 @@ class ITUCalendarService:
             if visible_events:
                 # Section header
                 output.append("")
-                output.append(f"📅 <b>{section.title}</b>")
+                output.append(f"📅 <b>{escape_html(section.title)}</b>")
                 output.append("┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄")
 
                 for item in visible_events:
@@ -222,11 +223,11 @@ class ITUCalendarService:
                     else:  # upcoming
                         icon = "📅"
 
-                    status_text = event.status
+                    status_text = escape_html(event.status)
 
                     # Bold important statuses
                     if category in ["ongoing", "starting_soon"]:
-                        status_text = f"<b>{event.status}</b>"
+                        status_text = f"<b>{status_text}</b>"
 
                     # Truncate long event names
                     name = event.name
@@ -234,8 +235,8 @@ class ITUCalendarService:
                         name = name[:57] + "..."
 
                     # Format event
-                    output.append(f"{icon} <b>{name}</b>")
-                    output.append(f"    📆 {event.date_str}")
+                    output.append(f"{icon} <b>{escape_html(name)}</b>")
+                    output.append(f"    📆 {escape_html(event.date_str)}")
                     output.append(f"    ⏱ {status_text}")
                     output.append("")
 

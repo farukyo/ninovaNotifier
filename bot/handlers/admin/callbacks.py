@@ -17,11 +17,12 @@ from core.config import (
     close_user_session,
     get_user_session,
 )
+from core.logger import redact_secrets
 from core.scheduler import submit_background_task
-from core.storage import delete_user, delete_user_grades
+from core.storage import add_user_urls, delete_user, delete_user_grades
 from core.utils import (
     decrypt_password,
-    update_user_data,
+    escape_html,
 )
 from services.ninova import get_user_courses, login_to_ninova
 
@@ -212,11 +213,9 @@ def handle_admin_callbacks(call):
                         continue
 
                     user_grades = all_grades.get(target_chat_id, {})
-                    current_urls = set(user_data.get("urls", []))
 
                     already_added = []
                     newly_added = []
-                    new_urls_list = list(current_urls)
 
                     for course in courses:
                         course_url = course.get("url")
@@ -227,13 +226,15 @@ def handle_admin_callbacks(call):
 
                         if course_url in user_grades:
                             already_added.append(course_name)
-                        elif course_url in current_urls:
-                            newly_added.append({"name": course_name, "url": course_url})
                         else:
                             newly_added.append({"name": course_name, "url": course_url})
-                            new_urls_list.append(course_url)
 
-                    update_user_data(target_chat_id, "urls", new_urls_list)
+                    # Döngü tüm kullanıcılar için dakikalarca sürebilir; başta alınan
+                    # `users` kopyasındaki listeyi yazmak arada silinen dersleri geri
+                    # getirirdi. Güncel listeye sadece eksikleri ekle.
+                    if add_user_urls(target_chat_id, [c["url"] for c in newly_added]) is None:
+                        # Kullanıcı tarama sırasında silinmiş; hayalet kayıt oluşturma.
+                        continue
                     total_new_courses += len(newly_added)
 
                     response = "📊 <b>Ders Tarama Sonucu</b>\n\n"
@@ -242,7 +243,7 @@ def handle_admin_callbacks(call):
                     if newly_added:
                         response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
                         for c in newly_added[:5]:
-                            response += f"  ➕ {c['name']}\n"
+                            response += f"  ➕ {escape_html(c['name'])}\n"
                         if len(newly_added) > 5:
                             response += f"  ... ve {len(newly_added) - 5} daha\n"
                     else:
@@ -282,7 +283,8 @@ def handle_admin_callbacks(call):
                     cb()
                     bot.send_message(chat_id, "✅ Kontrol tamamlandı.", parse_mode="HTML")
                 except Exception as e:
-                    bot.send_message(chat_id, f"⚠️ Kontrol hatası: {e!s}", parse_mode="HTML")
+                    logger.exception("[admin] forceoto sonrası kontrol başarısız")
+                    bot.send_message(chat_id, f"⚠️ Kontrol hatası: {redact_secrets(str(e))[:200]}")
                     log_admin_action(
                         chat_id,
                         "force_check_post_otoders",
