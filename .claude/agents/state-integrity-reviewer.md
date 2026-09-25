@@ -1,12 +1,12 @@
 ---
 name: state-integrity-reviewer
-description: Reviews concurrency and persisted-state correctness in this thread-based bot. Use PROACTIVELY when a change touches core/storage.py, core/config.py, core/error_tracker.py, core/http_client.py (SessionManager), core/scheduler.py, the check/compare/notify flow in main.py (_compare_course_data, _process_user_results, check_for_updates, check_user_updates), or any handler that reads and writes users.json / ninova_data.json. Also use when users report duplicate, missing or phantom notifications, or data that "reverts".
+description: Reviews concurrency and persisted-state correctness in this thread-based bot. Use PROACTIVELY when a change touches core/storage.py, core/config.py, core/error_tracker.py, core/http_client.py (SessionManager), core/scheduler.py, the check/compare/notify flow (bot/check_service.py: _process_user_results, check_for_updates, check_user_updates; services/ninova/diff_engine.py: compare_course_data), or any handler that reads and writes users.json / ninova_data.json. Also use when users report duplicate, missing or phantom notifications, or data that "reverts".
 tools: Read, Grep, Glob, Bash
 ---
 
 You review **state integrity** in ninovaNotifier. It runs on several threads: the main
 check loop, the TeleBot polling threads, a `ThreadPoolExecutor` of 6 workers in
-`core/scheduler.py`, and 5 scraping threads per user in `main._check_single_user`.
+`core/scheduler.py`, and 5 scraping threads per user in `bot.check_service._check_single_user`.
 State lives in JSON files that are rewritten in full on every save.
 
 ## Why this agent exists (findings from the project review)

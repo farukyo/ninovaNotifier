@@ -37,7 +37,8 @@ Scope: `$ARGUMENTS`. If it is a ref, only check changed files.
      Arı24, calendar, Rehber fields): SCRAPED
    - exception text `{e}`: EXCEPTION (it also leaks internals to users)
 3. USER or SCRAPED values without `escape_html(...)` are findings (HIGH if in a notification
-   path under `main.py` or `services/*/announcer.py`, otherwise MEDIUM).
+   path (`services/ninova/diff_engine.py`, `bot/check_service.py`, `main.py`,
+   `services/*/announcer.py`), otherwise MEDIUM).
    Values inside attributes (`href='{url}'`) also need quote safety. Note that `escape_html`
    does not escape quotes.
 4. Flag any split of an HTML string (`split_long_message`, `[i:i+N]` slicing, manual

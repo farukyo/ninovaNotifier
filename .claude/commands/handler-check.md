@@ -50,7 +50,9 @@ Before opening a PR that touches `bot/**`, or when a button or command "does not
    use positional file indices in long-lived notifications.
 7. **Data writes**: use the `core.storage` atomic helpers (see `/stale-write-scan`).
 8. **Errors to users**: never send `str(e)` to users. Log with `logger.exception`.
-9. **main.py access**: never `from main import ...`. Use `_resolve_main_callable`.
+9. **main.py access**: handlers must never import `main` (it would run the entry point a
+   second time and split the check locks). Check logic lives in `bot/check_service.py`;
+   import `check_user_updates` / `check_for_updates` from there.
 
 ## Output
 For each handler: name, file:line, then PASS or each violated rule with a one-line

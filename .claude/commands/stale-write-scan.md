@@ -18,7 +18,8 @@ write stale snapshots (`bot/handlers/admin/callbacks.py`, `course_functions.py`)
 helpers now exist in `core/storage.py`.
 
 ## When to call it
-- Before merging any change that touches `bot/handlers/**`, `main.py` or `core/storage.py`.
+- Before merging any change that touches `bot/handlers/**`, `bot/check_service.py`,
+  `main.py` or `core/storage.py`.
 - When a user reports "my change / course / subscription disappeared".
 
 ## Procedure

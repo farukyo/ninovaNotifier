@@ -12,7 +12,8 @@ Produces an inventory of code that looks alive but isn't. For each item it recom
 ## Based on finding
 The "Step 5/6 migration" was left half-done. The review found:
 - 22 docstring-only stub modules, for example `bot/router.py`, `bot/handlers/*_handler.py`,
-  `bot/middlewares/*`, `services/ninova/diff_engine.py`, `*/models.py`, `tests/unit/*`
+  `bot/middlewares/*`, `*/models.py`, `tests/unit/*` (removed in the first cleanup; this
+  command keeps new ones from piling up again)
 - `AppConfig.from_env` raising `NotImplementedError`
 - 9 admin command functions with no decorator
 - `bot/keyboards.py` shadowed by the `bot/keyboards/` package

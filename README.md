@@ -73,10 +73,12 @@ uv run detect-secrets-hook --baseline .secrets.baseline $(git ls-files)
 ## Proje Yapısı
 
 ```
-main.py                 # Giriş noktası: Telegram polling thread'i + periyodik kontrol döngüsü
-                        # (not/ödev/dosya/duyuru karşılaştırma ve bildirimler)
+main.py                 # Giriş noktası: Telegram polling thread'i + periyodik görev döngüsü
+                        # (Ninova kontrolü, SKS menüsü, Arı24, günlük bülten)
 bot/
   instance.py           # TeleBot nesnesi ve global hata yakalayıcı
+  check_service.py      # Ninova kontrol akışı: tarama → karşılaştırma → kayıt → bildirim
+                        # (ana döngü ve "Kontrol" butonları burayı kullanır)
   handlers/user/        # Kullanıcı komutları ve callback'leri
   handlers/admin/       # Admin paneli (duyuru, yedek, log, ders yönetimi)
   keyboards/            # Reply/inline klavyeler
@@ -90,7 +92,7 @@ core/
   ttl_cache.py          # Dış servis sonuçları için kısa süreli önbellek
   logger.py             # JSON log dosyaları, token maskeleme
 services/
-  ninova/               # Giriş (auth.py) ve scraping (scraper.py)
+  ninova/               # Giriş (auth.py), scraping (scraper.py), değişiklik tespiti (diff_engine.py)
   sks/                  # Yemekhane menüsü ve duyurusu
   ari24/                # Arı24 haber/etkinlik/kulüpler
   rehber/               # İTÜ Rehber araması

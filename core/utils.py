@@ -93,27 +93,19 @@ def parse_turkish_date(date_str: str) -> datetime | None:
 
 
 def encrypt_password(password: str) -> str:
-    """Şifreyi global cipher_suite ile şifreler."""
+    """Şifreyi global cipher_suite ile şifreler (asıl uygulama: core.crypto)."""
     from core.config import cipher_suite  # deferred to avoid import-time side effects
+    from core.crypto import encrypt_password as _encrypt
 
-    if not password:
-        return ""
-    encrypted = cipher_suite.encrypt(password.encode())
-    return encrypted.decode()
+    return _encrypt(cipher_suite, password)
 
 
 def decrypt_password(encrypted_password: str) -> str | None:
-    """Şifrelenmiş şifreyi global cipher_suite ile çözer."""
+    """Şifrelenmiş şifreyi global cipher_suite ile çözer (asıl uygulama: core.crypto)."""
     from core.config import cipher_suite  # deferred to avoid import-time side effects
+    from core.crypto import decrypt_password as _decrypt
 
-    if not encrypted_password:
-        return ""
-    try:
-        decrypted = cipher_suite.decrypt(encrypted_password.encode())
-        return decrypted.decode()
-    except Exception:
-        logger.error("Şifre çözme başarısız! Şifreleme anahtarı değişmiş olabilir.")
-        return None
+    return _decrypt(cipher_suite, encrypted_password)
 
 
 def escape_html(text: str) -> str:
@@ -352,7 +344,9 @@ def split_long_message(text: str, limit: int = 4000) -> list[str]:
             continue
 
         if len(current_chunk) + len(line) + 1 > limit:
-            chunks.append(current_chunk)
+            # Boş parça ekleme (tam limit uzunluğundaki ilk satırda oluyordu).
+            if current_chunk:
+                chunks.append(current_chunk)
             current_chunk = line
         else:
             current_chunk += ("\n" if current_chunk else "") + line
@@ -372,29 +366,8 @@ def send_telegram_message(chat_id: Any, message: str, is_error: bool = False) ->
 
     prefix = "⚠️ <b>HATA</b>\n\n" if is_error else ""
     full_message = prefix + message
-    limit = 3500
-    messages: list[str] = []
-
-    if len(full_message) <= limit:
-        messages.append(full_message)
-    else:
-        lines = full_message.split("\n")
-        current_msg = ""
-        for line in lines:
-            if len(line) > limit:
-                if current_msg:
-                    messages.append(current_msg)
-                    current_msg = ""
-                messages.extend(line[i : i + limit] for i in range(0, len(line), limit))
-                continue
-            if len(current_msg) + len(line) + 1 > limit:
-                if current_msg:
-                    messages.append(current_msg)
-                current_msg = line
-            else:
-                current_msg += ("\n" if current_msg else "") + line
-        if current_msg:
-            messages.append(current_msg)
+    # Telegram sınırı 4096; HTML etiketleri için pay bırakılır.
+    messages = split_long_message(full_message, limit=3500)
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     for msg in messages:

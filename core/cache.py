@@ -118,12 +118,11 @@ class CacheManager:
 
     def _save_to_file(self) -> None:
         try:
+            from core.storage import atomic_json_write  # deferred: storage ↔ config
+
             self._cache_file.parent.mkdir(parents=True, exist_ok=True)
             data = {k: list(v) for k, v in self._cache.items()}
-            temp_file = self._cache_file.with_suffix(".tmp")
-            with temp_file.open("w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            temp_file.replace(self._cache_file)
+            atomic_json_write(self._cache_file, data)
         except Exception as e:
             logger.error(f"Error saving cache: {e}")
 

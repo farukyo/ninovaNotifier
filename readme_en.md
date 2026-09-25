@@ -73,10 +73,12 @@ The `secrets/` and `data/` directories are in `.gitignore` — never commit them
 ## Project Structure
 
 ```
-main.py                 # Entry point: Telegram polling thread + periodic check loop
-                        # (grade/assignment/file/announcement diffing and notifications)
+main.py                 # Entry point: Telegram polling thread + periodic job loop
+                        # (Ninova check, SKS menu, Arı24, daily bulletin)
 bot/
   instance.py           # TeleBot instance and global exception handler
+  check_service.py      # Ninova check flow: scrape → diff → save → notify
+                        # (used by the main loop and the "Kontrol" buttons)
   handlers/user/        # User commands and callbacks
   handlers/admin/       # Admin panel (broadcast, backup, logs, course management)
   keyboards/            # Reply/inline keyboards
@@ -90,7 +92,7 @@ core/
   ttl_cache.py          # Short-lived cache for external service results
   logger.py             # JSON log files, token redaction
 services/
-  ninova/               # Login (auth.py) and scraping (scraper.py)
+  ninova/               # Login (auth.py), scraping (scraper.py), change detection (diff_engine.py)
   sks/                  # Dining menu and announcements
   ari24/                # Arı24 news/events/clubs
   rehber/               # ITU directory search

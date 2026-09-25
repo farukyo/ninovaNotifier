@@ -12,13 +12,13 @@ Measures coverage for `$ARGUMENTS`, ranks the uncovered functions by risk, and w
 
 ## Based on finding
 Total coverage is 31%. Handlers are at 10–20%, `services/ninova/scraper.py` at 20%,
-`services/*` other than ninova at 11–27%. `tests/unit/*` and `tests/integration/*` are
-empty stubs. The bugs fixed so far (5-tuple unpack crash, password `TypeError`, stale
+`services/*` other than ninova at 11–27%. There are no fixture-based parser tests yet.
+The bugs fixed so far (5-tuple unpack crash, password `TypeError`, stale
 saves) would each have been caught by a single test.
 
 ## When to call it
 - After fixing a bug, to pin it with a regression test.
-- Before refactoring a module (for example moving check logic out of `main.py`).
+- Before refactoring a module (for example splitting `bot/check_service.py` or the scraper).
 
 ## Procedure
 1. Run `uv run pytest -q --cov=<module as dotted path> --cov-report=term-missing` and read

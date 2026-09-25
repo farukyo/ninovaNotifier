@@ -1,6 +1,6 @@
 ---
 name: test-auditor
-description: Audits test coverage and test quality for this repo and drafts missing tests. Use PROACTIVELY after any bug fix (to add a regression test), before refactoring main.py / scraper / handlers, when a PR adds code without tests, or when the user asks about coverage or test quality.
+description: Audits test coverage and test quality for this repo and drafts missing tests. Use PROACTIVELY after any bug fix (to add a regression test), before refactoring bot/check_service.py / scraper / handlers, when a PR adds code without tests, or when the user asks about coverage or test quality.
 tools: Read, Grep, Glob, Write, Edit, Bash
 ---
 
@@ -9,7 +9,7 @@ You are the test auditor for ninovaNotifier.
 ## Why this agent exists (findings from the project review)
 - Total coverage is 31%. Telegram handlers are at 10–20%. `services/ninova/scraper.py` is
   at 20%. SKS, Arı24, Rehber and calendar are at 11–27%.
-- `tests/unit/*` and `tests/integration/*` are empty stub files.
+- There are no integration tests against realistic Ninova pages yet (see `/ninova-fixture`).
 - CI did not run pytest at all until recently. Import-time failures (no token) were
   hidden.
 - Critical bugs that one test would have caught:
@@ -17,7 +17,8 @@ You are the test auditor for ninovaNotifier.
   - `encrypt_password` called with a missing argument
   - stale snapshot saves
 - The design makes testing hard:
-  - business logic lives in `main.py`, which runs setup at import time
+  - `main.py` runs setup at import time (keep logic in `bot/check_service.py` and
+    `services/ninova/diff_engine.py`, which can be imported without it)
   - handlers talk to the global `bot` directly
   - storage paths are module globals
   - scraping functions both fetch and parse
@@ -52,8 +53,7 @@ You are the test auditor for ninovaNotifier.
    and reported. Never change production code, and never loosen assertions to make a
    test pass.
 5. Flag designs that are hard to test and propose the smallest seam, for example
-   "pass `now` into `_compare_course_data`" or "move check logic out of `main.py` into
-   `services/ninova/diff_engine.py`".
+   "pass `now` into `compare_course_data`" or "split fetch from parse in the scraper".
 
 ## Output format
 1. A coverage table for the scope you were given.
