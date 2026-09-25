@@ -8,12 +8,8 @@ the migrated module-level globals and functions.
 # migrated from: common/config.py
 from __future__ import annotations
 
-import contextlib
-import json
 import logging
 import os
-import tempfile
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -31,18 +27,22 @@ logger = logging.getLogger("ninova")
 # Klasör ve Dosya Yolları
 DATA_DIR = "data"
 LOGS_DIR = "logs"
-SECRETS_DIR = "secrets"
+SECRETS_DIR = "secrets"  # pragma: allowlist secret
 
 Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
 Path(LOGS_DIR).mkdir(parents=True, exist_ok=True)
 Path(SECRETS_DIR).mkdir(parents=True, exist_ok=True)
 
-USERS_FILE = str(Path(DATA_DIR) / "users.json")
-DATA_FILE = str(Path(DATA_DIR) / "ninova_data.json")
-
-# Thread-safe dosya erişimi için lock'lar
-_users_lock = threading.Lock()
-_data_lock = threading.Lock()
+# users.json / ninova_data.json erişimi core.storage üzerinden yapılır. Eskiden burada
+# ayrı kilitlerle ikinci bir kopya vardı; iki farklı kilit aynı dosyayı koruduğu için
+# eşzamanlı yazmalar birbirini ezebiliyordu. Tek kaynak: core.storage.
+from core.storage import (  # noqa: E402, F401 — geriye dönük uyumluluk için re-export
+    DATA_FILE,
+    USERS_FILE,
+    atomic_json_write,
+    load_all_users,
+    save_all_users,
+)
 
 # Şifreleme anahtarı (ENV'den veya varsayılan)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
@@ -58,61 +58,6 @@ if not ENCRYPTION_KEY:
         console.print("[yellow]⚠️ Yeni şifreleme anahtarı oluşturuldu: .encryption_key[/yellow]")
 
 cipher_suite = Fernet(ENCRYPTION_KEY)
-
-
-def _atomic_json_write(filepath, data):
-    """
-    JSON verisini atomik olarak dosyaya yazar.
-
-    Önce geçici dosyaya yazar, sonra os.replace() ile hedef dosyaya taşır.
-    Bu sayede yazma sırasında oluşabilecek kesintilerde veri kaybı önlenir.
-
-    :param filepath: Hedef dosya yolu
-    :param data: Yazılacak JSON-serializable veri
-    """
-    dir_name = Path(filepath).parent or "."
-    fd, tmp_path = tempfile.mkstemp(dir=str(dir_name), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        Path(tmp_path).replace(filepath)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            Path(tmp_path).unlink()
-        raise
-
-
-def atomic_json_write(filepath, data):
-    """Public wrapper for atomic JSON writes."""
-    _atomic_json_write(filepath, data)
-
-
-def load_all_users():
-    """
-    Tüm kullanıcı verilerini users.json dosyasından yükler (thread-safe).
-
-    :return: Kullanıcı sözlüğü (chat_id: user_data) veya boş dict
-    """
-    with _users_lock:
-        if Path(USERS_FILE).exists():
-            try:
-                with Path(USERS_FILE).open(encoding="utf-8") as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
-                logger.critical(f"{USERS_FILE} dosyası bozuk! Kontrol döngüsü atlanıyor.")
-                console.print(f"[red bold]⚠️ {USERS_FILE} dosyası bozuk![/red bold]")
-                return {}
-        return {}
-
-
-def save_all_users(users):
-    """
-    Tüm kullanıcı verilerini users.json dosyasına kaydeder (thread-safe, atomik).
-
-    :param users: Kaydedilecek kullanıcı sözlüğü
-    """
-    with _users_lock:
-        _atomic_json_write(USERS_FILE, users)
 
 
 CHECK_INTERVAL = 300

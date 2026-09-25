@@ -12,9 +12,10 @@ from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text, resolve_path_token, show_file_browser, validate_ninova_url
 from core.cache import get_cache_manager
-from core.config import close_user_session, load_all_users, save_all_users
+from core.config import close_user_session, load_all_users
 from core.logger import clear_log_context, set_log_context
 from core.scheduler import submit_background_task
+from core.storage import delete_user, delete_user_grades, modify_user
 from core.utils import (
     decrypt_password,
     delete_course_data,
@@ -22,11 +23,12 @@ from core.utils import (
     get_file_icon,
     load_saved_grades,
     sanitize_html_for_telegram,
-    save_grades,
     send_telegram_document,
     update_user_data,
 )
 from services.ninova import download_file
+
+from .course_commands import _resolve_main_callable
 
 logger = logging.getLogger("ninova")
 CACHE_MANAGER = get_cache_manager()
@@ -703,14 +705,8 @@ def handle_folder_navigation(call):
 def handle_leave_confirm(call):
     """Confirm leaving: delete user data, cached grades, and close session."""
     chat_id = str(call.message.chat.id)
-    users = load_all_users()
-    if chat_id in users:
-        del users[chat_id]
-    save_all_users(users)
-    all_grades = load_saved_grades()
-    if chat_id in all_grades:
-        del all_grades[chat_id]
-    save_grades(all_grades)
+    delete_user(chat_id)
+    delete_user_grades(chat_id)
     close_user_session(chat_id)
     bot.edit_message_text(
         chat_id=chat_id,
@@ -764,14 +760,16 @@ def handle_course_delete_any(call):
         users = load_all_users()
         user_data = users.get(chat_id, {})
         urls = user_data.get("urls", [])
-        if idx < len(urls):
+        if 0 <= idx < len(urls):
             # Önce veriyi sil (Deep Clean)
             course_url = urls[idx]
             delete_course_data(chat_id, course_url)
 
-            # Sonra listeyi kullanıcıdan sil
-            del users[chat_id]["urls"][idx]
-            save_all_users(users)
+            # Sonra listeyi kullanıcıdan sil (index yerine URL ile, atomik olarak)
+            def _remove_course(data):
+                data["urls"] = [u for u in data.get("urls", []) if u != course_url]
+
+            modify_user(chat_id, _remove_course)
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=call.message.message_id,
@@ -1019,8 +1017,9 @@ def handle_kontrol(call):
 
     def run_check():
         try:
-            from main import check_user_updates
-
+            # `from main import ...` uygulama `python main.py` ile çalışırken main.py'yi
+            # ikinci kez import ediyor (log handler'ları, global state ikilenir).
+            check_user_updates = _resolve_main_callable("check_user_updates")
             result = check_user_updates(chat_id, course_idx=course_idx, request_id=request_id)
 
             if result.get("success"):
@@ -1191,20 +1190,19 @@ def handle_add_expired_yes(call):
         bot.send_message(chat_id, "⚠️ Eklenecek eski ders bulunamadı (liste boş).")
         return
 
-    # Ekle
-    current_urls = user_data.get("urls", [])
-    updated_urls = list(set(current_urls + expired_urls))
-    update_user_data(chat_id, "urls", updated_urls)
+    # Ekle ve temp listeyi tek atomik işlemde sil. Eskiden update_user_data ile URL'ler
+    # yazıldıktan sonra eski `users` kopyası save_all_users ile kaydediliyor ve eklenen
+    # dersler geri siliniyordu.
+    def _add_expired(data):
+        current_urls = data.get("urls", [])
+        data["urls"] = current_urls + [u for u in expired_urls if u not in current_urls]
+        data.pop("temp_expired_courses", None)
 
-    # Temp'i sil
-    if "temp_expired_courses" in users[chat_id]:
-        del users[chat_id]["temp_expired_courses"]
-        save_all_users(users)
+    modify_user(chat_id, _add_expired)
 
     # Senkronizasyon başlat
     def run_sync():
-        from main import check_user_updates
-
+        check_user_updates = _resolve_main_callable("check_user_updates")
         result = check_user_updates(chat_id, silent=True)
 
         if result.get("success"):
@@ -1233,10 +1231,7 @@ def handle_add_expired_no(call):
     """
     chat_id = str(call.message.chat.id)
     # Temp'i sil
-    users = load_all_users()
-    if chat_id in users and "temp_expired_courses" in users[chat_id]:
-        del users[chat_id]["temp_expired_courses"]
-        save_all_users(users)
+    modify_user(chat_id, lambda data: data.pop("temp_expired_courses", None))
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,
