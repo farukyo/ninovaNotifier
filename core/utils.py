@@ -8,8 +8,10 @@ are in core/storage.py but re-exported here for backward compatibility.
 from __future__ import annotations
 
 import contextlib
+import html
 import logging
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -385,16 +387,12 @@ def send_telegram_message(chat_id: Any, message: str, is_error: bool = False) ->
             continue
         payload = {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}
         try:
-            response = http_request(
-                logger,
-                requests,
-                "POST",
-                url,
-                action="telegram_send",
-                chat_id=str(chat_id),
-                json=payload,
-                timeout=10,
-            )
+            response = _post_telegram_message(url, chat_id, payload)
+            if response.status_code == 400 and "can't parse entities" in response.text:
+                # Uzun mesaj bölünürken bir HTML etiketi ikiye ayrılmış olabilir; bildirimi
+                # tamamen kaybetmek yerine etiketsiz düz metin olarak gönder.
+                plain = html.unescape(re.sub(r"<[^>]*>", "", msg))
+                response = _post_telegram_message(url, chat_id, {"chat_id": chat_id, "text": plain})
             if response.status_code == 200:
                 clean_msg = re.sub(r"<[^>]*>", "", msg.splitlines()[0])
                 console.print(f"[green][Telegram] Mesaj gönderildi ({chat_id}): {clean_msg}")
@@ -418,6 +416,37 @@ def send_telegram_message(chat_id: Any, message: str, is_error: bool = False) ->
                 error_stage="http",
             )
             console.print(f"[red][Telegram] Gönderim hatası ({chat_id}): {e}")
+
+
+def _post_telegram_message(url: str, chat_id: Any, payload: dict) -> requests.Response:
+    """sendMessage isteği atar; 429 (rate limit) yanıtında bir kez bekleyip tekrar dener."""
+    response = http_request(
+        logger,
+        requests,
+        "POST",
+        url,
+        action="telegram_send",
+        chat_id=str(chat_id),
+        json=payload,
+        timeout=10,
+    )
+    if response.status_code == 429:
+        retry_after = 5
+        with contextlib.suppress(ValueError, KeyError, TypeError):
+            retry_after = int(response.json()["parameters"]["retry_after"])
+        time.sleep(min(retry_after, 60))
+        response = http_request(
+            logger,
+            requests,
+            "POST",
+            url,
+            action="telegram_send",
+            chat_id=str(chat_id),
+            json=payload,
+            timeout=10,
+            retry_count=1,
+        )
+    return response
 
 
 def send_telegram_document(

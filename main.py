@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import random
@@ -19,6 +20,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from rich.table import Table
+from telebot import types as tg_types
 
 import core.error_tracker as error_tracker
 from bot import bot, set_check_callback, update_last_check_time
@@ -33,17 +35,16 @@ from core.config import (
     get_cache_stats,
     get_user_session,
     load_all_users,
-    save_all_users,
     sync_cache_to_disk,
 )
 from core.logger import clear_log_context, set_log_context, setup_logging
+from core.storage import update_user_grades
 from core.utils import (
     decrypt_password,
     escape_html,
     get_file_icon,
     load_saved_grades,
     parse_turkish_date,
-    save_grades,
     send_telegram_message,
     update_user_data,
 )
@@ -71,6 +72,19 @@ POLLING_LOG_LEVEL = logging.WARNING
 SHUTDOWN_EVENT = threading.Event()
 POLLING_THREAD: threading.Thread | None = None
 _SHUTDOWN_LOCK = threading.Lock()
+
+# Aynı anda iki genel kontrol (ana döngü + admin "force") veya aynı kullanıcı için iki
+# kontrol (otomatik + manuel) çalışırsa ikisi de aynı kayıtlı veriye göre fark hesaplayıp
+# aynı bildirimi iki kez gönderiyor, sonra birbirinin kaydını eziyordu.
+_GLOBAL_CHECK_LOCK = threading.Lock()
+_USER_CHECK_LOCKS: dict[str, threading.Lock] = {}
+_USER_CHECK_LOCKS_GUARD = threading.Lock()
+
+
+def _user_check_lock(chat_id: str) -> threading.Lock:
+    with _USER_CHECK_LOCKS_GUARD:
+        return _USER_CHECK_LOCKS.setdefault(str(chat_id), threading.Lock())
+
 
 # error_tracker: yükle ve artık var olmayan kullanıcıları temizle
 error_tracker.load(known_user_ids=set(load_all_users().keys()))
@@ -248,10 +262,13 @@ def check_ari24_updates():
                         logger.error(f"Failed to send ari24 notification to {chat_id}: {e}")
 
         if new_urls:
-            state["notified_urls"] = list(notified_urls.union(new_urls))[-500:]  # Keep last 500
+            # set sırasız olduğundan list(set)[-500:] rastgele öğeleri atıyordu; sırayı koru.
+            old_urls = [u for u in state.get("notified_urls", []) if u not in new_urls]
+            state["notified_urls"] = (old_urls + new_urls)[-500:]  # Keep last 500
 
         # --- NEWS CHECK ---
-        notified_news = set(state.get("notified_news", []))
+        notified_news_list = state.get("notified_news", [])
+        notified_news = set(notified_news_list)
         current_news = client.get_news(limit=5)
         new_news_items = [item for item in current_news if item["link"] not in notified_news]
 
@@ -274,9 +291,11 @@ def check_ari24_updates():
                     except Exception as e:
                         logger.error(f"Failed to send news to {chat_id}: {e}")
 
-                notified_news.add(item["link"])
+                notified_news_list.append(item["link"])
 
-            state["notified_news"] = list(notified_news)[-200:]  # Keep last 200
+            # Sıra korunmalı: rastgele kırpma güncel haberleri listeden atıp tüm
+            # kullanıcılara tekrar gönderilmesine yol açıyordu.
+            state["notified_news"] = notified_news_list[-200:]  # Keep last 200
 
         atomic_json_write(state_file, state)
 
@@ -437,6 +456,10 @@ def _compare_course_data(
     if not isinstance(saved_data, dict):
         saved_data = {}
 
+    # Çekilemeyen bölümlerde kayıtlı veriyi kullan: fark çıkmaz ve kayıtta korunur.
+    for section in current_data.get("failed_sections", []):
+        current_data[section] = copy.deepcopy(saved_data.get(section, []))
+
     current_grades = current_data.get("grades", {})
     current_assignments = current_data.get("assignments", [])
     current_files = current_data.get("files", [])
@@ -520,6 +543,19 @@ def _compare_course_data(
     for assign_idx, assign in enumerate(current_assignments):
         saved_assign = next((a for a in saved_assignments if a.get("id") == assign.get("id")), None)
         e_assign_name = escape_html(assign["name"])
+
+        if saved_assign:
+            # Ödev detay sayfası çekilemediyse (source_files anahtarı yok) detay alanlarını
+            # kayıttan al; yoksa "kaynak dosya silindi"/"teslim geri çekildi" gibi sahte
+            # bildirimler gidip bir sonraki kontrolde geri geliyordu.
+            if "source_files" not in assign:
+                for key in ("description", "source_files", "required_files", "is_submitted"):
+                    if key in saved_assign:
+                        assign[key] = saved_assign[key]
+            # Hatırlatma kaydını her zaman taşı (manuel kontrol include_reminders=False
+            # ile çalışıyor ve bu alanı siliyordu → aynı hatırlatma tekrar gidiyordu).
+            if "reminders_sent" in saved_assign:
+                assign.setdefault("reminders_sent", saved_assign["reminders_sent"])
 
         if not saved_assign:
             new_assign_msg = (
@@ -778,6 +814,188 @@ def _compare_course_data(
     )
 
 
+def _send_file_notifications(
+    chat_id: str,
+    new_file_notifications: list,
+    updated_file_notifications: list,
+    assignment_source_notifications: list,
+) -> None:
+    """Yeni/güncellenen dosyalar ve ödev kaynak dosyaları için "İndir" butonlu mesajlar gönderir."""
+    if not (
+        new_file_notifications or updated_file_notifications or assignment_source_notifications
+    ):
+        return
+
+    # Buton indeksleri callback handler'larında kayıtlı ders sırasına göre çözülüyor;
+    # kayıt yapıldıktan sonra diskteki sırayı kullan.
+    urls_list = list(load_saved_grades().get(chat_id, {}).keys())
+
+    def _send(text: str, callback_data: str, what: str) -> None:
+        markup = tg_types.InlineKeyboardMarkup()
+        markup.add(tg_types.InlineKeyboardButton("📥 İndir", callback_data=callback_data))
+        try:
+            bot.send_message(
+                chat_id,
+                text,
+                reply_markup=markup,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception as e:
+            logger.error(f"{what} notification send error for {chat_id}: {e}")
+        time.sleep(1)
+
+    for course_url, file_course_name, file_idx, file_name in new_file_notifications:
+        if course_url not in urls_list:
+            continue
+        basename = file_name.split("/")[-1]
+        _send(
+            f"📚 <b>{escape_html(file_course_name)}</b>\n"
+            f"{get_file_icon(basename)} <b>YENİ DOSYA:</b> {escape_html(basename)}",
+            f"dl_{urls_list.index(course_url)}_{file_idx}",
+            "File",
+        )
+
+    for (
+        course_url,
+        file_course_name,
+        file_idx,
+        file_name,
+        change_type,
+    ) in updated_file_notifications:
+        if course_url not in urls_list:
+            continue
+        basename = file_name.split("/")[-1]
+        _send(
+            f"📚 <b>{escape_html(file_course_name)}</b>\n"
+            f"{get_file_icon(basename)} <b>DOSYA {change_type}:</b> {escape_html(basename)}",
+            f"dl_{urls_list.index(course_url)}_{file_idx}",
+            "File update",
+        )
+
+    for (
+        course_url,
+        file_course_name,
+        assign_idx,
+        sf_idx,
+        file_name,
+        file_size,
+        assign_name,
+        is_new_assign,
+    ) in assignment_source_notifications:
+        if course_url not in urls_list:
+            continue
+        label = "YENİ ÖDEV KAYNAK DOSYASI" if is_new_assign else "YENİ KAYNAK DOSYA"
+        _send(
+            f"📚 <b>{escape_html(file_course_name)}</b>\n"
+            f"📅 {escape_html(assign_name)}\n"
+            f"{get_file_icon(file_name)} <b>{label}:</b> {escape_html(file_name)} "
+            f"({escape_html(file_size)})",
+            f"asf_{urls_list.index(course_url)}_{assign_idx}_{sf_idx}",
+            "Assignment source file",
+        )
+
+
+def _process_user_results(
+    chat_id: str,
+    username: str,
+    user_session,
+    all_current_grades: dict,
+    *,
+    silent: bool,
+    include_reminders: bool,
+    changes_table: Table | None = None,
+) -> list[str]:
+    """
+    Bir kullanıcının çekilen ders verilerini kayıtla karşılaştırır, değişiklik varsa
+    kaydeder ve bildirimleri gönderir. Otomatik ve manuel kontrolün ortak kısmı.
+
+    :return: Değişiklik açıklamaları listesi
+    """
+    user_saved_grades = load_saved_grades().get(chat_id, {})
+    all_changes = []
+    telegram_messages = []
+    updated_courses = {}
+    new_file_notifications = []  # (course_url, course_name, file_idx, file_name)
+    updated_file_notifications = []  # (course_url, course_name, file_idx, file_name, change_type)
+    assignment_source_notifications = []  # (course_url, course_name, assign_idx, sf_idx, ...)
+
+    for url, current_data in all_current_grades.items():
+        course_name = current_data.get("course_name", "Bilinmeyen Ders")
+        saved_data = user_saved_grades.get(url, {})
+
+        (
+            sections_changes,
+            changes,
+            new_file_entries,
+            updated_file_entries,
+            assignment_source_entries,
+        ) = _compare_course_data(
+            current_data,
+            saved_data,
+            user_session,
+            course_name,
+            include_reminders=include_reminders,
+            include_console_log=changes_table is not None,
+            username=username,
+            changes_table=changes_table,
+        )
+
+        all_changes.extend(changes)
+        new_file_notifications.extend(
+            (url, course_name, file_idx, file_name) for file_idx, file_name in new_file_entries
+        )
+        updated_file_notifications.extend(
+            (url, course_name, file_idx, file_name, change_type)
+            for file_idx, file_name, change_type in updated_file_entries
+        )
+        assignment_source_notifications.extend(
+            (url, course_name, *entry) for entry in assignment_source_entries
+        )
+
+        if sections_changes:
+            telegram_messages.append(
+                f"📚 <b>{escape_html(course_name)}</b>\n\n" + "\n\n".join(sections_changes)
+            )
+
+        files_to_save = current_data.get("files", [])
+        files_suspect_count = saved_data.get("files_suspect_count", 0)
+        if current_data.get("_files_suspect"):
+            files_to_save = saved_data.get("files", [])
+            files_suspect_count = current_data.get("_files_suspect_count", files_suspect_count)
+        else:
+            files_suspect_count = 0
+
+        updated_courses[url] = {
+            "course_name": course_name,
+            "grades": current_data.get("grades", {}),
+            "assignments": current_data.get("assignments", []),
+            "files": files_to_save,
+            "announcements": current_data.get("announcements", []),
+            "files_suspect_count": files_suspect_count,
+        }
+
+    if not all_changes:
+        return all_changes
+
+    # Önce kaydet, sonra bildir: gönderim sırasında hata olursa bir sonraki kontrolde
+    # aynı bildirimler tekrar gitmesin. Sadece bu kullanıcının dersleri güncellenir.
+    update_user_grades(chat_id, updated_courses)
+
+    if not silent:
+        for t_msg in telegram_messages:
+            send_telegram_message(chat_id, t_msg)
+            time.sleep(1)
+        _send_file_notifications(
+            chat_id,
+            new_file_notifications,
+            updated_file_notifications,
+            assignment_source_notifications,
+        )
+
+    return all_changes
+
+
 def check_user_updates(
     chat_id: str,
     course_idx: int | None = None,
@@ -793,13 +1011,27 @@ def check_user_updates(
 
     :param chat_id: Kontrol edilecek kullanıcının chat ID'si
     :param course_idx: (Opsiyonel) Sadece bu indeksteki dersi kontrol et
+        (ders menüsündeki sıra, yani kayıtlı ders verisinin sırası)
     :param silent: (Opsiyonel) Bildirim göndermeden sadece verileri güncelle (True/False)
     :return: Başarı durumu ve mesaj içeren dict
     """
+    chat_id = str(chat_id)
+    with _user_check_lock(chat_id):
+        try:
+            return _check_user_updates_locked(chat_id, course_idx, silent, request_id)
+        finally:
+            clear_log_context()
+
+
+def _check_user_updates_locked(
+    chat_id: str,
+    course_idx: int | None,
+    silent: bool,
+    request_id: str | None,
+):
     request_id = request_id or f"chk-{chat_id}-{int(time.time())}"
     set_log_context(chat_id=str(chat_id), action="check_user_updates", request_id=request_id)
-    users = load_all_users()
-    user_data = users.get(chat_id)
+    user_data = load_all_users().get(chat_id)
     logger.info(
         "[user] actor=%s | action=check_user_updates | status=started | request_id=%s | "
         "details=course_idx=%s;silent=%s",
@@ -815,11 +1047,8 @@ def check_user_updates(
             chat_id,
             request_id,
         )
-        clear_log_context()
         return {"success": False, "message": "Kullanıcı bilgileri bulunamadı."}
 
-    # Son kontrol zamanını güncelle
-    user_data["last_check"] = datetime.now().isoformat()
     all_urls = user_data.get("urls", [])
 
     if not all_urls:
@@ -828,20 +1057,21 @@ def check_user_updates(
             chat_id,
             request_id,
         )
-        clear_log_context()
         return {"success": False, "message": "Takip edilen ders bulunamadı."}
 
     # Eğer tek bir ders istenmişse filtrele
     if course_idx is not None:
-        if course_idx < 0 or course_idx >= len(all_urls):
+        # Menüdeki "Kontrol Et" butonları kayıtlı ders verisinin sırasını kullanıyor;
+        # users.json'daki URL sırası farklı olabildiğinden yanlış ders kontrol ediliyordu.
+        menu_urls = list(load_saved_grades().get(chat_id, {}).keys()) or all_urls
+        if course_idx < 0 or course_idx >= len(menu_urls):
             logger.warning(
                 "[user] actor=%s | action=check_user_updates | status=invalid_course_idx | request_id=%s",
                 chat_id,
                 request_id,
             )
-            clear_log_context()
             return {"success": False, "message": "Geçersiz ders indeksi."}
-        urls_to_scan = [all_urls[course_idx]]
+        urls_to_scan = [menu_urls[course_idx]]
     else:
         urls_to_scan = all_urls
 
@@ -854,7 +1084,6 @@ def check_user_updates(
             chat_id,
             request_id,
         )
-        clear_log_context()
         return {"success": False, "message": "Kullanıcı bilgileri eksik."}
 
     password = decrypt_password(encrypted_password)
@@ -871,17 +1100,11 @@ def check_user_updates(
             username,
             error_stage="decrypt",
         )
-        clear_log_context()
         return {"success": False, "message": "Şifre çözme hatası."}
-
-    saved_grades = load_saved_grades()
-    user_saved_grades = saved_grades.get(chat_id, {})
 
     # Get user session (managed by SessionManager)
     user_session = get_user_session(chat_id)
     all_current_grades = {}
-    all_changes = []
-    telegram_messages = []
 
     with Progress(
         SpinnerColumn(),
@@ -920,205 +1143,29 @@ def check_user_updates(
                     error_stage="login",
                     last_url=url,
                 )
-                clear_log_context()
                 return {"success": False, "message": "Ninova bağlantı hatası."}
 
             progress.update(task, advance=1)
             time.sleep(0.2)
-
-    # Değişiklikleri kontrol et — ortak fonksiyon kullan
-    new_file_notifications = []  # (course_url, course_name, file_idx, file_name)
-    updated_file_notifications = []  # (course_url, course_name, file_idx, file_name, change_type)
-    assignment_source_notifications = []  # (course_url, course_name, assign_idx, sf_idx, file_name, file_size, assign_name, is_new_assign)
-
-    for url, current_data in all_current_grades.items():
-        course_name = current_data.get("course_name", "Bilinmeyen Ders")
-        saved_data = user_saved_grades.get(url, {})
-        e_course = escape_html(course_name)
-
-        (
-            sections_changes,
-            changes,
-            new_file_entries,
-            updated_file_entries,
-            assignment_source_entries,
-        ) = _compare_course_data(current_data, saved_data, user_session, course_name)
-
-        all_changes.extend(changes)
-
-        for file_idx, file_name in new_file_entries:
-            new_file_notifications.append((url, course_name, file_idx, file_name))
-
-        for file_idx, file_name, change_type in updated_file_entries:
-            updated_file_notifications.append((url, course_name, file_idx, file_name, change_type))
-
-        for (
-            assign_idx,
-            sf_idx,
-            file_name,
-            file_size,
-            assign_name,
-            is_new_assign,
-        ) in assignment_source_entries:
-            assignment_source_notifications.append(
-                (
-                    url,
-                    course_name,
-                    assign_idx,
-                    sf_idx,
-                    file_name,
-                    file_size,
-                    assign_name,
-                    is_new_assign,
-                )
-            )
-
-        if sections_changes and not silent:
-            msg = f"📚 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
-            telegram_messages.append(msg)
-
-        files_to_save = current_data.get("files", [])
-        files_suspect_count = saved_data.get("files_suspect_count", 0)
-        if current_data.get("_files_suspect"):
-            files_to_save = saved_data.get("files", [])
-            files_suspect_count = current_data.get("_files_suspect_count", files_suspect_count)
-        else:
-            files_suspect_count = 0
-
-        # Kaydet
-        user_saved_grades[url] = {
-            "course_name": course_name,
-            "grades": current_data.get("grades", {}),
-            "assignments": current_data.get("assignments", []),
-            "files": files_to_save,
-            "announcements": current_data.get("announcements", []),
-            "files_suspect_count": files_suspect_count,
-        }
 
     # Başarılı veri çekimi - hata sayacını sıfırla
     if all_current_grades:
         last_url = next(iter(all_current_grades.keys()), None)
         error_tracker.record_success(chat_id, username, last_url=last_url)
 
-    # Verileri kaydet
-    if all_changes:
-        saved_grades[chat_id] = user_saved_grades
-        save_grades(saved_grades)
-        urls_list = list(user_saved_grades.keys())
-        for t_msg in telegram_messages:
-            send_telegram_message(chat_id, t_msg)
-            time.sleep(1)
-        if not silent and (new_file_notifications or updated_file_notifications):
-            from telebot import types as tg_types
+    all_changes = _process_user_results(
+        chat_id,
+        username,
+        user_session,
+        all_current_grades,
+        silent=silent,
+        include_reminders=False,
+    )
 
-        if not silent and new_file_notifications:
-            for course_url, file_course_name, file_idx, file_name in new_file_notifications:
-                try:
-                    url_idx = urls_list.index(course_url)
-                except ValueError:
-                    continue
-                basename = file_name.split("/")[-1]
-                icon = get_file_icon(basename)
-                markup = tg_types.InlineKeyboardMarkup()
-                markup.add(
-                    tg_types.InlineKeyboardButton(
-                        "📥 İndir", callback_data=f"dl_{url_idx}_{file_idx}"
-                    )
-                )
-                text = (
-                    f"📚 <b>{escape_html(file_course_name)}</b>\n"
-                    f"{icon} <b>YENİ DOSYA:</b> {escape_html(basename)}"
-                )
-                try:
-                    bot.send_message(
-                        chat_id,
-                        text,
-                        reply_markup=markup,
-                        parse_mode="HTML",
-                        disable_web_page_preview=True,
-                    )
-                except Exception as e:
-                    logger.error(f"File notification send error for {chat_id}: {e}")
-                time.sleep(1)
-        if not silent and updated_file_notifications:
-            for (
-                course_url,
-                file_course_name,
-                file_idx,
-                file_name,
-                change_type,
-            ) in updated_file_notifications:
-                try:
-                    url_idx = urls_list.index(course_url)
-                except ValueError:
-                    continue
-                basename = file_name.split("/")[-1]
-                icon = get_file_icon(basename)
-                markup = tg_types.InlineKeyboardMarkup()
-                markup.add(
-                    tg_types.InlineKeyboardButton(
-                        "📥 İndir", callback_data=f"dl_{url_idx}_{file_idx}"
-                    )
-                )
-                text = (
-                    f"📚 <b>{escape_html(file_course_name)}</b>\n"
-                    f"{icon} <b>DOSYA {change_type}:</b> {escape_html(basename)}"
-                )
-                try:
-                    bot.send_message(
-                        chat_id,
-                        text,
-                        reply_markup=markup,
-                        parse_mode="HTML",
-                        disable_web_page_preview=True,
-                    )
-                except Exception as e:
-                    logger.error(f"File update notification send error for {chat_id}: {e}")
-                time.sleep(1)
-        if not silent and assignment_source_notifications:
-            for (
-                course_url,
-                file_course_name,
-                assign_idx,
-                sf_idx,
-                file_name,
-                file_size,
-                assign_name,
-                is_new_assign,
-            ) in assignment_source_notifications:
-                try:
-                    url_idx = urls_list.index(course_url)
-                except ValueError:
-                    continue
-                icon = get_file_icon(file_name)
-                label = "YENİ ÖDEV KAYNAK DOSYASI" if is_new_assign else "YENİ KAYNAK DOSYA"
-                markup = tg_types.InlineKeyboardMarkup()
-                markup.add(
-                    tg_types.InlineKeyboardButton(
-                        "📥 İndir", callback_data=f"asf_{url_idx}_{assign_idx}_{sf_idx}"
-                    )
-                )
-                text = (
-                    f"📚 <b>{escape_html(file_course_name)}</b>\n"
-                    f"📅 {escape_html(assign_name)}\n"
-                    f"{icon} <b>{label}:</b> {escape_html(file_name)} ({escape_html(file_size)})"
-                )
-                try:
-                    bot.send_message(
-                        chat_id,
-                        text,
-                        reply_markup=markup,
-                        parse_mode="HTML",
-                        disable_web_page_preview=True,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Assignment source file notification send error for {chat_id}: {e}"
-                    )
-                time.sleep(1)
-
-    # Kullanıcı verilerini kaydet
-    save_all_users(users)
+    # Sadece last_check alanını güncelle. Eskiden taramanın başında okunan tüm users.json
+    # kopyası geri yazılıyordu; tarama sürerken yapılan değişiklikler (ör. eklenen ders)
+    # kayboluyordu.
+    update_user_data(chat_id, "last_check", datetime.now().isoformat())
 
     # Son kontrol zamanını güncelle
     global LAST_CHECK_DISPLAY_TIME
@@ -1135,7 +1182,6 @@ def check_user_updates(
         len(all_changes),
         len(urls_to_scan),
     )
-    clear_log_context()
     return {"success": True, "message": result_msg, "changes": len(all_changes)}
 
 
@@ -1151,11 +1197,19 @@ def check_for_updates():
     - Ödev hatırlatmaları gönderir
 
     Yeni veya güncellenmiş içerik varsa Telegram bildirim gönderir.
+    Başka bir genel kontrol sürüyorsa (ör. admin force + ana döngü) hemen döner.
     """
+    if not _GLOBAL_CHECK_LOCK.acquire(blocking=False):
+        logger.warning("Genel kontrol zaten çalışıyor, bu istek atlandı.")
+        return
+    try:
+        _check_for_updates_locked()
+    finally:
+        _GLOBAL_CHECK_LOCK.release()
+
+
+def _check_for_updates_locked():
     update_last_check_time()
-    msg = f"Kontrol Başlatıldı - {len(load_all_users())} kullanıcı"
-    logger.info(msg)
-    console.rule(f"[bold cyan][{time.strftime('%H:%M:%S')}] {msg}")
 
     # Değişiklikler tablosu
     changes_table = Table(title="🔄 Bu Kontrol Dönemindeki Değişiklikler")
@@ -1164,220 +1218,33 @@ def check_for_updates():
     changes_table.add_column("Değişiklik", style="yellow")
 
     users = load_all_users()
-    # fix: guard against corrupt users.json returning {} and then save_all_users
-    # overwriting the file with an empty dict (BUG-E1)
+    msg = f"Kontrol Başlatıldı - {len(users)} kullanıcı"
+    logger.info(msg)
+    console.rule(f"[bold cyan][{time.strftime('%H:%M:%S')}] {msg}")
+    # fix: guard against corrupt users.json returning {} (BUG-E1)
     if not users:
         logger.warning("Kullanıcı listesi boş veya yüklenemedi, kontrol atlanıyor.")
         return
-    saved_grades = load_saved_grades()
     changed_usernames = set()
     total_changes_count = 0
 
     for chat_id, user_data in users.items():
+        if SHUTDOWN_EVENT.is_set():
+            break
         request_id = f"auto-{chat_id}-{int(time.time())}"
         set_log_context(chat_id=str(chat_id), action="check_for_updates", request_id=request_id)
-        urls = user_data.get("urls", [])
-        if not urls:
+        try:
+            with _user_check_lock(chat_id):
+                changes = _check_single_user(chat_id, user_data, changes_table)
+            if changes:
+                changed_usernames.add(user_data.get("username") or str(chat_id))
+                total_changes_count += len(changes)
+        except Exception as e:
+            # Tek bir kullanıcıdaki beklenmeyen hata diğer kullanıcıların kontrolünü
+            # (ve ana döngüyü) durdurmasın.
+            logger.exception(f"[{chat_id}] Kullanıcı kontrolü sırasında beklenmeyen hata: {e}")
+        finally:
             clear_log_context()
-            continue
-
-        username = user_data.get("username")
-        encrypted_password = user_data.get("password")
-
-        if not username or not encrypted_password:
-            logger.warning(f"Kullanıcı bilgileri eksik ({chat_id}), pas geçiliyor.")
-            clear_log_context()
-            continue
-
-        password = decrypt_password(encrypted_password)
-        if password is None:
-            logger.error(f"Şifre çözülemedi ({chat_id}), pas geçiliyor.")
-            error_tracker.record_error(
-                chat_id,
-                "DECRYPT_ERROR",
-                "Şifre çözülemedi",
-                username,
-                error_stage="decrypt",
-            )
-            clear_log_context()
-            continue
-
-        if SHOW_VERBOSE_TERMINAL:
-            console.print(f"[bold cyan]Kullanıcı kontrol ediliyor: {chat_id}")
-
-        # Get user session (managed by SessionManager)
-        user_session = get_user_session(chat_id)
-
-        all_current_grades = {}
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-            console=console,
-            transient=True,
-        ) as progress:
-            task = progress.add_task(
-                f"[yellow]{username} ({len(urls)} ders) taranıyor...",
-                total=len(urls),
-            )
-
-            # Paralel tarama için ThreadPoolExecutor kullan
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_url = {
-                    executor.submit(get_grades, user_session, url, chat_id, username, password): url
-                    for url in urls
-                }
-
-                login_error_sent = False
-                for future in as_completed(future_to_url):
-                    url = future_to_url[future]
-                    try:
-                        grades = future.result()
-                        if grades:
-                            all_current_grades[url] = grades
-                    except LoginFailedError as e:
-                        if not login_error_sent:
-                            logger.error(
-                                "[%s] %s - LoginFailedError: type=%s, details=%s",
-                                chat_id,
-                                username,
-                                e.error_type,
-                                e.message,
-                            )
-                            error_tracker.record_error(
-                                chat_id,
-                                e.error_type,
-                                str(e.message),
-                                username,
-                                error_stage="login",
-                                last_url=url,
-                            )
-                            login_error_sent = True
-                        else:
-                            logger.debug(
-                                "[%s] %s - Login error on %s: %s", chat_id, username, url, e
-                            )
-                    except Exception as e:
-                        logger.error(f"[{chat_id}] Ders tarama hatası ({url}): {e}")
-                    finally:
-                        progress.update(task, advance=1)
-
-        user_saved_grades = saved_grades.get(chat_id, {})
-        all_changes = []
-        telegram_messages = []
-
-        # Başarılı veri çekimi → hata sayacını sıfırla, düzeldi mesajı gönder
-        if all_current_grades:
-            last_url = next(iter(all_current_grades.keys()), None)
-            error_tracker.record_success(chat_id, username, last_url=last_url)
-
-        # Ortak fonksiyon ile değişiklikleri kontrol et
-        new_file_notifications = []  # (course_url, course_name, file_idx, file_name)
-        for url, current_data in all_current_grades.items():
-            course_name = current_data.get("course_name", "Bilinmeyen Ders")
-            saved_data = user_saved_grades.get(url, {})
-            e_course = escape_html(course_name)
-
-            sections_changes, changes, new_file_entries = _compare_course_data(
-                current_data,
-                saved_data,
-                user_session,
-                course_name,
-                include_reminders=True,
-                include_console_log=True,
-                username=username,
-                changes_table=changes_table,
-            )
-
-            all_changes.extend(changes)
-
-            for file_idx, file_name in new_file_entries:
-                new_file_notifications.append((url, course_name, file_idx, file_name))
-
-            if sections_changes:
-                msg = f"📚 <b>{e_course}</b>\n\n" + "\n\n".join(sections_changes)
-                telegram_messages.append(msg)
-
-            files_to_save = current_data.get("files", [])
-            files_suspect_count = saved_data.get("files_suspect_count", 0)
-            if current_data.get("_files_suspect"):
-                files_to_save = saved_data.get("files", [])
-                files_suspect_count = current_data.get("_files_suspect_count", files_suspect_count)
-            else:
-                files_suspect_count = 0
-
-            # Kaydet
-            user_saved_grades[url] = {
-                "course_name": course_name,
-                "grades": current_data.get("grades", {}),
-                "assignments": current_data.get("assignments", []),
-                "files": files_to_save,
-                "announcements": current_data.get("announcements", []),
-                "files_suspect_count": files_suspect_count,
-            }
-
-        if all_changes:
-            logger.info(f"Değişiklik tespit edildi: {chat_id} - {len(all_changes)} öğe")
-            changed_usernames.add(username or str(chat_id))
-            total_changes_count += len(all_changes)
-            if SHOW_VERBOSE_TERMINAL:
-                console.print(
-                    Panel(
-                        "\n".join(all_changes),
-                        title=f"[bold magenta]DEĞİŞİKLİK ({chat_id})",
-                        border_style="magenta",
-                    )
-                )
-            for t_msg in telegram_messages:
-                send_telegram_message(chat_id, t_msg)
-                time.sleep(1)
-
-            saved_grades[chat_id] = user_saved_grades
-            save_grades(saved_grades)
-
-            if new_file_notifications:
-                from telebot import types as tg_types
-
-                urls_list = list(user_saved_grades.keys())
-                for course_url, file_course_name, file_idx, file_name in new_file_notifications:
-                    try:
-                        url_idx = urls_list.index(course_url)
-                    except ValueError:
-                        continue
-                    basename = file_name.split("/")[-1]
-                    icon = get_file_icon(basename)
-                    markup = tg_types.InlineKeyboardMarkup()
-                    markup.add(
-                        tg_types.InlineKeyboardButton(
-                            "📥 İndir", callback_data=f"dl_{url_idx}_{file_idx}"
-                        )
-                    )
-                    text = (
-                        f"📚 <b>{escape_html(file_course_name)}</b>\n"
-                        f"{icon} <b>YENİ DOSYA:</b> {escape_html(basename)}"
-                    )
-                    try:
-                        bot.send_message(
-                            chat_id,
-                            text,
-                            reply_markup=markup,
-                            parse_mode="HTML",
-                            disable_web_page_preview=True,
-                        )
-                    except Exception as e:
-                        logger.error(f"File notification send error for {chat_id}: {e}")
-                    time.sleep(1)
-
-        elif SHOW_VERBOSE_TERMINAL:
-            console.print(f"[dim]Değişiklik yok ({chat_id})")
-        # fix: clear_log_context was only called inside if new_file_notifications,
-        # leaking context into subsequent users on the same thread (BUG-L3)
-        clear_log_context()
-        # fix: save last_check per-user atomically instead of bulk-saving a stale
-        # in-memory snapshot; prevents concurrent update_user_data calls losing data (BUG-C3)
-        update_user_data(chat_id, "last_check", datetime.now().isoformat())
 
     logger.info("Kontrol tamamlandı.")
 
@@ -1396,6 +1263,124 @@ def check_for_updates():
     # Son kontrol zamanını güncelle (Live display'de kullanmak için)
     global LAST_CHECK_DISPLAY_TIME
     LAST_CHECK_DISPLAY_TIME = datetime.now().strftime("%H:%M:%S")
+
+
+def _check_single_user(chat_id: str, user_data: dict, changes_table: Table) -> list[str]:
+    """Otomatik kontrolde tek bir kullanıcının tüm derslerini tarar."""
+    urls = user_data.get("urls", [])
+    if not urls:
+        return []
+
+    username = user_data.get("username")
+    encrypted_password = user_data.get("password")
+
+    if not username or not encrypted_password:
+        logger.warning(f"Kullanıcı bilgileri eksik ({chat_id}), pas geçiliyor.")
+        return []
+
+    password = decrypt_password(encrypted_password)
+    if password is None:
+        logger.error(f"Şifre çözülemedi ({chat_id}), pas geçiliyor.")
+        error_tracker.record_error(
+            chat_id,
+            "DECRYPT_ERROR",
+            "Şifre çözülemedi",
+            username,
+            error_stage="decrypt",
+        )
+        return []
+
+    if SHOW_VERBOSE_TERMINAL:
+        console.print(f"[bold cyan]Kullanıcı kontrol ediliyor: {chat_id}")
+
+    # Get user session (managed by SessionManager)
+    user_session = get_user_session(chat_id)
+
+    all_current_grades = {}
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task(
+            f"[yellow]{username} ({len(urls)} ders) taranıyor...",
+            total=len(urls),
+        )
+
+        # Paralel tarama için ThreadPoolExecutor kullan
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_url = {
+                executor.submit(get_grades, user_session, url, chat_id, username, password): url
+                for url in urls
+            }
+
+            login_error_sent = False
+            for future in as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    grades = future.result()
+                    if grades:
+                        all_current_grades[url] = grades
+                except LoginFailedError as e:
+                    if not login_error_sent:
+                        logger.error(
+                            "[%s] %s - LoginFailedError: type=%s, details=%s",
+                            chat_id,
+                            username,
+                            e.error_type,
+                            e.message,
+                        )
+                        error_tracker.record_error(
+                            chat_id,
+                            e.error_type,
+                            str(e.message),
+                            username,
+                            error_stage="login",
+                            last_url=url,
+                        )
+                        login_error_sent = True
+                    else:
+                        logger.debug("[%s] %s - Login error on %s: %s", chat_id, username, url, e)
+                except Exception as e:
+                    logger.error(f"[{chat_id}] Ders tarama hatası ({url}): {e}")
+                finally:
+                    progress.update(task, advance=1)
+
+    # Başarılı veri çekimi → hata sayacını sıfırla, düzeldi mesajı gönder
+    if all_current_grades:
+        last_url = next(iter(all_current_grades.keys()), None)
+        error_tracker.record_success(chat_id, username, last_url=last_url)
+
+    all_changes = _process_user_results(
+        chat_id,
+        username,
+        user_session,
+        all_current_grades,
+        silent=False,
+        include_reminders=True,
+        changes_table=changes_table,
+    )
+
+    if all_changes:
+        logger.info(f"Değişiklik tespit edildi: {chat_id} - {len(all_changes)} öğe")
+        if SHOW_VERBOSE_TERMINAL:
+            console.print(
+                Panel(
+                    "\n".join(all_changes),
+                    title=f"[bold magenta]DEĞİŞİKLİK ({chat_id})",
+                    border_style="magenta",
+                )
+            )
+    elif SHOW_VERBOSE_TERMINAL:
+        console.print(f"[dim]Değişiklik yok ({chat_id})")
+
+    # fix: save last_check per-user atomically (BUG-C3)
+    update_user_data(chat_id, "last_check", datetime.now().isoformat())
+    return all_changes
 
 
 if __name__ == "__main__":
@@ -1473,11 +1458,20 @@ if __name__ == "__main__":
                     time.sleep(1)
             if SHUTDOWN_EVENT.is_set():
                 break
-            # Live kapandıktan sonra kontrol yap
-            check_and_announce_sks_menu()
-            check_ari24_updates()
-            check_daily_bulletin()
-            check_for_updates()
+            # Live kapandıktan sonra kontrol yap. Her görev ayrı korunur: eskiden
+            # herhangi birindeki exception ana döngüden çıkıp botu tamamen kapatıyordu.
+            for periodic_task in (
+                check_and_announce_sks_menu,
+                check_ari24_updates,
+                check_daily_bulletin,
+                check_for_updates,
+            ):
+                if SHUTDOWN_EVENT.is_set():
+                    break
+                try:
+                    periodic_task()
+                except Exception as e:
+                    logger.exception(f"Periyodik görev hatası ({periodic_task.__name__}): {e}")
 
             # Session cleanup (every SESSION_CLEANUP_INTERVAL seconds)
             checks_since_cleanup += 1

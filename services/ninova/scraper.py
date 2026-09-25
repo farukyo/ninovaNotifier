@@ -217,6 +217,10 @@ def get_assignment_detail(session: requests.Session, url: str) -> dict | None:
         )
         if response.status_code != 200:
             return None
+        if _looks_like_login_page(response.text, response.url):
+            # Oturum düştüyse login sayfası "teslim edilmemiş, açıklamasız" bir ödev gibi
+            # parse ediliyor ve sahte değişiklik bildirimlerine yol açıyordu.
+            return None
 
         soup = BeautifulSoup(response.text, "html.parser")
         result = {
@@ -802,8 +806,9 @@ def get_grades(
     </table>
     """
     url = f"{base_url}/Notlar"
-    try:
-        response = http_request(
+
+    def _fetch():
+        return http_request(
             logger,
             session,
             "GET",
@@ -813,41 +818,31 @@ def get_grades(
             timeout=20,
             allow_redirects=False,
         )
-        if response.status_code == 302:
+
+    def _needs_login(resp) -> bool:
+        # Oturum düşünce Ninova ya 302 ile Login'e yönlendiriyor ya da 200 ile login
+        # formunu döndürüyor. Eskiden ikinci durumda yeniden giriş yapılmıyor ve ders
+        # oturum kendiliğinden düzelene kadar sessizce atlanıyordu.
+        return resp.status_code == 302 or (
+            resp.status_code == 200 and _looks_like_login_page(resp.text, resp.url)
+        )
+
+    try:
+        response = _fetch()
+        if _needs_login(response):
             console.print(f"[cyan]Oturum yenileniyor... ({chat_id})")
-            try:
-                if login_to_ninova(session, chat_id, username, password, quiet=True):
-                    response = http_request(
-                        logger,
-                        session,
-                        "GET",
-                        url,
-                        action="ninova_fetch_grades",
-                        chat_id=str(chat_id),
-                        timeout=20,
-                        allow_redirects=False,
+            # LoginFailedError doğru tipiyle auth modülünden yükselir.
+            if login_to_ninova(session, chat_id, username, password, quiet=True):
+                response = _fetch()
+                if _needs_login(response):
+                    raise LoginFailedError(
+                        "SESSION_ERROR",
+                        "Oturum yenilendikten sonra hala giriş yapılamadı",
+                        username=username,
+                        chat_id=chat_id,
                     )
-                    if response.status_code == 302:
-                        raise LoginFailedError(
-                            "SESSION_ERROR",
-                            "Oturum yenilendikten sonra hala giriş yapılamadı",
-                            username=username,
-                            chat_id=chat_id,
-                        )
-            except LoginFailedError:
-                # Already raised with proper type from auth module
-                raise
 
         if response.status_code != 200:
-            return None
-        if _looks_like_login_page(response.text, response.url):
-            log_with_context(
-                logger,
-                "warning",
-                "Not listesi için login sayfası döndü; oturum muhtemelen düşmüş.",
-                chat_id=str(chat_id),
-                action="ninova_fetch_grades",
-            )
             return None
         soup = BeautifulSoup(response.text, "html.parser")
         course_name = "Bilinmeyen Ders"
@@ -874,6 +869,10 @@ def get_grades(
             "files": [],
             "announcements": [],
             "fetch_success": True,  # Network hatalarında False yapılacak
+            # Çekilemeyen bölümler: karşılaştırmada kayıtlı veri korunur. Aksi halde
+            # geçici bir hata kayıtlı listeyi boşaltıyor, sonraki başarılı çekimde tüm
+            # ödev/dosya/duyurular "YENİ" diye tekrar bildiriliyordu.
+            "failed_sections": [],
         }
 
         # Not tablosunu bul (table.data veya id'si rpGalileoNot olan spanların bulunduğu tablo)
@@ -979,16 +978,19 @@ def get_grades(
         assignments = get_assignments(session, base_url)
         if assignments is None:
             grades_data["fetch_success"] = False
+            grades_data["failed_sections"].append("assignments")
             assignments = []
 
         files = get_all_files(session, base_url)
         if files is None:
             grades_data["fetch_success"] = False
+            grades_data["failed_sections"].append("files")
             files = []
 
         announcements = get_announcements(session, base_url)
         if announcements is None:
             grades_data["fetch_success"] = False
+            grades_data["failed_sections"].append("announcements")
             announcements = []
 
         grades_data["assignments"] = assignments

@@ -1,0 +1,141 @@
+"""Tests for the change-detection / notification flow in main.py."""
+
+import pytest
+
+import main
+from core import storage
+
+
+def _course(**overrides):
+    data = {
+        "course_name": "BLG 101E - Intro",
+        "grades": {"Vize": {"not": "80", "agirlik": "", "detaylar": {}}},
+        "assignments": [
+            {
+                "id": "1",
+                "name": "HW1",
+                "url": "https://ninova.itu.edu.tr/Sinif/1/Odev/1",
+                "start_date": "01 Ocak 2025 00:00",
+                "end_date": "10 Ocak 2025 23:59",
+                "is_submitted": False,
+                "description": "desc",
+                "source_files": [{"name": "hw1.pdf", "size": "1 MB"}],
+                "required_files": [],
+            }
+        ],
+        "files": [{"name": "a.pdf", "url": "https://f/1", "date": "d1", "size": "1 MB"}],
+        "announcements": [
+            {
+                "id": "9",
+                "title": "T",
+                "url": "https://a/9",
+                "author": "X",
+                "date": "d",
+                "content": "c",
+            }
+        ],
+        "fetch_success": True,
+        "failed_sections": [],
+    }
+    data.update(overrides)
+    return data
+
+
+def _saved(course):
+    return {k: v for k, v in course.items() if k not in ("fetch_success", "failed_sections")}
+
+
+def test_failed_sections_keep_saved_data_without_notifications():
+    saved = _saved(_course())
+    current = _course(
+        assignments=[],
+        files=[],
+        announcements=[],
+        fetch_success=False,
+        failed_sections=["assignments", "files", "announcements"],
+    )
+
+    sections, changes, new_files, updated_files, asf = main._compare_course_data(
+        current, saved, None, "BLG 101E"
+    )
+
+    assert (sections, changes, new_files, updated_files, asf) == ([], [], [], [], [])
+    # Kayda yazılacak veri eski veriyle aynı kalmalı (boş listeyle ezilmemeli).
+    assert current["assignments"] == saved["assignments"]
+    assert current["files"] == saved["files"]
+    assert current["announcements"] == saved["announcements"]
+
+
+def test_missing_assignment_detail_does_not_report_deleted_source_files():
+    saved = _saved(_course())
+    saved["assignments"][0]["reminders_sent"] = ["24h"]
+    listed_only = {
+        k: v
+        for k, v in saved["assignments"][0].items()
+        if k not in ("description", "source_files", "required_files", "reminders_sent")
+    }
+    current = _course(assignments=[listed_only])
+
+    _sections, changes, *_ = main._compare_course_data(current, saved, None, "BLG 101E")
+
+    assert changes == []
+    assert current["assignments"][0]["source_files"] == saved["assignments"][0]["source_files"]
+    assert current["assignments"][0]["reminders_sent"] == ["24h"]
+
+
+@pytest.fixture
+def isolated_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage, "USERS_FILE", str(tmp_path / "users.json"))
+    monkeypatch.setattr(storage, "DATA_FILE", str(tmp_path / "ninova_data.json"))
+    monkeypatch.setattr(main.time, "sleep", lambda _s: None)
+
+    sent_messages, sent_buttons = [], []
+    monkeypatch.setattr(main, "send_telegram_message", lambda _cid, msg: sent_messages.append(msg))
+
+    class _FakeBot:
+        def send_message(self, _chat_id, _text, reply_markup=None, **_kwargs):
+            sent_buttons.append(reply_markup.keyboard[0][0].callback_data)
+
+    monkeypatch.setattr(main, "bot", _FakeBot())
+    return sent_messages, sent_buttons
+
+
+def test_process_user_results_saves_and_notifies(isolated_storage):
+    # Regresyon: otomatik kontrol _compare_course_data'nın 5'li dönüşünü 3 değişkene
+    # açıyordu (ValueError) ve ana döngü çöküp botu kapatıyordu.
+    sent_messages, sent_buttons = isolated_storage
+    storage.save_grades({"other": {"x": {"course_name": "keep me"}}})
+    url = "https://ninova.itu.edu.tr/Sinif/1"
+
+    changes = main._process_user_results(
+        "1",
+        "user",
+        None,
+        {url: _course(announcements=[])},
+        silent=False,
+        include_reminders=False,
+    )
+
+    assert "YENİ NOT: Vize -> 80" in changes
+    assert "YENİ DOSYA: a.pdf" in changes
+    assert len(sent_messages) == 1
+    assert "dl_0_0" in sent_buttons
+    assert "asf_0_0_0" in sent_buttons
+
+    grades = storage.load_saved_grades()
+    assert grades["other"] == {"x": {"course_name": "keep me"}}
+    assert grades["1"][url]["files"][0]["name"] == "a.pdf"
+
+
+def test_process_user_results_silent_sends_nothing(isolated_storage):
+    sent_messages, sent_buttons = isolated_storage
+    url = "https://ninova.itu.edu.tr/Sinif/1"
+
+    changes = main._process_user_results(
+        "1", "user", None, {url: _course(announcements=[])}, silent=True, include_reminders=False
+    )
+
+    assert changes
+    assert sent_messages == []
+    assert sent_buttons == []
+    assert url in storage.load_saved_grades()["1"]
