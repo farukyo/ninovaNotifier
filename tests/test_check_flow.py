@@ -89,6 +89,9 @@ def isolated_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "USERS_FILE", str(tmp_path / "users.json"))
     monkeypatch.setattr(storage, "DATA_FILE", str(tmp_path / "ninova_data.json"))
     monkeypatch.setattr(main.time, "sleep", lambda _s: None)
+    storage.save_all_users(
+        {"1": {"username": "user", "urls": ["https://ninova.itu.edu.tr/Sinif/1"]}}
+    )
 
     sent_messages, sent_buttons = [], []
     monkeypatch.setattr(main, "send_telegram_message", lambda _cid, msg: sent_messages.append(msg))
@@ -187,6 +190,39 @@ def test_suspect_empty_file_counter_is_persisted(isolated_storage):
     saved = storage.load_saved_grades()["1"][url]
     assert saved["files_suspect_count"] == 1
     assert saved["files"][0]["name"] == "a.pdf"
+
+
+def test_course_removed_during_check_is_not_written_back(isolated_storage):
+    # Regresyon: tarama sürerken takipten çıkarılan ders, tarama sonucu kaydedilince
+    # ninova_data.json'a geri yazılıyordu (ders menüde yeniden görünüyordu).
+    sent_messages, _ = isolated_storage
+    url = "https://ninova.itu.edu.tr/Sinif/1"
+    storage.modify_user("1", lambda data: data.__setitem__("urls", []))
+
+    changes = main._process_user_results(
+        "1",
+        "user",
+        None,
+        {url: _course(announcements=[])},
+        silent=False,
+        include_reminders=False,
+    )
+
+    assert "1" not in storage.load_saved_grades()
+    assert changes  # değişiklikler hesaplandı ama kaydedilmedi
+    assert sent_messages  # bildirim tarama sonucuna göre gider
+
+
+@pytest.mark.usefixtures("isolated_storage")
+def test_deleted_user_grades_are_not_recreated():
+    url = "https://ninova.itu.edu.tr/Sinif/1"
+    storage.delete_user("1")
+
+    main._process_user_results(
+        "1", "user", None, {url: _course(announcements=[])}, silent=True, include_reminders=False
+    )
+
+    assert storage.load_saved_grades() == {}
 
 
 @pytest.mark.usefixtures("isolated_storage")

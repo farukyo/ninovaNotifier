@@ -51,6 +51,7 @@ def test_modify_user_is_atomic_and_keeps_other_fields():
 
 
 def test_update_user_grades_does_not_clobber_other_users():
+    storage.save_all_users({"1": {"urls": ["u1", "u3"]}, "2": {"urls": ["u2"]}})
     storage.save_grades({"1": {"u1": {"course_name": "A"}}, "2": {"u2": {"course_name": "B"}}})
 
     storage.update_user_grades("1", {"u3": {"course_name": "C"}})
@@ -72,3 +73,11 @@ def test_delete_helpers():
 
     assert storage.load_all_users() == {"2": {}}
     assert storage.load_saved_grades() == {"2": {"u3": {}}}
+
+
+def test_update_user_grades_skips_untracked_courses_and_missing_users():
+    storage.save_all_users({"1": {"urls": ["u1"]}})
+
+    assert storage.update_user_grades("1", {"u1": {"n": 1}, "gone": {"n": 2}}) == 1
+    assert storage.update_user_grades("404", {"u1": {"n": 1}}) == 0
+    assert storage.load_saved_grades() == {"1": {"u1": {"n": 1}}}

@@ -748,15 +748,16 @@ def handle_course_delete_any(call):
         user_data = users.get(chat_id, {})
         urls = user_data.get("urls", [])
         if 0 <= idx < len(urls):
-            # Önce veriyi sil (Deep Clean)
             course_url = urls[idx]
-            delete_course_data(chat_id, course_url)
 
-            # Sonra listeyi kullanıcıdan sil (index yerine URL ile, atomik olarak)
+            # Önce takip listesinden çıkar (URL ile, atomik), sonra veriyi sil. Bu sırayla
+            # süren bir kontrol dersi geri yazamaz (update_user_grades takip edilmeyen
+            # dersleri yazmaz).
             def _remove_course(data):
                 data["urls"] = [u for u in data.get("urls", []) if u != course_url]
 
             modify_user(chat_id, _remove_course)
+            delete_course_data(chat_id, course_url)
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=call.message.message_id,

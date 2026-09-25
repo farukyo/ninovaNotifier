@@ -184,7 +184,7 @@ def save_grades(grades: dict) -> None:
         atomic_json_write(DATA_FILE, grades)
 
 
-def update_user_grades(chat_id, course_data: dict) -> None:
+def update_user_grades(chat_id, course_data: dict) -> int:
     """
     Bir kullanıcının ders verilerini kilit altında günceller.
 
@@ -193,16 +193,31 @@ def update_user_grades(chat_id, course_data: dict) -> None:
     Bu fonksiyon dosyayı kilit altında yeniden okuyup sadece bu kullanıcının
     derslerini günceller.
 
+    Tarama sürerken kullanıcı silinmiş veya ders takipten çıkarılmışsa o veriler
+    yazılmaz; aksi halde silinen ders/kullanıcı kaydı geri gelirdi. (Kilit sırası her
+    zaman _data_lock → _users_lock; tersini alan fonksiyon yok, deadlock olmaz.)
+
     :param chat_id: Kullanıcının Telegram chat ID'si
     :param course_data: {course_url: ders_verisi} — mevcut kayıtların üzerine yazılır
+    :return: Gerçekten yazılan ders sayısı
     """
     chat_id = str(chat_id)
     with _data_lock:
+        with _users_lock:
+            users = _read_json(USERS_FILE)
+        if not users or chat_id not in users:
+            return 0
+        tracked = set(users[chat_id].get("urls", []))
+        course_data = {url: data for url, data in course_data.items() if url in tracked}
+        if not course_data:
+            return 0
+
         all_grades = _read_json(DATA_FILE)
         if all_grades is None:
             raise RuntimeError(f"{DATA_FILE} bozuk; ders verisi kaydedilemedi")
         all_grades.setdefault(chat_id, {}).update(course_data)
         atomic_json_write(DATA_FILE, all_grades)
+        return len(course_data)
 
 
 def delete_user_grades(chat_id) -> bool:

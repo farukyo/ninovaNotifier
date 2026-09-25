@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from telebot import types
@@ -16,12 +17,19 @@ CLUBS_PER_PAGE = 10
 # Telegram callback_data en fazla 64 *byte* olabilir. Türkçe karakterler UTF-8'de 2 byte
 # tuttuğu için 40 karakterlik kesme yetmiyordu ve uzun kulüp adları tüm sayfanın
 # gönderilmesini (BUTTON_DATA_INVALID) engelliyordu. "unsub_" öneki 6 byte.
+# Anahtar = okunabilir önek + "~" + tam adın 8 haneli hash'i. Sadece önek kullanmak
+# benzersiz değildi: ilk byte'ları aynı iki uzun kulüp adı aynı anahtarı üretiyor ve
+# kullanıcı butondakinden farklı bir kulübe abone olabiliyordu.
+_CLUB_HASH_LEN = 8
 _CLUB_KEY_MAX_BYTES = 64 - len("unsub_")
+_CLUB_PREFIX_MAX_BYTES = _CLUB_KEY_MAX_BYTES - len("~") - _CLUB_HASH_LEN
 
 
 def _club_key(club: str) -> str:
-    """Kulüp adını callback_data'ya sığacak şekilde (byte bazında) kısaltır."""
-    return club.encode("utf-8")[:_CLUB_KEY_MAX_BYTES].decode("utf-8", errors="ignore")
+    """Kulüp adından callback_data'ya sığan (≤ 58 byte) ve benzersiz bir anahtar üretir."""
+    prefix = club.encode("utf-8")[:_CLUB_PREFIX_MAX_BYTES].decode("utf-8", errors="ignore")
+    digest = hashlib.sha1(club.encode("utf-8")).hexdigest()[:_CLUB_HASH_LEN]
+    return f"{prefix}~{digest}"
 
 
 @bot.message_handler(func=lambda message: message.text == "🐝 Arı24")
@@ -122,12 +130,16 @@ def toggle_daily_bulletin(message):
         bot.send_message(chat_id, "Kullanıcı kaydı bulunamadı.")
         return
 
-    new_status = not users[chat_id].get("daily_subscription", False)
-
+    # Yeni değer kilit içinde hesaplanır; eski kopyadan hesaplamak hızlı iki tıklamada
+    # ikinci değişikliği kaybediyordu.
     def _toggle(data):
-        data["daily_subscription"] = new_status
+        data["daily_subscription"] = not data.get("daily_subscription", False)
 
-    modify_user(chat_id, _toggle)
+    updated = modify_user(chat_id, _toggle)
+    if updated is None:
+        bot.send_message(chat_id, "Kullanıcı kaydı bulunamadı.")
+        return
+    new_status = updated["daily_subscription"]
 
     status_text = "açıldı" if new_status else "kapatıldı"
     msg = f"☀️ Günlük Bülten aboneliği <b>{status_text}</b>."
@@ -209,11 +221,13 @@ def callback_subscribe(call):
         bot.answer_callback_query(call.id, "Kullanıcı bulunamadı.")
         return
 
-    # callback_data'da kısaltılmış ad var; tam adı kulüp listesinden bul.
+    # callback_data'da kulüp anahtarı var; tam adı kulüp listesinden bul. Bulunamazsa
+    # (liste değişmiş veya eski buton) anahtarın kendisini kulüp adı diye kaydetme.
     all_clubs = ari24_client.get_all_clubs()
-    matched_club = next(
-        (c for c in all_clubs if _club_key(c) == club_name_truncated), club_name_truncated
-    )
+    matched_club = next((c for c in all_clubs if _club_key(c) == club_name_truncated), None)
+    if matched_club is None:
+        bot.answer_callback_query(call.id, "Kulüp bulunamadı, lütfen listeyi yeniden açın.")
+        return
 
     already = False
 
@@ -225,7 +239,9 @@ def callback_subscribe(call):
         else:
             subs.append(matched_club)
 
-    modify_user(chat_id, _subscribe)
+    if modify_user(chat_id, _subscribe) is None:
+        bot.answer_callback_query(call.id, "Kullanıcı bulunamadı.")
+        return
     if already:
         bot.answer_callback_query(call.id, "Zaten abonesiniz!")
     else:
