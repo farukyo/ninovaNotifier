@@ -22,7 +22,7 @@ from core.cache import get_cache_manager
 from core.config import close_user_session, load_all_users
 from core.logger import clear_log_context, set_log_context
 from core.scheduler import submit_background_task
-from core.storage import delete_user, delete_user_grades, modify_user
+from core.storage import add_user_urls, delete_user, delete_user_grades, modify_user
 from core.utils import (
     decrypt_password,
     delete_course_data,
@@ -31,7 +31,6 @@ from core.utils import (
     load_saved_grades,
     sanitize_html_for_telegram,
     send_telegram_document,
-    update_user_data,
 )
 from services.ninova import download_file
 
@@ -936,19 +935,23 @@ def process_manual_add(message):
         return
 
     chat_id = str(message.chat.id)
-    users = load_all_users()
-    user_data = users.get(chat_id, {})
-    urls = user_data.get("urls", [])
-
-    if url in urls:
+    # Kilit altında güncel listeye ekle (eski kopyayı yazmak arada yapılan
+    # değişiklikleri ezerdi; kayıtsız kullanıcı için hayalet kayıt da oluşmaz).
+    added = add_user_urls(chat_id, [url])
+    if added is None:
+        bot.send_message(
+            message.chat.id,
+            "❌ Kullanıcı kaydınız bulunamadı. Lütfen önce 👤 Kullanıcı menüsünden giriş yapın.",
+            reply_markup=build_main_keyboard(),
+        )
+        return
+    if not added:
         bot.send_message(
             message.chat.id,
             "⚠️ Bu ders zaten takip ediliyor.",
         )
         return
 
-    urls.append(url)
-    update_user_data(chat_id, "urls", urls)
     bot.send_message(
         message.chat.id,
         f"✅ Ders başarıyla eklendi!\n<code>{url}</code>",

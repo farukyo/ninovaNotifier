@@ -13,10 +13,10 @@ from bot.handlers.user.data_helpers import load_user_profile, load_user_snapshot
 from bot.instance import bot_instance as bot
 from core.config import get_user_session
 from core.scheduler import submit_background_task
+from core.storage import add_user_urls, prune_untracked_course_data
 from core.utils import (
     decrypt_password,
     escape_html,
-    load_saved_grades,
     split_long_message,
     update_user_data,
 )
@@ -110,32 +110,16 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                     bot.send_message(chat_id, "❌ Hiç aktif ders bulunamadı veya bir hata oluştu.")
                     return
 
-                # --- Cleanup orphaned data for this user ---
-                all_grades = load_saved_grades()
-                user_grades = all_grades.get(chat_id, {})
-                current_urls = set(user_info.get("urls", []))
+                # Takip listesinde olmayan derslerin artık verisini temizle (kilit altında,
+                # güncel listeye göre).
+                prune_untracked_course_data(chat_id)
 
-                # Remove courses from data.json if they are not in user's url list
-                courses_to_remove = [url for url in user_grades if url not in current_urls]
-                if courses_to_remove:
-                    for url in courses_to_remove:
-                        del user_grades[url]
-                    all_grades[chat_id] = user_grades
-
-                    from core.utils import save_grades
-
-                    save_grades(all_grades)
-                # --- End cleanup ---
+                # Giriş/ders listesi isteği sürerken liste değişmiş olabilir; güncelini oku.
+                current_urls = set(load_user_profile(chat_id).get("urls", []))
 
                 already_in_data = []
                 active_to_add = []
                 expired_candidates = []
-
-                # Mevcut dersleri listeye al
-                new_urls_list = list(current_urls)
-
-                # Yeni dersler için tarih kontrolü yapacağız
-                # Mevcut dersler zaten 'current_urls' içinde, onları tekrar kontrol etmeye gerek yok
 
                 now = datetime.now()
 
@@ -163,7 +147,6 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                         expired_candidates.append({"name": name, "url": url})
                     else:
                         active_to_add.append({"name": name, "url": url})
-                        new_urls_list.append(url)
 
                 log_user_action(
                     chat_id,
@@ -176,9 +159,16 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                     ),
                 )
 
-                # 1. Aktif dersleri kaydet
+                # 1. Aktif dersleri kaydet. Tarama uzun sürebilir; eski listeyi yazmak yerine
+                # güncel listeye sadece yeni dersleri ekle (arada silinen ders geri gelmez).
                 if active_to_add:
-                    update_user_data(chat_id, "urls", new_urls_list)
+                    added = add_user_urls(chat_id, [c["url"] for c in active_to_add])
+                    if added is None:
+                        # Kullanıcı tarama sırasında hesabını silmiş.
+                        log_user_action(
+                            chat_id, "otoders", status="user_deleted", request_id=request_id
+                        )
+                        return
 
                 # 2. Rapor oluştur
                 response = "📊 <b>Ders Tarama Sonucu</b>\n\n"

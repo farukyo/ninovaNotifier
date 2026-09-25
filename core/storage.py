@@ -135,6 +135,64 @@ def modify_user(chat_id, mutator) -> dict | None:
         return users[chat_id]
 
 
+def add_user_urls(chat_id, new_urls) -> list[str] | None:
+    """
+    Kullanıcının takip listesine dersleri kilit altında ekler.
+
+    Uzun bir taramadan önce alınmış listeyi update_user_data ile yazmak, tarama
+    sırasında silinen dersleri geri getirir; bu fonksiyon güncel listeyi okuyup
+    sadece eksik URL'leri sona ekler (mevcut sıra korunur, menü indeksleri kaymaz).
+
+    :param chat_id: Kullanıcının Telegram chat ID'si
+    :param new_urls: Eklenecek ders URL'leri
+    :return: Gerçekten eklenen URL'ler (sırasıyla), kullanıcı yoksa None
+    """
+    added: list[str] = []
+
+    def _add(data):
+        urls = data.get("urls", [])
+        for url in new_urls:
+            if url not in urls and url not in added:
+                added.append(url)
+        data["urls"] = urls + added
+
+    if modify_user(chat_id, _add) is None:
+        return None
+    return added
+
+
+def prune_untracked_course_data(chat_id) -> int:
+    """
+    Kullanıcının artık takip etmediği derslerin verisini kilit altında siler.
+
+    Takip listesi kilit altında yeniden okunur; eski bir kopyaya göre silmek, arada
+    eklenen bir dersin verisini silebilirdi. (Kilit sırası _data_lock → _users_lock.)
+
+    :return: Silinen ders sayısı
+    """
+    chat_id = str(chat_id)
+    with _data_lock:
+        with _users_lock:
+            users = _read_json(USERS_FILE)
+        if not users or chat_id not in users:
+            return 0
+        tracked = set(users[chat_id].get("urls", []))
+
+        all_grades = _read_json(DATA_FILE)
+        if not all_grades or chat_id not in all_grades:
+            return 0
+        user_grades = all_grades[chat_id]
+        orphans = [url for url in user_grades if url not in tracked]
+        if not orphans:
+            return 0
+        for url in orphans:
+            del user_grades[url]
+        if not user_grades:
+            del all_grades[chat_id]
+        atomic_json_write(DATA_FILE, all_grades)
+        return len(orphans)
+
+
 def delete_user(chat_id) -> bool:
     """Kullanıcı kaydını kilit altında siler."""
     chat_id = str(chat_id)
