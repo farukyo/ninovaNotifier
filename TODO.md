@@ -56,7 +56,7 @@
 - [ ] Veri modelleri için dataclass/TypedDict + kademeli `mypy`.
 - [ ] Scraping'de "çek" ve "ayrıştır" adımlarını ayır (test edilebilirlik).
 - [ ] Kontrol döngüsü süresini ölç/logla; aralığı aşarsa uyar. Gerekirse kullanıcılar arası paralellik.
-- [ ] Python sürüm hedefini netleştir (`.python-version` 3.14, `requires-python >=3.12`).
+- [x] Python sürüm hedefi 3.14'e sabitlendi (`requires-python >=3.14`, ruff `py314`, CI tek sürüm).
 
 ---
 
