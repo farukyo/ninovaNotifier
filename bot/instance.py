@@ -37,11 +37,14 @@ apihelper.read_timeout = 30
 apihelper.CONNECT_TIMEOUT = 10
 apihelper.READ_TIMEOUT = 30
 
-bot_instance = (
-    telebot.TeleBot(TELEGRAM_TOKEN, exception_handler=_BotExceptionHandler())
-    if TELEGRAM_TOKEN
-    else None
-)
+if not TELEGRAM_TOKEN:
+    # Handler modülleri import anında @bot.message_handler ile kayıt oluyor; token yoksa
+    # bot None kalıp anlaşılmaz bir AttributeError'a yol açıyordu. Açık bir hata ver.
+    raise RuntimeError(
+        "TELEGRAM_TOKEN tanımlı değil. secrets/.env dosyasına TELEGRAM_TOKEN=... ekleyin."
+    )
+
+bot_instance = telebot.TeleBot(TELEGRAM_TOKEN, exception_handler=_BotExceptionHandler())
 START_TIME = datetime.now()
 LAST_CHECK_TIME = None
 _check_callback = None
@@ -72,27 +75,23 @@ def update_last_check_time() -> None:
     LAST_CHECK_TIME = datetime.now()
 
 
-if bot_instance:
-    # Callback hatalarını (timeout vb.) önlemek için sarmalayıcı
-    _orig_answer = bot_instance.answer_callback_query
+# Callback hatalarını (timeout vb.) önlemek için sarmalayıcı
+_orig_answer = bot_instance.answer_callback_query
 
-    def _safe_answer(*args, **kwargs):
-        """Answer callback queries safely.
 
-        TeleBot bazı durumlarda (timeout/ağ vb.) exception fırlatabiliyor; bu sarmalayıcı
-        botun çökmesini engeller.
-        """
-        try:
-            return _orig_answer(*args, **kwargs)
-        except Exception as e:
-            # Log the error with context
-            callback_query_id = kwargs.get("callback_query_id") or (args[0] if args else "unknown")
-            logger.exception(f"Failed to answer callback query {callback_query_id}: {e}")
+def _safe_answer(*args, **kwargs):
+    """Answer callback queries safely.
 
-    bot_instance.answer_callback_query = _safe_answer
+    TeleBot bazı durumlarda (timeout/ağ vb.) exception fırlatabiliyor; bu sarmalayıcı
+    botun çökmesini engeller.
+    """
+    try:
+        return _orig_answer(*args, **kwargs)
+    except Exception as e:
+        # Log the error with context
+        callback_query_id = kwargs.get("callback_query_id") or (args[0] if args else "unknown")
+        logger.exception(f"Failed to answer callback query {callback_query_id}: {e}")
 
-    # Validate bot token at startup
-    if not TELEGRAM_TOKEN:
-        logger.warning("⚠️ TELEGRAM_TOKEN not set. Bot will not be able to function!")
-    else:
-        logger.info("✅ Telegram bot initialized successfully")
+
+bot_instance.answer_callback_query = _safe_answer
+logger.info("✅ Telegram bot initialized successfully")

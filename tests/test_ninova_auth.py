@@ -30,6 +30,14 @@ class _DummySession:
         self.calls.append(("post", url, data, kwargs))
         return _DummyResponse(text="Hatalı", url="https://ninova.itu.edu.tr/Login.aspx")
 
+    def request(self, method, url, **kwargs):
+        # core.http_logging.http_request tüm istekleri session.request üzerinden yapar
+        if method == "GET":
+            return self.get(url, **kwargs)
+        if method == "POST":
+            return self.post(url, **kwargs)
+        raise AssertionError(f"Unexpected method: {method}")
+
 
 def test_invalid_credentials_are_preserved(monkeypatch):
     monkeypatch.setattr("services.ninova.auth.MAX_LOGIN_RETRIES", 1)

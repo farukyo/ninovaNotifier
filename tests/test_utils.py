@@ -1,21 +1,11 @@
-"""Tests for common/utils.py — encryption, date parsing, HTML sanitization, escape_html."""
+"""Tests for core/utils.py — date parsing, HTML sanitization, escape_html, file icons."""
 
-import unittest.mock as mock
-
-from cryptography.fernet import Fernet
-
-# Patch cipher_suite before importing utils so we use a test key
-_TEST_KEY = Fernet.generate_key()
-_TEST_CIPHER = Fernet(_TEST_KEY)
-
-with mock.patch("common.config.cipher_suite", _TEST_CIPHER):
-    from core.utils import (
-        escape_html,
-        get_file_icon,
-        parse_turkish_date,
-        sanitize_html_for_telegram,
-    )
-
+from core.utils import (
+    escape_html,
+    get_file_icon,
+    parse_turkish_date,
+    sanitize_html_for_telegram,
+)
 
 # ---------------------------------------------------------------------------
 # parse_turkish_date
