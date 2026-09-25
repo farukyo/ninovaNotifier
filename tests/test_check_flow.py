@@ -5,6 +5,7 @@ import pytest
 import main
 from bot.callback_parsing import url_token
 from core import storage
+from services.ninova import diff_engine
 
 
 def _course(**overrides):
@@ -56,7 +57,7 @@ def test_failed_sections_keep_saved_data_without_notifications():
         failed_sections=["assignments", "files", "announcements"],
     )
 
-    sections, changes, new_files, updated_files, asf = main._compare_course_data(
+    sections, changes, new_files, updated_files, asf = diff_engine.compare_course_data(
         current, saved, None, "BLG 101E"
     )
 
@@ -77,7 +78,7 @@ def test_missing_assignment_detail_does_not_report_deleted_source_files():
     }
     current = _course(assignments=[listed_only])
 
-    _sections, changes, *_ = main._compare_course_data(current, saved, None, "BLG 101E")
+    _sections, changes, *_ = diff_engine.compare_course_data(current, saved, None, "BLG 101E")
 
     assert changes == []
     assert current["assignments"][0]["source_files"] == saved["assignments"][0]["source_files"]
@@ -245,7 +246,7 @@ def test_partial_file_source_failure_keeps_saved_files_of_that_source():
     saved = _saved(_course(files=[sinif, ders]))
     current = _course(files=[sinif], failed_file_sources=["Ders"])
 
-    _sections, changes, *_ = main._compare_course_data(current, saved, None, "BLG 101E")
+    _sections, changes, *_ = diff_engine.compare_course_data(current, saved, None, "BLG 101E")
 
     assert not any("SİLİNDİ" in c for c in changes)
     assert {f["name"] for f in current["files"]} == {"s.pdf", "d.pdf"}
@@ -265,7 +266,7 @@ def test_failed_detail_fetch_keeps_detail_cache_metadata():
     listed_only["list_signature"] = "new-sig"
     current = _course(assignments=[listed_only])
 
-    main._compare_course_data(current, saved, None, "BLG 101E")
+    diff_engine.compare_course_data(current, saved, None, "BLG 101E")
 
     assign = current["assignments"][0]
     assert assign["detail_fetched_at"] == 111.0
