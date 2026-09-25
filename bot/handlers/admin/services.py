@@ -17,6 +17,7 @@ from core.config import (
     get_active_user_sessions,
     has_user_session,
 )
+from core.logger import redact_secrets
 from core.scheduler import submit_background_task
 from core.utils import escape_html, split_long_message
 
@@ -147,15 +148,13 @@ def show_user_details(chat_id):
         url_count = len(data.get("urls", []))
         has_session = "✅" if has_user_session(uid) else "❌"
         response += f"🆔 <code>{uid}</code>\n"
-        response += f"├ 👤 {username}\n"
+        response += f"├ 👤 {escape_html(username)}\n"
         response += f"├ 📚 {url_count} ders\n"
         response += f"└ 🔗 Oturum: {has_session}\n\n"
 
-    if len(response) > 4000:
-        for i in range(0, len(response), 4000):
-            bot.send_message(chat_id, response[i : i + 4000], parse_mode="HTML")
-    else:
-        bot.send_message(chat_id, response, parse_mode="HTML")
+    # Karakter sayısıyla bölmek bir HTML etiketini ikiye ayırabiliyordu; satır bazında böl.
+    for chunk in split_long_message(response):
+        bot.send_message(chat_id, chunk, parse_mode="HTML")
 
 
 def show_logs(chat_id, lines=50):
@@ -190,11 +189,18 @@ def show_logs(chat_id, lines=50):
                     log_text = log_text[-3500:]
                     header = f"📋 <b>Son {len(last_lines)} Log Kaydı (Son 3500 karakter)</b>\n\n"
 
-                bot.send_message(chat_id, f"{header}<pre>{log_text}</pre>", parse_mode="HTML")
+                # Log satırlarında sık geçen "<", ">" ve "&" kaçırılmazsa Telegram mesajı reddeder.
+                # Kaçırma metni uzatır; 4096 sınırını aşmamak ve bir "&amp;" dizisini ortadan
+                # bölmemek için satır başından kırp.
+                safe_text = escape_html(log_text)
+                if len(safe_text) > 3800:
+                    safe_text = safe_text[-3800:].split("\n", 1)[-1]
+                bot.send_message(chat_id, f"{header}<pre>{safe_text}</pre>", parse_mode="HTML")
             else:
                 bot.send_message(chat_id, "📜 Güncel log dosyası boş.")
-    except Exception as e:
-        bot.send_message(chat_id, f"❌ Log okuma hatası: {e}")
+    except Exception:
+        logger.exception("[admin] Log dosyası okunamadı/gönderilemedi")
+        bot.send_message(chat_id, "❌ Log okunamadı. Ayrıntı sunucu loglarında.")
 
 
 def send_backup(chat_id):
@@ -216,8 +222,9 @@ def send_backup(chat_id):
                         caption=f"💾 Yedek: {filename}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                     )
                 files_sent += 1
-            except Exception as e:
-                bot.send_message(chat_id, f"❌ {filename} gönderilemedi: {e}")
+            except Exception:
+                logger.exception(f"[admin] Yedek gönderilemedi: {filename}")
+                bot.send_message(chat_id, f"❌ {filepath.name} gönderilemedi.")
 
     if files_sent == 0:
         bot.send_message(chat_id, "❌ Yedeklenecek dosya bulunamadı.")
@@ -258,7 +265,9 @@ def send_broadcast(admin_chat_id, message_text, request_id: str | None = None):
     fail_count = 0
     failed_users = []  # Track failed users with details
 
-    broadcast_msg = f"📢 <b>Sistem Duyurusu</b>\n\n{message_text}"
+    # Metin kaçırılmazsa içindeki tek bir "&" veya "<" duyurunun hiçbir kullanıcıya
+    # gitmemesine yol açar.
+    broadcast_msg = f"📢 <b>Sistem Duyurusu</b>\n\n{escape_html(message_text)}"
 
     for uid in users:
         try:
@@ -277,6 +286,8 @@ def send_broadcast(admin_chat_id, message_text, request_id: str | None = None):
                 error_msg = "Kullanıcı hesabı kapalı"
             elif "chat not found" in error_msg:
                 error_msg = "Chat bulunamadı"
+            else:
+                error_msg = redact_secrets(error_msg)[:120]
             failed_users.append((uid, error_msg))
 
     # Build response message
@@ -320,7 +331,7 @@ def send_direct_message(admin_chat_id, target_id, message_text, request_id: str 
         )
         bot.send_message(
             target_id,
-            f"💬 <b>Admin Mesajı</b>\n\n{message_text}",
+            f"💬 <b>Admin Mesajı</b>\n\n{escape_html(message_text)}",
             parse_mode="HTML",
         )
         bot.send_message(
@@ -336,7 +347,8 @@ def send_direct_message(admin_chat_id, target_id, message_text, request_id: str 
             target_id=str(target_id),
         )
     except Exception as e:
-        bot.send_message(admin_chat_id, f"❌ Mesaj gönderilemedi: {e}")
+        logger.exception(f"[admin] Doğrudan mesaj gönderilemedi (hedef={target_id})")
+        bot.send_message(admin_chat_id, f"❌ Mesaj gönderilemedi: {redact_secrets(str(e))[:200]}")
         log_admin_action(
             str(admin_chat_id),
             "direct_message",

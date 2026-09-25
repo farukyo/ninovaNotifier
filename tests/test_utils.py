@@ -1,6 +1,7 @@
 """Tests for core/utils.py — date parsing, HTML sanitization, escape_html, file icons."""
 
 from core.utils import (
+    escape_attr,
     escape_html,
     get_file_icon,
     parse_turkish_date,
@@ -106,6 +107,18 @@ class TestEscapeHtml:
 
     def test_empty_string(self):
         assert escape_html("") == ""
+
+    def test_non_string_is_converted(self):
+        assert escape_html(85) == "85"
+
+
+class TestEscapeAttr:
+    def test_quotes_cannot_break_out_of_href(self):
+        assert escape_attr("https://x/?a=1&b='2'\"") == "https://x/?a=1&amp;b=&#39;2&#39;&quot;"
+
+    def test_plain_url_unchanged(self):
+        url = "https://ninova.itu.edu.tr/Sinif/1/Odev/2"
+        assert escape_attr(url) == url
 
 
 # ---------------------------------------------------------------------------

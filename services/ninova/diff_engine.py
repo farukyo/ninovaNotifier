@@ -14,7 +14,7 @@ import difflib
 import logging
 from datetime import datetime
 
-from core.utils import escape_html, get_file_icon, parse_turkish_date
+from core.utils import escape_attr, escape_html, get_file_icon, parse_turkish_date
 
 from .scraper import get_announcement_detail
 
@@ -126,7 +126,7 @@ def compare_course_data(
             if "rank" in details:
                 detail_lines.append(f"Sıralama: {details['rank']}")
             if detail_lines:
-                not_msg += "\n" + "\n".join(detail_lines)
+                not_msg += "\n" + escape_html("\n".join(detail_lines))
             sections_changes.append(not_msg)
             changes.append(f"YENİ NOT: {key} -> {new_val}")
             if include_console_log and changes_table:
@@ -161,7 +161,7 @@ def compare_course_data(
                 if "rank" in details:
                     detail_lines.append(f"Sıralama: {details['rank']}")
                 if detail_lines:
-                    upd_msg += "\n" + "\n".join(detail_lines)
+                    upd_msg += "\n" + escape_html("\n".join(detail_lines))
                 sections_changes.append(upd_msg)
                 changes.append(f"NOT GÜNCELLENDİ: {key} ({old_val} -> {new_val})")
                 if include_console_log and changes_table:
@@ -173,6 +173,7 @@ def compare_course_data(
     for assign_idx, assign in enumerate(current_assignments):
         saved_assign = next((a for a in saved_assignments if a.get("id") == assign.get("id")), None)
         e_assign_name = escape_html(assign["name"])
+        e_assign_url = escape_attr(assign.get("url", ""))
 
         if saved_assign:
             # Ödev detay sayfası çekilemediyse (source_files anahtarı yok) detay alanlarını
@@ -201,8 +202,8 @@ def compare_course_data(
 
         if not saved_assign:
             new_assign_msg = (
-                f"📅 <b>YENİ ÖDEV:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
-                f"🗓 {assign['start_date']} ➡️ {assign['end_date']}"
+                f"📅 <b>YENİ ÖDEV:</b> <a href='{e_assign_url}'>{e_assign_name}</a>\n"
+                f"🗓 {escape_html(assign['start_date'])} ➡️ {escape_html(assign['end_date'])}"
             )
             if assign.get("description"):
                 new_assign_msg += f"\n\n📝 {escape_html(assign['description'])}"
@@ -229,7 +230,7 @@ def compare_course_data(
                 old_date = saved_assign.get("end_date", "?")
                 sections_changes.append(
                     f"🕒 <b>TESLİM TARİHİ DEĞİŞTİ:</b> {e_assign_name}\n"
-                    f"{old_date} ➡️ {assign['end_date']}"
+                    f"{escape_html(old_date)} ➡️ {escape_html(assign['end_date'])}"
                 )
                 changes.append(f"ÖDEV TARİHİ DEĞİŞTİ: {assign['name']}")
                 if include_console_log and changes_table:
@@ -243,7 +244,7 @@ def compare_course_data(
             if old_status is not None and old_status != new_status:
                 status_str = "✅ TESLİM EDİLDİ" if new_status else "❌ TESLİM GERİ ÇEKİLDİ"
                 sections_changes.append(
-                    f"🔄 <b>ÖDEV DURUMU GÜNCELLENDİ:</b> <a href='{assign['url']}'>{e_assign_name}</a>\nDurum: {status_str}"
+                    f"🔄 <b>ÖDEV DURUMU GÜNCELLENDİ:</b> <a href='{e_assign_url}'>{e_assign_name}</a>\nDurum: {status_str}"
                 )
                 changes.append(f"ÖDEV DURUMU DEĞİŞTİ: {assign['name']} ({status_str})")
 
@@ -254,12 +255,12 @@ def compare_course_data(
                 if old_desc:
                     diff_text = content_diff(old_desc, new_desc)
                     sections_changes.append(
-                        f"📝 <b>ÖDEV AÇIKLAMASI DEĞİŞTİ:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
+                        f"📝 <b>ÖDEV AÇIKLAMASI DEĞİŞTİ:</b> <a href='{e_assign_url}'>{e_assign_name}</a>\n"
                         f"<pre>{escape_html(diff_text)}</pre>"
                     )
                 else:
                     sections_changes.append(
-                        f"📝 <b>ÖDEV AÇIKLAMASI EKLENDİ:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
+                        f"📝 <b>ÖDEV AÇIKLAMASI EKLENDİ:</b> <a href='{e_assign_url}'>{e_assign_name}</a>\n"
                         f"{escape_html(new_desc)}"
                     )
                 changes.append(f"ÖDEV AÇIKLAMASI DEĞİŞTİ: {assign['name']}")
@@ -278,7 +279,7 @@ def compare_course_data(
             for sf in saved_assign.get("source_files", []):
                 if sf["name"] not in new_src_names:
                     sections_changes.append(
-                        f"🗑️ <b>KAYNAK DOSYA SİLİNDİ:</b> <a href='{assign['url']}'>{e_assign_name}</a>\n"
+                        f"🗑️ <b>KAYNAK DOSYA SİLİNDİ:</b> <a href='{e_assign_url}'>{e_assign_name}</a>\n"
                         f"  • {escape_html(sf['name'])}"
                     )
                     changes.append(f"KAYNAK DOSYA SİLİNDİ: {sf['name']}")
@@ -306,8 +307,8 @@ def compare_course_data(
 
                 if reminder_tag:
                     sections_changes.append(
-                        f"{reminder_msg}\nBitiş: {assign['end_date']}\n"
-                        f"<a href='{assign['url']}'>Ödeve Git</a>"
+                        f"{reminder_msg}\nBitiş: {escape_html(assign['end_date'])}\n"
+                        f"<a href='{e_assign_url}'>Ödeve Git</a>"
                     )
                     changes.append(f"HATIRLATMA ({reminder_tag}): {assign['name']}")
                     assign["reminders_sent"] = [*sent_reminders, reminder_tag]
@@ -358,13 +359,14 @@ def compare_course_data(
         ann_id = ann.get("id")
         e_ann_title = escape_html(ann["title"])
         e_ann_author = escape_html(ann.get("author", ""))
+        e_ann_url = escape_attr(ann.get("url", ""))
 
         if ann_id not in saved_ann_map:
             full_content = get_announcement_detail(user_session, ann["url"])
             ann["content"] = full_content
-            ann_msg = f"📣 <b>YENİ DUYURU:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
+            ann_msg = f"📣 <b>YENİ DUYURU:</b> <a href='{e_ann_url}'>{e_ann_title}</a>"
             if e_ann_author:
-                ann_msg += f"\n👤 {e_ann_author} | 📅 {ann['date']}"
+                ann_msg += f"\n👤 {e_ann_author} | 📅 {escape_html(ann['date'])}"
             if full_content:
                 ann_msg += f"\n\n{full_content}"
             sections_changes.append(ann_msg)
@@ -392,11 +394,11 @@ def compare_course_data(
                     )
                 if ann.get("date") != saved_ann.get("date"):
                     diff_lines.append(
-                        f"📅 Tarih: {saved_ann.get('date', '?')} ➡️ {ann.get('date', '?')}"
+                        f"📅 Tarih: {escape_html(saved_ann.get('date', '?'))} ➡️ {escape_html(ann.get('date', '?'))}"
                     )
                 old_content = saved_ann.get("content", "")
                 ann_upd_msg = (
-                    f"🔄 <b>DUYURU GÜNCELLENDİ:</b> <a href='{ann['url']}'>{e_ann_title}</a>"
+                    f"🔄 <b>DUYURU GÜNCELLENDİ:</b> <a href='{e_ann_url}'>{e_ann_title}</a>"
                 )
                 if diff_lines:
                     ann_upd_msg += "\n" + "\n".join(diff_lines)

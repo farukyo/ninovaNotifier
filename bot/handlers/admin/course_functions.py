@@ -63,15 +63,17 @@ def show_user_courses(chat_id, target_user_id):
     if not urls:
         bot.send_message(
             chat_id,
-            f"❌ <b>{username}</b> ({target_user_id}) kullanıcısının takip ettiği ders bulunamadı.",
+            f"❌ <b>{escape_html(str(username))}</b> ({target_user_id}) kullanıcısının takip ettiği ders bulunamadı.",
             parse_mode="HTML",
         )
         return
 
-    response = f"📚 <b>{username} ({target_user_id})</b> - Takip Ettiği Dersler:\n\n"
+    response = (
+        f"📚 <b>{escape_html(str(username))} ({target_user_id})</b> - Takip Ettiği Dersler:\n\n"
+    )
     for i, url in enumerate(urls, 1):
         course_name = user_grades.get(url, {}).get("course_name", f"Ders {i}")
-        response += f"{i}. <b>{course_name}</b>\n<code>{url}</code>\n\n"
+        response += f"{i}. <b>{escape_html(course_name)}</b>\n<code>{escape_html(url)}</code>\n\n"
 
     markup = types.InlineKeyboardMarkup()
     markup.add(
@@ -83,7 +85,8 @@ def show_user_courses(chat_id, target_user_id):
     markup.add(types.InlineKeyboardButton("🔙 Geri", callback_data="adm_manage_courses"))
 
     if len(response) > 4000:
-        response = response[:4000] + "\n... (çok sayıda ders)"
+        # Karakterden kesmek bir HTML etiketini ikiye bölebilir; son tam ders kaydında kes.
+        response = response[: response.rfind("\n\n", 0, 4000)] + "\n\n... (çok sayıda ders)"
 
     bot.send_message(chat_id, response, reply_markup=markup, parse_mode="HTML")
 
@@ -119,7 +122,7 @@ def delete_single_course(chat_id, target_user_id):
 
     bot.send_message(
         chat_id,
-        f"🗑️ <b>{username}</b> ({target_user_id}) kullanıcısından silmek istediğiniz dersi seçin:",
+        f"🗑️ <b>{escape_html(str(username))}</b> ({target_user_id}) kullanıcısından silmek istediğiniz dersi seçin:",
         reply_markup=markup,
         parse_mode="HTML",
     )
@@ -147,7 +150,7 @@ def clear_all_courses(chat_id, target_user_id):
 
     bot.send_message(
         chat_id,
-        f"⚠️ <b>{username}</b> ({target_user_id}) kullanıcısının <b>{url_count} dersi</b> silinecektir. Emin misiniz?",
+        f"⚠️ <b>{escape_html(str(username))}</b> ({target_user_id}) kullanıcısının <b>{url_count} dersi</b> silinecektir. Emin misiniz?",
         reply_markup=markup,
         parse_mode="HTML",
     )

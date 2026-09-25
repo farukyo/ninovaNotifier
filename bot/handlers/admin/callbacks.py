@@ -17,10 +17,12 @@ from core.config import (
     close_user_session,
     get_user_session,
 )
+from core.logger import redact_secrets
 from core.scheduler import submit_background_task
 from core.storage import add_user_urls, delete_user, delete_user_grades
 from core.utils import (
     decrypt_password,
+    escape_html,
 )
 from services.ninova import get_user_courses, login_to_ninova
 
@@ -241,7 +243,7 @@ def handle_admin_callbacks(call):
                     if newly_added:
                         response += "✨ <b>Yeni Eklenen Dersler:</b>\n"
                         for c in newly_added[:5]:
-                            response += f"  ➕ {c['name']}\n"
+                            response += f"  ➕ {escape_html(c['name'])}\n"
                         if len(newly_added) > 5:
                             response += f"  ... ve {len(newly_added) - 5} daha\n"
                     else:
@@ -281,7 +283,8 @@ def handle_admin_callbacks(call):
                     cb()
                     bot.send_message(chat_id, "✅ Kontrol tamamlandı.", parse_mode="HTML")
                 except Exception as e:
-                    bot.send_message(chat_id, f"⚠️ Kontrol hatası: {e!s}", parse_mode="HTML")
+                    logger.exception("[admin] forceoto sonrası kontrol başarısız")
+                    bot.send_message(chat_id, f"⚠️ Kontrol hatası: {redact_secrets(str(e))[:200]}")
                     log_admin_action(
                         chat_id,
                         "force_check_post_otoders",

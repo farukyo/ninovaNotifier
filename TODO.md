@@ -17,18 +17,15 @@
 - [ ] (Opsiyonel) Settings → Environments → `production` → Required reviewers: her deploy onay beklesin.
 - [ ] `ENCRYPTION_KEY` / `secrets/.encryption_key` yedeğini sunucu dışında sakla.
 
-## 🔴 Yüksek Öncelik (küçük işler, sonraki PR)
+## 🔴 Yüksek Öncelik
 
-- [ ] **Kalan eski-kopya (stale) URL yazmaları → `modify_user`**
-  - `bot/handlers/user/course_commands.py` (oto ders), `bot/handlers/admin/callbacks.py` (admin forceoto),
-    `bot/handlers/user/callbacks.py` (elle ders ekleme): uzun taramadan sonra eski listeyle `update_user_data(..., "urls", ...)`.
-    Tarama sırasında silinen ders geri gelebilir. `list(set(...))` ders sırasını da karıştırıyor.
-  - Araç: `/stale-write-scan`
-- [ ] **Kaçışsız HTML** — ders/ödev adları (`grade_commands.py`), kullanıcı adları, takvim olayları,
-      dosya tarayıcısı (`bot/utils.py`). `&` veya `<` içeren bir ad mesajın hiç gitmemesine yol açar.
-  - Araç: `/html-escape-audit`
-- [ ] **Kullanıcıya ham hata metni (`str(e)`) gönderilmesin** (6 yer: `general_commands.py:425`,
-      grafik hatası `callbacks.py`, admin servisleri…). Kullanıcıya genel mesaj, ayrıntı `logger.exception` ile loga.
+- [x] **Eski-kopya (stale) URL yazmaları** — oto ders, admin forceoto ve elle ders ekleme artık
+      `core.storage.add_user_urls` ile güncel listeye sadece eksikleri ekliyor (sıra korunuyor, silinen
+      kullanıcı için hayalet kayıt oluşmuyor); oto ders yetim veri temizliği `prune_untracked_course_data`.
+- [x] **Kaçışsız HTML** — bildirimler (`diff_engine`, Arı24 bildirim/bülten), notlar, ödevler, ders menüsü,
+      dosya başlıkları, takvim, admin ekranları ve duyuru/mesaj metni kaçırılıyor; `href` için `escape_attr`.
+- [x] **Kullanıcıya ham hata metni** — grafik ve takvim hataları genel mesaj + `logger.exception`;
+      admin'e giden hata ayrıntıları `redact_secrets` ile maskeleniyor.
 
 ## 🟠 Orta Öncelik
 

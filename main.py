@@ -29,6 +29,7 @@ from core.config import (
     sync_cache_to_disk,
 )
 from core.logger import install_thread_excepthook, setup_logging
+from core.utils import escape_attr, escape_html
 from services.ari24.client import Ari24Client
 from services.sks.announcer import check_and_announce_sks_menu
 
@@ -214,10 +215,10 @@ def check_ari24_updates():
                 # So exact match check is fine.
                 if club in subs:
                     caption = (
-                        f"🔔 <b>Yeni Etkinlik: {club}</b>\n\n"
-                        f"📅 <b>{event['title']}</b>\n"
-                        f"🕒 {event['date_str']}\n"
-                        f"🔗 <a href='{url}'>Detaylar</a>"
+                        f"🔔 <b>Yeni Etkinlik: {escape_html(club)}</b>\n\n"
+                        f"📅 <b>{escape_html(event['title'])}</b>\n"
+                        f"🕒 {escape_html(event['date_str'])}\n"
+                        f"🔗 <a href='{escape_attr(url)}'>Detaylar</a>"
                     )
                     try:
                         if event["image_url"]:
@@ -245,8 +246,8 @@ def check_ari24_updates():
             # Reverse to send oldest new item first
             for item in reversed(new_news_items):
                 caption = (
-                    f"📰 <b>Yeni Haber: {item['title']}</b>\n"
-                    f"🔗 <a href='{item['link']}'>Haberi Oku</a>"
+                    f"📰 <b>Yeni Haber: {escape_html(item['title'])}</b>\n"
+                    f"🔗 <a href='{escape_attr(item['link'])}'>Haberi Oku</a>"
                 )
                 for chat_id in users:
                     try:
@@ -328,9 +329,9 @@ def check_daily_bulletin():
             bulletin_message += "📅 <b>BUGÜN:</b>\n"
             for ev in today_events:
                 bulletin_message += (
-                    f"▫️ {ev['organizer']} - {ev['title']}\n"
-                    f"⏰ {ev['date_str']}\n"
-                    f"🔗 <a href='{ev['link']}'>İncele</a>\n\n"
+                    f"▫️ {escape_html(ev['organizer'])} - {escape_html(ev['title'])}\n"
+                    f"⏰ {escape_html(ev['date_str'])}\n"
+                    f"🔗 <a href='{escape_attr(ev['link'])}'>İncele</a>\n\n"
                 )
         else:
             bulletin_message += "📅 <b>BUGÜN:</b>\n<i>Etkinlik bulunmuyor.</i>\n\n"
@@ -341,7 +342,8 @@ def check_daily_bulletin():
             # Limit to 10 upcoming events
             for ev in upcoming_events[:15]:
                 bulletin_message += (
-                    f"▫️ {ev['date_str']} | {ev['organizer']}\n   <b>{ev['title']}</b>\n\n"
+                    f"▫️ {escape_html(ev['date_str'])} | {escape_html(ev['organizer'])}\n"
+                    f"   <b>{escape_html(ev['title'])}</b>\n\n"
                 )
             if len(upcoming_events) > 15:
                 bulletin_message += f"<i>... ve {len(upcoming_events) - 15} etkinlik daha.</i>\n"

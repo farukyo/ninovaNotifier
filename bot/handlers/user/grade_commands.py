@@ -14,7 +14,7 @@ from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_grades
 from bot.instance import bot_instance as bot
 from core.scheduler import submit_background_task
-from core.utils import split_long_message
+from core.utils import escape_attr, escape_html, split_long_message
 
 logger = logging.getLogger("ninova")
 
@@ -37,7 +37,7 @@ def list_grades(message):
     for data in user_grades.values():
         course_name = data.get("course_name", "Bilinmeyen Ders")
         grades = data.get("grades", {})
-        response += f"📚 <b>{course_name}</b>\n"
+        response += f"📚 <b>{escape_html(course_name)}</b>\n"
         if not grades:
             response += "<i>Henüz not girilmemiş.</i>\n"
         else:
@@ -73,7 +73,8 @@ def list_grades(message):
                     std_dev = float(details["std_dev"].replace(",", "."))
 
             w_disp = f"{w_val:g}" if w_val > 0 else ""
-            response += f"<code>{exam[:15]:<15} | {w_disp:>3} | {info['not']:>5}</code>"
+            row = f"{exam[:15]:<15} | {w_disp:>3} | {info['not']:>5}"
+            response += f"<code>{escape_html(row)}</code>"
 
             detail_lines = []
             if "class_avg" in details:
@@ -86,7 +87,7 @@ def list_grades(message):
                 detail_lines.append(f"Sıra: {details['rank']}")
 
             if detail_lines:
-                response += f"\n   <i>└ {', '.join(detail_lines)}</i>"
+                response += f"\n   <i>└ {escape_html(', '.join(detail_lines))}</i>"
             response += "\n"
 
             if w_val > 0:
@@ -174,12 +175,13 @@ def list_assignments(message, show_all=False):
                 hidden_assignments_count += 1
 
         if visible_assignments:
-            response_lines.append(f"📚 <b>{course_name}</b>")
+            response_lines.append(f"📚 <b>{escape_html(course_name)}</b>")
             for item in visible_assignments:
                 assign = item["data"]
                 icon = item["icon"]
                 response_lines.append(
-                    f"{icon} <a href='{assign['url']}'>{assign['name']}</a>\n└ ⏳ Son Teslim: <code>{assign['end_date']}</code>"
+                    f"{icon} <a href='{escape_attr(assign['url'])}'>{escape_html(assign['name'])}</a>\n"
+                    f"└ ⏳ Son Teslim: <code>{escape_html(assign['end_date'])}</code>"
                 )
             response_lines.append("")  # Dersler arası boşluk
 

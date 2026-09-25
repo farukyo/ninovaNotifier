@@ -9,6 +9,7 @@ from bot.instance import bot_instance as bot
 from bot.keyboards import build_ari24_menu_keyboard
 from core.config import load_all_users
 from core.storage import modify_user
+from core.utils import escape_attr, escape_html
 from services.ari24.client import Ari24Client
 
 logger = logging.getLogger("ninova")
@@ -62,10 +63,10 @@ def discover_events(message):
     count = 0
     for event in events:
         caption = (
-            f"📅 <b>{event['title']}</b>\n"
-            f"🏛 {event['organizer']}\n"
-            f"🕒 {event['date_str']}\n"
-            f"🔗 <a href='{event['link']}'>Detaylar</a>"
+            f"📅 <b>{escape_html(event['title'])}</b>\n"
+            f"🏛 {escape_html(event['organizer'])}\n"
+            f"🕒 {escape_html(event['date_str'])}\n"
+            f"🔗 <a href='{escape_attr(event['link'])}'>Detaylar</a>"
         )
 
         try:
@@ -101,7 +102,10 @@ def show_news(message):
         return
 
     for article in news:
-        caption = f"📰 <b>{article['title']}</b>\n🔗 <a href='{article['link']}'>Haberi Oku</a>"
+        caption = (
+            f"📰 <b>{escape_html(article['title'])}</b>\n"
+            f"🔗 <a href='{escape_attr(article['link'])}'>Haberi Oku</a>"
+        )
 
         try:
             if article.get("image_url"):
