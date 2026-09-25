@@ -19,10 +19,12 @@ class _BotExceptionHandler(telebot.ExceptionHandler):
     """Catch handler exceptions so transient network issues don't stop polling."""
 
     def handle(self, exception: Exception) -> bool:
-        logger.warning(
-            f"TeleBot handler exception captured: {type(exception).__name__}: {exception}"
+        # Traceback'i mutlaka logla: eskiden sadece tek satırlık uyarı yazılıyordu ve
+        # handler hataları (ör. kayıt akışının tamamen çalışmaması) görünmez kalıyordu.
+        logger.error(
+            f"TeleBot handler exception captured: {type(exception).__name__}: {exception}",
+            exc_info=exception,
         )
-        logger.debug("TeleBot handler traceback")
         return True
 
 

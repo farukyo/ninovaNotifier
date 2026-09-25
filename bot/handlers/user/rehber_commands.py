@@ -12,9 +12,15 @@ from bot.keyboards import (
     build_rehber_soyad_keyboard,
 )
 from bot.utils import is_cancel_text
-from core.config import get_user_session, load_all_users
+from core.config import HEADERS, load_all_users
+from core.http_client import SessionManager
 from core.utils import decrypt_password, escape_html
 from services.rehber.scraper import RehberScraper
+
+# Rehber, kullanıcının Ninova oturumundan ayrı bir oturum kullanır. Eskiden ortak
+# Ninova oturumu kullanılıyordu ve RehberScraper'ın (POST'u da tekrar deneyen) retry
+# adapter'ı o oturuma mount edilince Ninova login istekleri de tekrarlanabiliyordu.
+_REHBER_SESSIONS = SessionManager(ttl_seconds=15 * 60)
 
 logger = logging.getLogger("ninova")
 
@@ -132,13 +138,15 @@ def process_rehber_soyad(message):
 
     bot.send_message(
         message.chat.id,
-        f"🔎 <b>'{ad.strip()} {soyad.strip()}'</b> İTÜ Rehberde aranıyor...\nLütfen bekleyiniz.",
+        f"🔎 <b>'{escape_html(ad.strip())} {escape_html(soyad.strip())}'</b> "
+        "İTÜ Rehberde aranıyor...\nLütfen bekleyiniz.",
         parse_mode="HTML",
         reply_markup=build_main_keyboard(),
     )
 
-    # Session setup (using SessionManager)
-    session = get_user_session(chat_id)
+    # Rehber'e özel oturum (Ninova oturumundan bağımsız)
+    _REHBER_SESSIONS.cleanup_inactive_sessions()
+    session = _REHBER_SESSIONS.get_session(chat_id, headers=HEADERS)
     scraper = RehberScraper(session)
 
     # Kullanıcı bilgilerini al ve Rehber SSO'ya giriş yap

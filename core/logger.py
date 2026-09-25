@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from contextlib import suppress
 from contextvars import ContextVar
@@ -83,6 +84,36 @@ _EXTRA_FIELDS = (
 )
 
 
+# Telegram bot token'ı ("123456789:AA...") API URL'lerinin içinde geçiyor ve requests
+# exception mesajlarıyla log'lara / stderr'e düşebiliyordu.
+_TELEGRAM_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{30,}")
+
+
+def redact_secrets(text: str) -> str:
+    """Metindeki Telegram bot token'larını maskeler."""
+    if not text:
+        return text
+    return _TELEGRAM_TOKEN_RE.sub("[REDACTED]", text)
+
+
+class RedactSecretsFilter(logging.Filter):
+    """Log kaydının mesajındaki ve traceback'indeki token'ları maskeler."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = redact_secrets(message)
+        if redacted != message:
+            record.msg, record.args = redacted, None
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = redact_secrets(record.exc_text)
+        http_url = getattr(record, "http_url", None)
+        if isinstance(http_url, str):
+            record.http_url = redact_secrets(http_url)
+        return True
+
+
 class _ContextFilter(logging.Filter):
     """Inject shared context fields into log records."""
 
@@ -113,8 +144,10 @@ class _JsonFormatter(logging.Formatter):
             value = getattr(record, key, None)
             if value is not None:
                 entry[key] = value
-        if record.exc_info:
-            entry["exc"] = self.formatException(record.exc_info)
+        if record.exc_text:
+            entry["exc"] = record.exc_text
+        elif record.exc_info:
+            entry["exc"] = redact_secrets(self.formatException(record.exc_info))
         return json.dumps(entry, ensure_ascii=False)
 
 
@@ -169,6 +202,10 @@ def setup_logging(logs_dir: Path) -> DailyFileHandler:
     handler = DailyFileHandler(logs_dir, encoding="utf-8")
     handler.setFormatter(_JsonFormatter())
     handler.addFilter(_ContextFilter())
+    handler.addFilter(RedactSecretsFilter())
+    # TeleBot kendi stderr handler'ına da yazıyor (pm2 log'larına gider).
+    for telebot_handler in logging.getLogger("TeleBot").handlers:
+        telebot_handler.addFilter(RedactSecretsFilter())
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     if not any(isinstance(h, DailyFileHandler) for h in root.handlers):

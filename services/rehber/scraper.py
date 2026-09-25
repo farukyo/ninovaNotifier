@@ -16,9 +16,12 @@ class RehberScraper:
 
     def __init__(self, session):
         """
-        :param session: Kullanıcının Ninova girişinde açılmış requests.Session() nesnesi
+        :param session: Rehber'e özel requests.Session nesnesi. Ninova oturumu
+            verilmemeli: aşağıdaki retry adapter'ı oturumdaki tüm istekleri etkiler.
         """
         self.session = session
+        if getattr(session, "_rehber_retry_mounted", False):
+            return
 
         # Configure retry strategy specifically for Rehber requests if needed
         retry_strategy = Retry(
@@ -30,6 +33,7 @@ class RehberScraper:
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
+        session._rehber_retry_mounted = True
 
     def is_logged_in(self):
         """Rehber sistemine giriş yapılıp yapılmadığını kontrol eder."""

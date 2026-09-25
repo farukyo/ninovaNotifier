@@ -57,6 +57,28 @@ class TestParseTurkishDate:
     def test_partial_data_returns_none(self):
         assert parse_turkish_date("10 ekim") is None
 
+    def test_uppercase_turkish_months(self):
+        # Regresyon: str.lower() "EKİM"i "eki̇m", "ARALIK"ı "aralik" yapıyor ve ay
+        # tanınmadığında Ocak varsayılıyordu.
+        assert parse_turkish_date("10 EKİM 2025 10:00").month == 10
+        assert parse_turkish_date("10 ARALIK 2025 10:00").month == 12
+        assert parse_turkish_date("10 KASIM 2025 10:00").month == 11
+        assert parse_turkish_date("10 Ağustos 2025 10:00").month == 8
+
+    def test_unknown_month_returns_none(self):
+        assert parse_turkish_date("10 Foo 2025 10:00") is None
+
+    def test_date_without_time(self):
+        dt = parse_turkish_date("15 Eylül 2025")
+        assert (dt.year, dt.month, dt.day, dt.hour, dt.minute) == (2025, 9, 15, 0, 0)
+
+    def test_non_time_fourth_token_defaults_to_midnight(self):
+        dt = parse_turkish_date("15 Eylül 2025 Pazartesi")
+        assert (dt.month, dt.day, dt.hour) == (9, 15, 0)
+
+    def test_invalid_day_returns_none(self):
+        assert parse_turkish_date("32 Ocak 2025 10:00") is None
+
 
 # ---------------------------------------------------------------------------
 # escape_html

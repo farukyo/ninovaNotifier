@@ -16,12 +16,11 @@ from core.config import (
     cleanup_inactive_sessions,
     close_user_session,
     get_user_session,
-    save_all_users,
 )
 from core.scheduler import submit_background_task
+from core.storage import delete_user, delete_user_grades
 from core.utils import (
     decrypt_password,
-    save_grades,
     update_user_data,
 )
 from services.ninova import get_user_courses, login_to_ninova
@@ -480,17 +479,12 @@ def handle_optout_confirm(call):
     target_id = parts[1]
     request_id = new_admin_request_id("cb")
 
-    # Kullanıcıyı sil
-    users = load_admin_users()
-    if target_id in users:
-        del users[target_id]
-        save_all_users(users)
-
-    # Notları sil
-    grades = load_admin_grades()
-    if target_id in grades:
-        del grades[target_id]
-        save_grades(grades)
+    # Kullanıcıyı ve notlarını kilit altında sil (eski kopyayı geri yazmak, arada
+    # başka kullanıcılar için yapılan değişiklikleri eziyordu).
+    if not delete_user(target_id):
+        bot.answer_callback_query(call.id, "❌ Kullanıcı bulunamadı.", show_alert=True)
+        return
+    delete_user_grades(target_id)
 
     # Close user session
     close_user_session(target_id)
@@ -518,6 +512,9 @@ def handle_optout_cancel(call):
 
     :param call: CallbackQuery nesnesi
     """
+    if not is_admin(call):
+        return
+
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,

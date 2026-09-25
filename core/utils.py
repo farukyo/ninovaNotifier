@@ -20,7 +20,7 @@ import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from core.http_logging import http_request
-from core.logger import log_with_context
+from core.logger import log_with_context, redact_secrets
 from core.storage import delete_course_data, load_saved_grades, save_grades, update_user_data
 
 logger = logging.getLogger("ninova")
@@ -59,19 +59,34 @@ DATE_MONTHS = {
 }
 
 
+def _turkish_lower(text: str) -> str:
+    """Türkçe kurallarıyla küçük harfe çevirir (I→ı, İ→i); str.lower() "EKİM"i bozuyor."""
+    return text.replace("I", "ı").replace("İ", "i").lower()
+
+
 def parse_turkish_date(date_str: str) -> datetime | None:
-    """Parses dates like '10 Ekim 2025 00:00'. Returns datetime or None."""
+    """
+    '10 Ekim 2025 14:30' veya '10 Ekim 2025' biçimindeki tarihleri parse eder.
+
+    Saat yoksa 00:00 kabul edilir. Ay adı tanınmazsa None döner; eskiden sessizce
+    Ocak ayı varsayılıyor ve ödev hatırlatmaları yanlış zamanda gidiyordu.
+    """
     try:
         parts = date_str.strip().split()
-        if len(parts) >= 4:
-            day = int(parts[0])
-            month_name = parts[1].lower()
-            year = int(parts[2])
+        if len(parts) < 3:
+            return None
+        day = int(parts[0])
+        month = DATE_MONTHS.get(_turkish_lower(parts[1]))
+        year = int(parts[2])
+        if month is None:
+            logger.debug(f"Tarih parse hatası ('{date_str}'): bilinmeyen ay")
+            return None
+        hour = minute = 0
+        if len(parts) >= 4 and ":" in parts[3]:
             time_parts = parts[3].split(":")
             hour = int(time_parts[0])
             minute = int(time_parts[1])
-            month = DATE_MONTHS.get(month_name, 1)
-            return datetime(year, month, day, hour, minute)
+        return datetime(year, month, day, hour, minute)
     except (ValueError, IndexError, AttributeError) as e:
         logger.debug(f"Tarih parse hatası ('{date_str}'): {e}")
     return None
@@ -410,12 +425,12 @@ def send_telegram_message(chat_id: Any, message: str, is_error: bool = False) ->
             log_with_context(
                 logger,
                 "error",
-                f"Telegram mesaj gonderim ag hatasi: {e}",
+                f"Telegram mesaj gonderim ag hatasi: {redact_secrets(str(e))}",
                 chat_id=str(chat_id),
                 action="telegram_send",
                 error_stage="http",
             )
-            console.print(f"[red][Telegram] Gönderim hatası ({chat_id}): {e}")
+            console.print(f"[red][Telegram] Gönderim hatası ({chat_id}): {redact_secrets(str(e))}")
 
 
 def _post_telegram_message(url: str, chat_id: Any, payload: dict) -> requests.Response:
@@ -540,11 +555,13 @@ def send_telegram_document(
         log_with_context(
             logger,
             "error",
-            f"Telegram dosya gonderim istisnasi: {e}",
+            f"Telegram dosya gonderim istisnasi: {redact_secrets(str(e))}",
             chat_id=str(chat_id),
             action="telegram_send_document",
             exc_info=True,
         )
-        console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {e}")
+        console.print(
+            f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {redact_secrets(str(e))}"
+        )
 
     return sent_file_id

@@ -7,9 +7,8 @@ import logging
 from telebot import types
 
 from bot.instance import bot_instance as bot
-from core.utils import (
-    update_user_data,
-)
+from core.storage import modify_user
+from core.utils import escape_html
 
 from .data_helpers import load_admin_user_context, load_admin_users
 from .helpers import log_admin_action
@@ -167,13 +166,22 @@ def confirm_delete_course(call, target_user_id, course_index, request_id: str | 
     """
     _users, _user_data, urls, username, user_grades = load_admin_user_context(target_user_id)
 
-    if course_index >= len(urls):
+    # Negatif indeks de reddedilmeli: sahte "-1" son dersi siliyordu.
+    if not 0 <= course_index < len(urls):
         bot.answer_callback_query(call.id, "❌ Ders bulunamadı.", show_alert=True)
         return False
 
     deleted_url = urls[course_index]
-    urls.pop(course_index)
-    update_user_data(target_user_id, "urls", urls)
+
+    def _remove(data):
+        data["urls"] = [u for u in data.get("urls", []) if u != deleted_url]
+
+    # Atomik güncelle; kullanıcı yoksa (arada silinmişse) hayalet kayıt oluşturma.
+    updated = modify_user(target_user_id, _remove)
+    if updated is None:
+        bot.answer_callback_query(call.id, "❌ Kullanıcı bulunamadı.", show_alert=True)
+        return False
+    urls = updated["urls"]
     log_admin_action(
         str(call.message.chat.id),
         "manage_courses_delete",
@@ -190,12 +198,12 @@ def confirm_delete_course(call, target_user_id, course_index, request_id: str | 
     except Exception as e:
         logger.debug(f"Could not delete admin confirm-delete prompt: {e}")
 
-    course_name = user_grades.get(deleted_url, {}).get("course_name", deleted_url)
+    course_name = escape_html(user_grades.get(deleted_url, {}).get("course_name", deleted_url))
 
     bot.send_message(
         call.message.chat.id,
         f"✅ <b>Ders Silindi</b>\n\n"
-        f"👤 Kullanıcı: <b>{username}</b> ({target_user_id})\n"
+        f"👤 Kullanıcı: <b>{escape_html(str(username))}</b> ({target_user_id})\n"
         f"🗑️ Silinen Ders: <b>{course_name}</b>\n"
         f"📚 Kalan Dersler: {len(urls)}",
         parse_mode="HTML",
@@ -229,7 +237,12 @@ def confirm_clear_all_courses(call, target_user_id, request_id: str | None = Non
     _users, user_data, _urls, username, _user_grades = load_admin_user_context(target_user_id)
     url_count = len(user_data.get("urls", []))
 
-    update_user_data(target_user_id, "urls", [])
+    def _clear(data):
+        data["urls"] = []
+
+    if modify_user(target_user_id, _clear) is None:
+        bot.answer_callback_query(call.id, "❌ Kullanıcı bulunamadı.", show_alert=True)
+        return
     log_admin_action(
         str(call.message.chat.id),
         "manage_courses_clear",
@@ -249,7 +262,7 @@ def confirm_clear_all_courses(call, target_user_id, request_id: str | None = Non
     bot.send_message(
         call.message.chat.id,
         f"✅ <b>Tüm Dersler Silindi</b>\n\n"
-        f"👤 Kullanıcı: <b>{username}</b> ({target_user_id})\n"
+        f"👤 Kullanıcı: <b>{escape_html(str(username))}</b> ({target_user_id})\n"
         f"🗑️ Silinen Dersler: {url_count}",
         parse_mode="HTML",
     )
