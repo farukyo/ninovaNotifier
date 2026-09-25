@@ -235,3 +235,67 @@ def test_touch_last_check_does_not_recreate_deleted_user():
     users = storage.load_all_users()
     assert "1" not in users
     assert "last_check" in users["2"]
+
+
+def test_partial_file_source_failure_keeps_saved_files_of_that_source():
+    # Regresyon: Sınıf/Ders dosya uç noktalarından biri çekilemeyince eksik liste başarılı
+    # sayılıyor ve o kaynağın tüm dosyaları "DOSYA SİLİNDİ" diye bildiriliyordu.
+    sinif = {"name": "s.pdf", "url": "https://f/s", "date": "d", "size": "1", "source": "Sınıf"}
+    ders = {"name": "d.pdf", "url": "https://f/d", "date": "d", "size": "1", "source": "Ders"}
+    saved = _saved(_course(files=[sinif, ders]))
+    current = _course(files=[sinif], failed_file_sources=["Ders"])
+
+    _sections, changes, *_ = main._compare_course_data(current, saved, None, "BLG 101E")
+
+    assert not any("SİLİNDİ" in c for c in changes)
+    assert {f["name"] for f in current["files"]} == {"s.pdf", "d.pdf"}
+
+
+def test_failed_detail_fetch_keeps_detail_cache_metadata():
+    # Regresyon: detay sayfası çekilemeyince detail_fetched_at düşüyor ve taze detay
+    # bir sonraki döngüde (ve sonrakilerde) gereksiz yere yeniden çekiliyordu.
+    saved = _saved(_course())
+    saved["assignments"][0]["detail_fetched_at"] = 111.0
+    saved["assignments"][0]["list_signature"] = "old-sig"
+    listed_only = {
+        k: v
+        for k, v in saved["assignments"][0].items()
+        if k not in ("description", "source_files", "required_files", "detail_fetched_at")
+    }
+    listed_only["list_signature"] = "new-sig"
+    current = _course(assignments=[listed_only])
+
+    main._compare_course_data(current, saved, None, "BLG 101E")
+
+    assign = current["assignments"][0]
+    assert assign["detail_fetched_at"] == 111.0
+    # Kayıtlı imza korunur; böylece liste değişikliği için detay bir sonraki döngüde
+    # yeniden denenir.
+    assert assign["list_signature"] == "old-sig"
+
+
+@pytest.mark.usefixtures("isolated_storage")
+def test_check_single_user_validates_session_once_before_fanout(monkeypatch):
+    # Oturum doğrulanamazsa dersler paralel çekilmemeli (5 thread'in her biri ayrı ayrı
+    # backoff'lu login denemesi yapıyordu); hata bir kez kaydedilip kullanıcı atlanmalı.
+    from core.utils import encrypt_password
+
+    calls, errors = [], []
+
+    def failing_login(*_a, **_kw):
+        raise main.LoginFailedError("NETWORK_TIMEOUT", "timeout")
+
+    monkeypatch.setattr(main, "login_to_ninova", failing_login)
+    monkeypatch.setattr(main, "get_grades", lambda *a, **_k: calls.append(a))
+    monkeypatch.setattr(main.error_tracker, "record_error", lambda *a, **_k: errors.append(a))
+    user = {
+        "username": "user",
+        "password": encrypt_password("pw"),
+        "urls": ["https://ninova.itu.edu.tr/Sinif/1", "https://ninova.itu.edu.tr/Sinif/2"],
+    }
+
+    changes = main._check_single_user("1", user, main.Table())
+
+    assert changes == []
+    assert calls == []
+    assert len(errors) == 1

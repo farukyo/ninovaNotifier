@@ -49,7 +49,12 @@ from core.utils import (
     send_telegram_message,
 )
 from services.ari24.client import Ari24Client
-from services.ninova import LoginFailedError, get_announcement_detail, get_grades
+from services.ninova import (
+    LoginFailedError,
+    get_announcement_detail,
+    get_grades,
+    login_to_ninova,
+)
 from services.sks.announcer import check_and_announce_sks_menu
 
 # Logging yapılandırması
@@ -460,6 +465,18 @@ def _compare_course_data(
     for section in current_data.get("failed_sections", []):
         current_data[section] = copy.deepcopy(saved_data.get(section, []))
 
+    # Dosya kaynaklarından (Sınıf/Ders) sadece biri çekilemediyse, o kaynağın kayıtlı
+    # dosyalarını koru; aksi halde hepsi "silindi" sayılıyordu.
+    failed_sources = set(current_data.get("failed_file_sources", []))
+    if failed_sources:
+        current_data["files"] = [
+            f for f in current_data.get("files", []) if f.get("source") not in failed_sources
+        ] + [
+            copy.deepcopy(f)
+            for f in saved_data.get("files", [])
+            if f.get("source") in failed_sources
+        ]
+
     current_grades = current_data.get("grades", {})
     current_assignments = current_data.get("assignments", [])
     current_files = current_data.get("files", [])
@@ -549,9 +566,21 @@ def _compare_course_data(
             # kayıttan al; yoksa "kaynak dosya silindi"/"teslim geri çekildi" gibi sahte
             # bildirimler gidip bir sonraki kontrolde geri geliyordu.
             if "source_files" not in assign:
-                for key in ("description", "source_files", "required_files", "is_submitted"):
+                for key in (
+                    "description",
+                    "source_files",
+                    "required_files",
+                    "is_submitted",
+                    "detail_fetched_at",
+                ):
                     if key in saved_assign:
                         assign[key] = saved_assign[key]
+                # Detay önbellek meta verisi de kayıttakiyle aynı kalmalı: zaman damgası
+                # düşerse taze detay her döngüde yeniden çekiliyordu; yeni liste imzası
+                # kaydedilirse ise liste değişikliğinden sonraki detay hiç çekilmiyordu.
+                # Kayıtlı imza ile tutarlı bırakınca sadece gerçekten gereken yeniden
+                # denenir.
+                assign["list_signature"] = saved_assign.get("list_signature")
             # Hatırlatma kaydını her zaman taşı (manuel kontrol include_reminders=False
             # ile çalışıyor ve bu alanı siliyordu → aynı hatırlatma tekrar gidiyordu).
             if "reminders_sent" in saved_assign:
@@ -1355,6 +1384,26 @@ def _check_single_user(chat_id: str, user_data: dict, changes_table: Table) -> l
     # Get user session (managed by SessionManager)
     user_session = get_user_session(chat_id)
     saved = load_saved_grades().get(chat_id, {})
+
+    # Dersler aşağıda aynı oturumla paralel çekiliyor. Oturumu önce tek seferde
+    # doğrula/yenile: aksi halde oturum yokken (veya ağ koptuğunda) 5 thread'in her biri
+    # sırayla backoff'lu login denemesi yapıyor, kullanıcı başına dakikalarca bekleniyordu.
+    # Tarama sırasında oturum düşerse yeniden giriş auth.get_user_lock ile tekilleşir ve
+    # login sayfası dönen bölümler failed_sections ile kayıtlı veriyi korur.
+    try:
+        login_to_ninova(user_session, chat_id, username, password, quiet=True)
+    except LoginFailedError as e:
+        logger.error(
+            "[%s] %s - LoginFailedError: type=%s, details=%s",
+            chat_id,
+            username,
+            e.error_type,
+            e.message,
+        )
+        error_tracker.record_error(
+            chat_id, e.error_type, str(e.message), username, error_stage="login"
+        )
+        return []
 
     all_current_grades = {}
     with Progress(

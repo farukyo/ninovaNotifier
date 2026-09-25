@@ -32,7 +32,7 @@ def test_get_grades_relogins_on_login_page(monkeypatch):
         scraper, "login_to_ninova", lambda *args, **_kwargs: logins.append(args) or True
     )
     monkeypatch.setattr(scraper, "get_assignments", lambda *_a: None)
-    monkeypatch.setattr(scraper, "get_all_files", lambda *_a: [])
+    monkeypatch.setattr(scraper, "get_all_files_with_status", lambda *_a: ([], []))
     monkeypatch.setattr(scraper, "get_announcements", lambda *_a: [])
 
     data = scraper.get_grades(object(), base, "1", "user", "pw")
@@ -68,7 +68,7 @@ def test_get_grades_relogins_through_real_auth_path(monkeypatch):
     # Regresyon: login_to_ninova /Kampus'tan gelen her 200'ü "oturum açık" sayıyordu;
     # login formu 200 ile döndüğünde hiç giriş yapılmıyor ve SESSION_ERROR oluşuyordu.
     monkeypatch.setattr(scraper, "get_assignments", lambda *_a: [])
-    monkeypatch.setattr(scraper, "get_all_files", lambda *_a: [])
+    monkeypatch.setattr(scraper, "get_all_files_with_status", lambda *_a: ([], []))
     monkeypatch.setattr(scraper, "get_announcements", lambda *_a: [])
     session = _FakeNinovaSession()
 

@@ -674,7 +674,23 @@ def get_class_files(
 
 def get_all_files(session: requests.Session, base_url: str) -> list[dict] | None:
     """Hem sınıf dosyalarını hem ders dosyalarını çeker."""
+    files, _failed_sources = get_all_files_with_status(session, base_url)
+    return files
+
+
+def get_all_files_with_status(
+    session: requests.Session, base_url: str
+) -> tuple[list[dict] | None, list[str]]:
+    """
+    Sınıf ve ders dosyalarını çeker; hangi kaynağın çekilemediğini de döndürür.
+
+    Kaynaklardan biri başarısız olduğunda eksik liste başarılı sayılırsa o kaynağın
+    tüm dosyaları "silindi" diye bildiriliyor ve kayıttan düşüyordu.
+
+    :return: (dosyalar veya ikisi de başarısızsa None, başarısız kaynaklar ["Sınıf", "Ders"])
+    """
     all_files = []
+    failed_sources = []
 
     # Sınıf dosyaları
     sinif_files = get_class_files(session, base_url, file_type="SinifDosyalari")
@@ -682,6 +698,8 @@ def get_all_files(session: requests.Session, base_url: str) -> list[dict] | None
         for file_ in sinif_files:
             file_["source"] = "Sınıf"
         all_files.extend(sinif_files)
+    else:
+        failed_sources.append("Sınıf")
 
     # Ders dosyaları
     ders_files = get_class_files(session, base_url, file_type="DersDosyalari")
@@ -689,12 +707,14 @@ def get_all_files(session: requests.Session, base_url: str) -> list[dict] | None
         for file_ in ders_files:
             file_["source"] = "Ders"
         all_files.extend(ders_files)
+    else:
+        failed_sources.append("Ders")
 
     # Her iki uç nokta da başarısızsa üst akış fetch_success=False olarak işaretlesin.
     if sinif_files is None and ders_files is None:
-        return None
+        return None, failed_sources
 
-    return all_files
+    return all_files, failed_sources
 
 
 def get_user_courses(session: requests.Session) -> list[dict]:
@@ -1020,11 +1040,14 @@ def get_grades(
             grades_data["failed_sections"].append("assignments")
             assignments = []
 
-        files = get_all_files(session, base_url)
+        files, failed_file_sources = get_all_files_with_status(session, base_url)
         if files is None:
             grades_data["fetch_success"] = False
             grades_data["failed_sections"].append("files")
             files = []
+        elif failed_file_sources:
+            # Tek kaynak çekilemedi: karşılaştırmada o kaynağın kayıtlı dosyaları korunur.
+            grades_data["failed_file_sources"] = failed_file_sources
 
         announcements = get_announcements(session, base_url)
         if announcements is None:

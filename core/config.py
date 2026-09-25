@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from core.cache import get_cache_manager
-from core.http_client import get_session_manager
+from core.http_client import SessionManager, get_session_manager
 
 load_dotenv(Path("secrets") / ".env")
 console = Console()
@@ -84,15 +84,28 @@ _cache_manager = get_cache_manager(max_entries=10000, ttl_seconds=7 * 24 * 3600)
 USER_SESSIONS = {}
 
 
+# Rehber (İTÜ SSO) oturumları Ninova oturumlarından ayrı tutulur: RehberScraper oturuma
+# POST'u da tekrar deneyen bir retry adapter'ı takıyor. Hesap değişince/silinince
+# close_user_session ikisini birden kapatır; yoksa eski hesabın Rehber girişi
+# 15 dakikaya kadar yeniden kullanılabiliyordu.
+_rehber_session_manager = SessionManager(ttl_seconds=15 * 60)
+
+
 def get_user_session(chat_id: int):
     return _session_manager.get_session(chat_id, headers=HEADERS)
 
 
+def get_rehber_session(chat_id):
+    return _rehber_session_manager.get_session(chat_id, headers=HEADERS)
+
+
 def close_user_session(chat_id: int) -> bool:
+    _rehber_session_manager.close_session(chat_id)
     return _session_manager.close_session(chat_id)
 
 
 def cleanup_inactive_sessions(force: bool = False) -> int:
+    _rehber_session_manager.cleanup_inactive_sessions(force=force)
     return _session_manager.cleanup_inactive_sessions(force=force)
 
 
