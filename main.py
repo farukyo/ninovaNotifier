@@ -39,7 +39,7 @@ from core.config import (
     sync_cache_to_disk,
 )
 from core.logger import clear_log_context, set_log_context, setup_logging
-from core.storage import update_user_grades
+from core.storage import modify_user, update_user_grades
 from core.utils import (
     decrypt_password,
     escape_html,
@@ -47,7 +47,6 @@ from core.utils import (
     load_saved_grades,
     parse_turkish_date,
     send_telegram_message,
-    update_user_data,
 )
 from services.ari24.client import Ari24Client
 from services.ninova import LoginFailedError, get_announcement_detail, get_grades
@@ -913,17 +912,33 @@ def _send_file_notifications(
         )
 
 
-def _assignment_cache_advanced(updated_courses: dict, saved_courses: dict) -> bool:
-    """Ödevlerin detay önbelleği meta verisi kayıttakinden farklı mı?"""
+def _touch_last_check(chat_id: str) -> None:
+    """last_check alanını günceller; kullanıcı arada silindiyse onu yeniden yaratmaz."""
+    now_iso = datetime.now().isoformat()
 
-    def _meta(assignments):
-        return {
-            a.get("id"): (a.get("detail_fetched_at"), a.get("list_signature")) for a in assignments
-        }
+    def _set(data):
+        data["last_check"] = now_iso
+
+    modify_user(chat_id, _set)
+
+
+def _bookkeeping_changed(updated_courses: dict, saved_courses: dict) -> bool:
+    """
+    Kullanıcıya görünen bir değişiklik olmasa da kaydedilmesi gereken iç durum
+    değişti mi? (ödev detay önbelleği, şüpheli boş dosya listesi sayacı)
+    """
+
+    def _meta(course):
+        return (
+            course.get("files_suspect_count", 0),
+            {
+                a.get("id"): (a.get("detail_fetched_at"), a.get("list_signature"))
+                for a in course.get("assignments", [])
+            },
+        )
 
     return any(
-        _meta(course.get("assignments", []))
-        != _meta(saved_courses.get(url, {}).get("assignments", []))
+        _meta(course) != _meta(saved_courses.get(url, {}))
         for url, course in updated_courses.items()
     )
 
@@ -1008,9 +1023,11 @@ def _process_user_results(
         }
 
     if not all_changes:
-        # Değişiklik yoksa bile ödev detay önbelleği (detail_fetched_at/list_signature)
-        # ilerlediyse sessizce kaydet; aksi halde detaylar her döngüde yeniden çekilir.
-        if _assignment_cache_advanced(updated_courses, user_saved_grades):
+        # Değişiklik yoksa bile iç durum (ödev detay önbelleği, şüpheli boş dosya
+        # listesi sayacı) ilerlediyse sessizce kaydet. Aksi halde detaylar her döngüde
+        # yeniden çekilir ve sayaç hiç artmadığı için gerçekten silinen dosyalar
+        # asla kabul edilmez.
+        if _bookkeeping_changed(updated_courses, user_saved_grades):
             update_user_grades(chat_id, updated_courses)
         return all_changes
 
@@ -1204,7 +1221,7 @@ def _check_user_updates_locked(
     # Sadece last_check alanını güncelle. Eskiden taramanın başında okunan tüm users.json
     # kopyası geri yazılıyordu; tarama sürerken yapılan değişiklikler (ör. eklenen ders)
     # kayboluyordu.
-    update_user_data(chat_id, "last_check", datetime.now().isoformat())
+    _touch_last_check(chat_id)
 
     # Son kontrol zamanını güncelle
     global LAST_CHECK_DISPLAY_TIME
@@ -1430,7 +1447,7 @@ def _check_single_user(chat_id: str, user_data: dict, changes_table: Table) -> l
         console.print(f"[dim]Değişiklik yok ({chat_id})")
 
     # fix: save last_check per-user atomically (BUG-C3)
-    update_user_data(chat_id, "last_check", datetime.now().isoformat())
+    _touch_last_check(chat_id)
     return all_changes
 
 

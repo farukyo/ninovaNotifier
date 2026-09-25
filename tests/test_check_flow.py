@@ -162,3 +162,40 @@ def test_detail_cache_metadata_is_saved_without_notifications(isolated_storage):
     assert sent_buttons == []
     saved = storage.load_saved_grades()["1"][url]["assignments"][0]
     assert saved["detail_fetched_at"] == 12345.0
+
+
+def test_suspect_empty_file_counter_is_persisted(isolated_storage):
+    # Regresyon: ilk şüpheli boş dosya listesinde sayaç artıyor ama değişiklik
+    # olmadığı için kaydedilmiyordu; gerçekten silinen dosyalar asla kabul edilmiyordu.
+    sent_messages, _ = isolated_storage
+    url = "https://ninova.itu.edu.tr/Sinif/1"
+    main._process_user_results(
+        "1", "user", None, {url: _course(announcements=[])}, silent=True, include_reminders=False
+    )
+
+    changes = main._process_user_results(
+        "1",
+        "user",
+        None,
+        {url: _course(announcements=[], files=[])},
+        silent=False,
+        include_reminders=False,
+    )
+
+    assert changes == []
+    assert sent_messages == []
+    saved = storage.load_saved_grades()["1"][url]
+    assert saved["files_suspect_count"] == 1
+    assert saved["files"][0]["name"] == "a.pdf"
+
+
+@pytest.mark.usefixtures("isolated_storage")
+def test_touch_last_check_does_not_recreate_deleted_user():
+    storage.save_all_users({"2": {"username": "x"}})
+
+    main._touch_last_check("1")
+    main._touch_last_check("2")
+
+    users = storage.load_all_users()
+    assert "1" not in users
+    assert "last_check" in users["2"]

@@ -28,6 +28,7 @@ def handle_course_management(call):
     :param call: CallbackQuery nesnesi
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     request_id = new_admin_request_id("cb")
@@ -46,6 +47,7 @@ def handle_user_course_select(call):
     :param call: CallbackQuery nesnesi (adm_coursemgmt_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     request_id = new_admin_request_id("cb")
@@ -81,6 +83,7 @@ def handle_delete_course_select(call):
     :param call: CallbackQuery nesnesi (adm_delcourse_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     request_id = new_admin_request_id("cb")
@@ -118,6 +121,7 @@ def handle_delete_course_confirm(call):
     :param call: CallbackQuery nesnesi (adm_delconf_<chat_id>_<course_index> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     request_id = new_admin_request_id("cb")
@@ -155,6 +159,7 @@ def handle_clear_courses(call):
     :param call: CallbackQuery nesnesi (adm_clearcourses_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     request_id = new_admin_request_id("cb")
@@ -193,6 +198,7 @@ def handle_clear_courses_confirm(call):
     :param call: CallbackQuery nesnesi (adm_clearcourses_conf_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     request_id = new_admin_request_id("cb")

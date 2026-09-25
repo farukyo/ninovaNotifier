@@ -16,7 +16,7 @@ from core.http_logging import http_request
 from core.logger import log_with_context
 from core.utils import parse_turkish_date, sanitize_html_for_telegram
 
-from .auth import LoginFailedError, login_to_ninova
+from .auth import LoginFailedError, _looks_like_login_page, login_to_ninova
 
 logger = logging.getLogger("ninova")
 
@@ -46,19 +46,6 @@ def _needs_detail_refresh(assign: dict, saved: dict | None, now: float) -> bool:
     is_past = due is not None and due < datetime.now()
     max_age = ASSIGNMENT_DETAIL_REFRESH_PAST if is_past else ASSIGNMENT_DETAIL_REFRESH_ACTIVE
     return now - saved["detail_fetched_at"] >= max_age
-
-
-def _looks_like_login_page(html: str, url: str = "") -> bool:
-    """Detect when Ninova returned the login form instead of course content."""
-    html_lower = html.lower()
-    url_lower = url.lower()
-    return (
-        "login.aspx" in url_lower
-        or "ctl00_contentplaceholder1_tbusername" in html_lower
-        or "ctl00$contentplaceholder1$tbusername" in html_lower
-        or "ctl00_contentplaceholder1_btnlogin" in html_lower
-        or "ctl00$contentplaceholder1$btnlogin" in html_lower
-    )
 
 
 def get_announcements(session: requests.Session, base_url: str) -> list[dict] | None:

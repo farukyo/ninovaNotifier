@@ -399,6 +399,7 @@ def handle_msg_user_select(call):
     :param call: CallbackQuery nesnesi (msg_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     parts = split_callback_data(call.data)
@@ -434,6 +435,7 @@ def handle_optout_user(call):
     :param call: CallbackQuery nesnesi (opt_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     parts = split_callback_data(call.data)
@@ -479,6 +481,7 @@ def handle_optout_confirm(call):
     :param call: CallbackQuery nesnesi (optconf_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     parts = split_callback_data(call.data)
@@ -524,6 +527,7 @@ def handle_optout_cancel(call):
     :param call: CallbackQuery nesnesi
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     bot.edit_message_text(

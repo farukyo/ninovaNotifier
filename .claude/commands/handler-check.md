@@ -34,8 +34,10 @@ Before opening a PR that touches `bot/**`, or when a button or command "does not
    Report `def admin_*_cmd` / `def handle_*` functions that nothing references.
 2. **Authorization**: admin handlers call `is_admin(...)` before any side effect, and on
    rejection they call `bot.answer_callback_query(call.id, ...)` so the button stops spinning.
-   `is_admin` checks `chat.id`, not `from_user.id`, so flag any admin feature that could be
-   used from a group chat.
+   `is_admin` must keep checking the **sender** (`from_user.id`) and require a private chat.
+   Flag any admin check that falls back to `chat.id`, because that lets any member of an
+   admin-configured group act as admin. Flag any admin side effect that is not behind
+   `is_admin`.
 3. **None text**: next-step handlers and `func=` filters must tolerate `message.text is None`
    (use `(message.text or "")`).
 4. **Blocking work**: network scraping, `get_check_callback()()`, broadcast loops or

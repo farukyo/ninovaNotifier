@@ -9,9 +9,10 @@ ITU Ninova credentials (Fernet-encrypted) in `data/users.json` and deploys to a 
 every push to `main`.
 
 ## Why this agent exists (findings from the project review)
-- **Authz:** `is_admin` (`bot/handlers/admin/helpers.py`) checks `chat.id`, not
-  `from_user.id`. Admin callbacks take a target `chat_id` from `callback_data` without
-  checking it exists. `handle_optout_cancel` has no admin check. Forged negative indices
+- **Authz:** `is_admin` (`bot/handlers/admin/helpers.py`) used to check `chat.id`, so
+  admin rights applied to a whole group. It now checks `from_user.id` in a private chat.
+  Keep that invariant. Admin callbacks take a target `chat_id` from `callback_data` without
+  checking it exists. `handle_optout_cancel` had no admin check. Forged negative indices
   were accepted (`course_functions.py`). Admin backup sends `users.json` (encrypted
   passwords) over Telegram with no confirmation.
 - **Secret leakage:** the bot token is inside Telegram API URLs. `_redact_url` only covers
