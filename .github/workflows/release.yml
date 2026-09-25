@@ -8,7 +8,9 @@ on:
         required: true
         default: patch
         type: choice
+        # Varsayılan "patch" seçeneklerde yoktu; form varsayılanla gönderilemiyordu.
         options:
+          - patch
           - minor
           - major
       version:
@@ -30,12 +32,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: Resolve next version
         id: version
@@ -53,12 +55,16 @@ jobs:
           uv sync --dev
           uv run ruff check .
           uv run ruff format --check .
+          uv run pytest -q
+
+      - name: Sync lock file
+        run: uv lock
 
       - name: Commit and tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml
+          git add pyproject.toml uv.lock
           if git diff --cached --quiet; then
             echo "No version change detected; skipping commit and tag."
             exit 1
@@ -69,7 +75,7 @@ jobs:
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
