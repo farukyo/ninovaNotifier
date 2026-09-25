@@ -16,7 +16,7 @@ A Telegram bot that tracks academic changes on ITU Ninova. Get instant notificat
 
 ## Setup
 
-**Requirements:** Python 3.12+, [uv](https://docs.astral.sh/uv/)
+**Requirements:** Python 3.14+, [uv](https://docs.astral.sh/uv/)
 
 ```bash
 # 1. Install dependencies
@@ -116,7 +116,7 @@ Files created at runtime (all in `.gitignore`):
 `.github/workflows/ci.yml`:
 
 1. **Lint:** ruff check, ruff format and secret scanning.
-2. **Test:** pytest on Python 3.12 and 3.14.
+2. **Test:** pytest on Python 3.14.
 3. **Patch bump & lock sync** (only on push to `main`): bumps the patch version, updates `uv.lock`, pushes a `chore(release): vX.Y.Z [skip ci]` commit and tag to `main`, and creates a GitHub Release.
 4. **Deploy** (only on push to `main`, `production` environment): connects to the VPS over SSH and runs these steps:
    - Backs up `data/` and `secrets/` to `~/ninova-backups/` (the last 20 backups are kept).

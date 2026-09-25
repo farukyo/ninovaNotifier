@@ -40,8 +40,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pyproject: requires-python >=3.12; .python-version: 3.14
-        python-version: ["3.12", "3.14"]
+        # pyproject requires-python ve .python-version ile aynı tutun.
+        python-version: ["3.14"]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 

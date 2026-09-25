@@ -16,7 +16,7 @@ ITU Ninova'daki akademik değişiklikleri Telegram üzerinden takip eden bir bot
 
 ## Kurulum
 
-**Gereksinimler:** Python 3.12+, [uv](https://docs.astral.sh/uv/)
+**Gereksinimler:** Python 3.14+, [uv](https://docs.astral.sh/uv/)
 
 ```bash
 # 1. Bağımlılıkları kur
@@ -116,7 +116,7 @@ tests/                  # pytest testleri
 `.github/workflows/ci.yml`:
 
 1. **Lint:** ruff check, ruff format ve gizli bilgi taraması.
-2. **Test:** Python 3.12 ve 3.14 üzerinde pytest.
+2. **Test:** Python 3.14 üzerinde pytest.
 3. **Patch bump & lock sync** (sadece `main` push'unda): patch sürümü artırılır, `uv.lock` güncellenir, `chore(release): vX.Y.Z [skip ci]` commit'i ve tag'i `main`'e push'lanır, GitHub Release oluşturulur.
 4. **Deploy** (sadece `main` push'unda, `production` environment'ı): SSH ile VPS'e bağlanılır ve şu adımlar çalışır:
    - `data/` ve `secrets/` `~/ninova-backups/` altına yedeklenir (son 20 yedek tutulur).
