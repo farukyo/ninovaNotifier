@@ -143,27 +143,6 @@ def handle_admin_callbacks(call):
                 level="warning",
             )
 
-    elif action == "manage_courses":
-        from .course_management import select_user_for_course_management
-
-        select_user_for_course_management(chat_id)
-
-    elif action == "manage_users":
-        bot.send_message(
-            chat_id,
-            "👥 <b>Kullanıcı Yönetimi</b>\n\nBu özellik henüz geliştirilmiyor.",
-            parse_mode="HTML",
-        )
-
-    elif action == "system_status":
-        users = load_admin_users()
-        user_count = len(users)
-        bot.send_message(
-            chat_id,
-            f"📊 <b>Sistem Durumu</b>\n\n👥 Kayıtlı Kullanıcı: {user_count}",
-            parse_mode="HTML",
-        )
-
     elif action == "forceoto":
         users = load_admin_users()
         if not users:

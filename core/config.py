@@ -1,8 +1,6 @@
 """Application configuration loaded from environment variables.
 
 migrated from: common/config.py
-AppConfig dataclass (Step 6 target) is defined here as a stub alongside
-the migrated module-level globals and functions.
 """
 
 # migrated from: common/config.py
@@ -10,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -146,39 +143,3 @@ CACHE_MAX_ENTRIES = 10000
 MAX_LOGIN_RETRIES = 5
 RETRY_BACKOFF_BASE = 2
 RETRY_BACKOFF_MAX = 60
-
-
-# --- Step 6 target: AppConfig dataclass replaces module-level globals above ---
-
-
-@dataclass
-class AppConfig:
-    """All tuneable parameters in one place. Instantiate via from_env()."""
-
-    telegram_token: str = ""
-    admin_telegram_ids: list[int] = field(default_factory=list)
-
-    data_dir: Path = Path("data")
-    logs_dir: Path = Path("logs")
-    secrets_dir: Path = Path("secrets")
-
-    check_interval_seconds: int = 300
-    session_ttl_seconds: int = 900
-    session_cleanup_interval_seconds: int = 300
-
-    cache_max_entries: int = 10_000
-    cache_ttl_seconds: int = 7 * 24 * 3600
-
-    request_timeout_seconds: int = 15
-    request_timeout_long_seconds: int = 30
-
-    max_login_retries: int = 5
-    retry_backoff_base: int = 2
-    retry_backoff_max_seconds: int = 60
-
-    max_notified_urls: int = 500
-
-    @classmethod
-    def from_env(cls) -> AppConfig:
-        """Load configuration from environment / .env file. Stub for Step 6."""
-        raise NotImplementedError("Populate in Step 6")
