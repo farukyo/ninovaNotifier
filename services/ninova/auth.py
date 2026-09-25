@@ -28,6 +28,19 @@ def get_user_lock(chat_id: str) -> threading.Lock:
         return _LOGIN_LOCKS[chat_id]
 
 
+def _looks_like_login_page(html: str, url: str = "") -> bool:
+    """Detect when Ninova returned the login form instead of course content."""
+    html_lower = html.lower()
+    url_lower = url.lower()
+    return (
+        "login.aspx" in url_lower
+        or "ctl00_contentplaceholder1_tbusername" in html_lower
+        or "ctl00$contentplaceholder1$tbusername" in html_lower
+        or "ctl00_contentplaceholder1_btnlogin" in html_lower
+        or "ctl00$contentplaceholder1$btnlogin" in html_lower
+    )
+
+
 class LoginFailedError(Exception):
     """
     Login hatası exception'ı.
@@ -99,7 +112,11 @@ def login_to_ninova(
                         allow_redirects=False,
                         retry_count=attempt - 1,
                     )
-                    if check_resp.status_code == 200:
+                    # Oturum düştüğünde Ninova 200 ile login formunu da döndürebiliyor;
+                    # bunu "oturum açık" sanıp giriş yapmamak yeniden girişi engelliyordu.
+                    if check_resp.status_code == 200 and not _looks_like_login_page(
+                        check_resp.text, getattr(check_resp, "url", "")
+                    ):
                         if not quiet:
                             logger.debug(f"[{chat_id}] Session already active, skipping login")
                         return True

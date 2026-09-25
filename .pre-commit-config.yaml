@@ -1,4 +1,11 @@
 repos:
+  # Lint + format (CI ile aynı kontroller; commit öncesi yakalansın)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.11
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
   # Gizli bilgi tarama
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0

@@ -8,8 +8,10 @@ are in core/storage.py but re-exported here for backward compatibility.
 from __future__ import annotations
 
 import contextlib
+import html
 import logging
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,7 @@ import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from core.http_logging import http_request
-from core.logger import log_with_context
+from core.logger import log_with_context, redact_secrets
 from core.storage import delete_course_data, load_saved_grades, save_grades, update_user_data
 
 logger = logging.getLogger("ninova")
@@ -57,46 +59,53 @@ DATE_MONTHS = {
 }
 
 
+def _turkish_lower(text: str) -> str:
+    """Türkçe kurallarıyla küçük harfe çevirir (I→ı, İ→i); str.lower() "EKİM"i bozuyor."""
+    return text.replace("I", "ı").replace("İ", "i").lower()
+
+
 def parse_turkish_date(date_str: str) -> datetime | None:
-    """Parses dates like '10 Ekim 2025 00:00'. Returns datetime or None."""
+    """
+    '10 Ekim 2025 14:30' veya '10 Ekim 2025' biçimindeki tarihleri parse eder.
+
+    Saat yoksa 00:00 kabul edilir. Ay adı tanınmazsa None döner; eskiden sessizce
+    Ocak ayı varsayılıyor ve ödev hatırlatmaları yanlış zamanda gidiyordu.
+    """
     try:
         parts = date_str.strip().split()
-        if len(parts) >= 4:
-            day = int(parts[0])
-            month_name = parts[1].lower()
-            year = int(parts[2])
+        if len(parts) < 3:
+            return None
+        day = int(parts[0])
+        month = DATE_MONTHS.get(_turkish_lower(parts[1]))
+        year = int(parts[2])
+        if month is None:
+            logger.debug(f"Tarih parse hatası ('{date_str}'): bilinmeyen ay")
+            return None
+        hour = minute = 0
+        if len(parts) >= 4 and ":" in parts[3]:
             time_parts = parts[3].split(":")
             hour = int(time_parts[0])
             minute = int(time_parts[1])
-            month = DATE_MONTHS.get(month_name, 1)
-            return datetime(year, month, day, hour, minute)
+        return datetime(year, month, day, hour, minute)
     except (ValueError, IndexError, AttributeError) as e:
         logger.debug(f"Tarih parse hatası ('{date_str}'): {e}")
     return None
 
 
 def encrypt_password(password: str) -> str:
-    """Şifreyi global cipher_suite ile şifreler."""
+    """Şifreyi global cipher_suite ile şifreler (asıl uygulama: core.crypto)."""
     from core.config import cipher_suite  # deferred to avoid import-time side effects
+    from core.crypto import encrypt_password as _encrypt
 
-    if not password:
-        return ""
-    encrypted = cipher_suite.encrypt(password.encode())
-    return encrypted.decode()
+    return _encrypt(cipher_suite, password)
 
 
 def decrypt_password(encrypted_password: str) -> str | None:
-    """Şifrelenmiş şifreyi global cipher_suite ile çözer."""
+    """Şifrelenmiş şifreyi global cipher_suite ile çözer (asıl uygulama: core.crypto)."""
     from core.config import cipher_suite  # deferred to avoid import-time side effects
+    from core.crypto import decrypt_password as _decrypt
 
-    if not encrypted_password:
-        return ""
-    try:
-        decrypted = cipher_suite.decrypt(encrypted_password.encode())
-        return decrypted.decode()
-    except Exception:
-        logger.error("Şifre çözme başarısız! Şifreleme anahtarı değişmiş olabilir.")
-        return None
+    return _decrypt(cipher_suite, encrypted_password)
 
 
 def escape_html(text: str) -> str:
@@ -335,7 +344,9 @@ def split_long_message(text: str, limit: int = 4000) -> list[str]:
             continue
 
         if len(current_chunk) + len(line) + 1 > limit:
-            chunks.append(current_chunk)
+            # Boş parça ekleme (tam limit uzunluğundaki ilk satırda oluyordu).
+            if current_chunk:
+                chunks.append(current_chunk)
             current_chunk = line
         else:
             current_chunk += ("\n" if current_chunk else "") + line
@@ -355,29 +366,8 @@ def send_telegram_message(chat_id: Any, message: str, is_error: bool = False) ->
 
     prefix = "⚠️ <b>HATA</b>\n\n" if is_error else ""
     full_message = prefix + message
-    limit = 3500
-    messages: list[str] = []
-
-    if len(full_message) <= limit:
-        messages.append(full_message)
-    else:
-        lines = full_message.split("\n")
-        current_msg = ""
-        for line in lines:
-            if len(line) > limit:
-                if current_msg:
-                    messages.append(current_msg)
-                    current_msg = ""
-                messages.extend(line[i : i + limit] for i in range(0, len(line), limit))
-                continue
-            if len(current_msg) + len(line) + 1 > limit:
-                if current_msg:
-                    messages.append(current_msg)
-                current_msg = line
-            else:
-                current_msg += ("\n" if current_msg else "") + line
-        if current_msg:
-            messages.append(current_msg)
+    # Telegram sınırı 4096; HTML etiketleri için pay bırakılır.
+    messages = split_long_message(full_message, limit=3500)
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     for msg in messages:
@@ -385,16 +375,12 @@ def send_telegram_message(chat_id: Any, message: str, is_error: bool = False) ->
             continue
         payload = {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}
         try:
-            response = http_request(
-                logger,
-                requests,
-                "POST",
-                url,
-                action="telegram_send",
-                chat_id=str(chat_id),
-                json=payload,
-                timeout=10,
-            )
+            response = _post_telegram_message(url, chat_id, payload)
+            if response.status_code == 400 and "can't parse entities" in response.text:
+                # Uzun mesaj bölünürken bir HTML etiketi ikiye ayrılmış olabilir; bildirimi
+                # tamamen kaybetmek yerine etiketsiz düz metin olarak gönder.
+                plain = html.unescape(re.sub(r"<[^>]*>", "", msg))
+                response = _post_telegram_message(url, chat_id, {"chat_id": chat_id, "text": plain})
             if response.status_code == 200:
                 clean_msg = re.sub(r"<[^>]*>", "", msg.splitlines()[0])
                 console.print(f"[green][Telegram] Mesaj gönderildi ({chat_id}): {clean_msg}")
@@ -412,12 +398,43 @@ def send_telegram_message(chat_id: Any, message: str, is_error: bool = False) ->
             log_with_context(
                 logger,
                 "error",
-                f"Telegram mesaj gonderim ag hatasi: {e}",
+                f"Telegram mesaj gonderim ag hatasi: {redact_secrets(str(e))}",
                 chat_id=str(chat_id),
                 action="telegram_send",
                 error_stage="http",
             )
-            console.print(f"[red][Telegram] Gönderim hatası ({chat_id}): {e}")
+            console.print(f"[red][Telegram] Gönderim hatası ({chat_id}): {redact_secrets(str(e))}")
+
+
+def _post_telegram_message(url: str, chat_id: Any, payload: dict) -> requests.Response:
+    """sendMessage isteği atar; 429 (rate limit) yanıtında bir kez bekleyip tekrar dener."""
+    response = http_request(
+        logger,
+        requests,
+        "POST",
+        url,
+        action="telegram_send",
+        chat_id=str(chat_id),
+        json=payload,
+        timeout=10,
+    )
+    if response.status_code == 429:
+        retry_after = 5
+        with contextlib.suppress(ValueError, KeyError, TypeError):
+            retry_after = int(response.json()["parameters"]["retry_after"])
+        time.sleep(min(retry_after, 60))
+        response = http_request(
+            logger,
+            requests,
+            "POST",
+            url,
+            action="telegram_send",
+            chat_id=str(chat_id),
+            json=payload,
+            timeout=10,
+            retry_count=1,
+        )
+    return response
 
 
 def send_telegram_document(
@@ -511,11 +528,13 @@ def send_telegram_document(
         log_with_context(
             logger,
             "error",
-            f"Telegram dosya gonderim istisnasi: {e}",
+            f"Telegram dosya gonderim istisnasi: {redact_secrets(str(e))}",
             chat_id=str(chat_id),
             action="telegram_send_document",
             exc_info=True,
         )
-        console.print(f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {e}")
+        console.print(
+            f"[red][Telegram] Dosya gönderim hatası ({chat_id}): {redact_secrets(str(e))}"
+        )
 
     return sent_file_id

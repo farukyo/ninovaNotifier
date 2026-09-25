@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from telebot import types
@@ -6,12 +7,29 @@ from bot.callback_parsing import callback_parse_fail, parse_int_part, split_call
 from bot.handlers.user.audit import log_user_action
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_ari24_menu_keyboard
-from core.config import load_all_users, save_all_users
+from core.config import load_all_users
+from core.storage import modify_user
 from services.ari24.client import Ari24Client
 
 logger = logging.getLogger("ninova")
 ari24_client = Ari24Client()
 CLUBS_PER_PAGE = 10
+# Telegram callback_data en fazla 64 *byte* olabilir. Türkçe karakterler UTF-8'de 2 byte
+# tuttuğu için 40 karakterlik kesme yetmiyordu ve uzun kulüp adları tüm sayfanın
+# gönderilmesini (BUTTON_DATA_INVALID) engelliyordu. "unsub_" öneki 6 byte.
+# Anahtar = okunabilir önek + "~" + tam adın 8 haneli hash'i. Sadece önek kullanmak
+# benzersiz değildi: ilk byte'ları aynı iki uzun kulüp adı aynı anahtarı üretiyor ve
+# kullanıcı butondakinden farklı bir kulübe abone olabiliyordu.
+_CLUB_HASH_LEN = 8
+_CLUB_KEY_MAX_BYTES = 64 - len("unsub_")
+_CLUB_PREFIX_MAX_BYTES = _CLUB_KEY_MAX_BYTES - len("~") - _CLUB_HASH_LEN
+
+
+def _club_key(club: str) -> str:
+    """Kulüp adından callback_data'ya sığan (≤ 58 byte) ve benzersiz bir anahtar üretir."""
+    prefix = club.encode("utf-8")[:_CLUB_PREFIX_MAX_BYTES].decode("utf-8", errors="ignore")
+    digest = hashlib.sha1(club.encode("utf-8")).hexdigest()[:_CLUB_HASH_LEN]
+    return f"{prefix}~{digest}"
 
 
 @bot.message_handler(func=lambda message: message.text == "🐝 Arı24")
@@ -103,7 +121,7 @@ def show_news(message):
     )
 
 
-@bot.message_handler(func=lambda message: message.text.startswith("☀️ Günlük Bülten"))
+@bot.message_handler(func=lambda message: (message.text or "").startswith("☀️ Günlük Bülten"))
 def toggle_daily_bulletin(message):
     chat_id = str(message.chat.id)
     users = load_all_users()
@@ -112,10 +130,16 @@ def toggle_daily_bulletin(message):
         bot.send_message(chat_id, "Kullanıcı kaydı bulunamadı.")
         return
 
-    current_status = users[chat_id].get("daily_subscription", False)
-    new_status = not current_status
-    users[chat_id]["daily_subscription"] = new_status
-    save_all_users(users)
+    # Yeni değer kilit içinde hesaplanır; eski kopyadan hesaplamak hızlı iki tıklamada
+    # ikinci değişikliği kaybediyordu.
+    def _toggle(data):
+        data["daily_subscription"] = not data.get("daily_subscription", False)
+
+    updated = modify_user(chat_id, _toggle)
+    if updated is None:
+        bot.send_message(chat_id, "Kullanıcı kaydı bulunamadı.")
+        return
+    new_status = updated["daily_subscription"]
 
     status_text = "açıldı" if new_status else "kapatıldı"
     msg = f"☀️ Günlük Bülten aboneliği <b>{status_text}</b>."
@@ -150,11 +174,10 @@ def show_clubs_page(chat_id, page):
     current_page_clubs = clubs[start_idx:end_idx]
 
     markup = types.InlineKeyboardMarkup(row_width=2)
-    buttons = []
-
-    for club in current_page_clubs:
-        safe_name = club[:40]  # Truncate for callback data limit safety
-        buttons.append(types.InlineKeyboardButton(club, callback_data=f"sub_{safe_name}"))
+    buttons = [
+        types.InlineKeyboardButton(club, callback_data=f"sub_{_club_key(club)}")
+        for club in current_page_clubs
+    ]
 
     markup.add(*buttons)
 
@@ -194,31 +217,34 @@ def callback_subscribe(call):
     club_name_truncated = call.data[4:]
     chat_id = str(call.message.chat.id)
 
-    users = load_all_users()
-    if chat_id not in users:
+    if chat_id not in load_all_users():
         bot.answer_callback_query(call.id, "Kullanıcı bulunamadı.")
         return
 
-    user_data = users[chat_id]
-    subs = user_data.get("subscriptions", [])
-
-    # We need to find full name from truncated name if possible,
-    # OR just rely on what we have.
-    # Since we use get_all_clubs(), we can try to match.
-    # But callback data is limited.
-    # Let's search in all clubs list for a match.
-
+    # callback_data'da kulüp anahtarı var; tam adı kulüp listesinden bul. Bulunamazsa
+    # (liste değişmiş veya eski buton) anahtarın kendisini kulüp adı diye kaydetme.
     all_clubs = ari24_client.get_all_clubs()
-    matched_club = next(
-        (c for c in all_clubs if c[:40] == club_name_truncated), club_name_truncated
-    )
+    matched_club = next((c for c in all_clubs if _club_key(c) == club_name_truncated), None)
+    if matched_club is None:
+        bot.answer_callback_query(call.id, "Kulüp bulunamadı, lütfen listeyi yeniden açın.")
+        return
 
-    if matched_club in subs:
+    already = False
+
+    def _subscribe(data):
+        nonlocal already
+        subs = data.setdefault("subscriptions", [])
+        if matched_club in subs:
+            already = True
+        else:
+            subs.append(matched_club)
+
+    if modify_user(chat_id, _subscribe) is None:
+        bot.answer_callback_query(call.id, "Kullanıcı bulunamadı.")
+        return
+    if already:
         bot.answer_callback_query(call.id, "Zaten abonesiniz!")
     else:
-        subs.append(matched_club)
-        user_data["subscriptions"] = subs
-        save_all_users(users)
         bot.answer_callback_query(call.id, f"✅ {matched_club} takip ediliyor!")
 
 
@@ -237,7 +263,7 @@ def my_clubs(message):
     for club in subs:
         markup.add(
             types.InlineKeyboardButton(
-                f"❌ Abonelikten Çık: {club}", callback_data=f"unsub_{club[:40]}"
+                f"❌ Abonelikten Çık: {club}", callback_data=f"unsub_{_club_key(club)}"
             )
         )
 
@@ -253,16 +279,19 @@ def callback_unsubscribe(call):
 
     users = load_all_users()
     if chat_id in users:
-        user_data = users[chat_id]
-        subs = user_data.get("subscriptions", [])
+        subs = users[chat_id].get("subscriptions", [])
 
         # Match truncated name to full name in subs
-        matched_club = next((c for c in subs if c[:40] == club_name_truncated), None)
+        matched_club = next((c for c in subs if _club_key(c) == club_name_truncated), None)
 
         if matched_club:
-            subs.remove(matched_club)
-            user_data["subscriptions"] = subs
-            save_all_users(users)
+
+            def _unsubscribe(data):
+                data["subscriptions"] = [
+                    c for c in data.get("subscriptions", []) if c != matched_club
+                ]
+
+            modify_user(chat_id, _unsubscribe)
             bot.answer_callback_query(call.id, "Abonelikten çıkıldı.")
             bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
             bot.send_message(chat_id, f"✅ {matched_club} listeden çıkarıldı.")

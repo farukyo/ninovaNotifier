@@ -6,18 +6,19 @@ on:
   pull_request:
     branches: [main]
 
+# Varsayılan olarak salt okuma; yazma izni sadece sürüm commit'i atan job'da.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: Install dependencies
         run: uv sync --dev
@@ -28,21 +29,47 @@ jobs:
       - name: Run Ruff format check
         run: uv run ruff format --check .
 
+      # `detect-secrets scan --baseline` yeni bulgu olsa da başarısız olmuyordu; hook
+      # sürümü baseline'da olmayan bir bulguda (veya baseline güncel değilse) hata verir.
       - name: Run Secret scan
-        run: uv run detect-secrets scan --baseline .secrets.baseline
+        run: uv run detect-secrets-hook --baseline .secrets.baseline $(git ls-files)
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # pyproject: requires-python >=3.12; .python-version: 3.14
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run tests
+        run: uv run pytest -q
 
   patch-and-lock:
     name: Patch bump & lock sync
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint, test]
     if: github.event_name == 'push'
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: Bump patch version
         run: uv run python scripts/bump_version.py --bump patch --write
@@ -79,16 +106,73 @@ jobs:
     runs-on: ubuntu-latest
     needs: patch-and-lock
     if: github.event_name == 'push'
+    # Repo ayarlarında "production" environment'ına required reviewer eklenirse her
+    # deploy onay bekler. Environment yoksa GitHub onu korumasız olarak oluşturur.
+    environment: production
+    # Üst üste gelen push'larda iki deploy aynı anda sunucuda çalışmasın.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            set -e
-            cd ${{ secrets.VPS_APP_PATH }}
-            git pull origin main
-            /home/faruk/.local/bin/uv sync
+            set -eu
+            cd "${{ secrets.VPS_APP_PATH }}"
+            UV="$HOME/.local/bin/uv"
+            PREV=$(git rev-parse HEAD)
+
+            # 1) Yedek: kullanıcı verileri + secrets (şifreleme anahtarı kaybolursa kayıtlı
+            #    tüm şifreler çözülemez). Son 20 yedek tutulur.
+            BACKUP_DIR="$HOME/ninova-backups"
+            mkdir -p "$BACKUP_DIR"
+            chmod 700 "$BACKUP_DIR"
+            tar --ignore-failed-read -czf \
+              "$BACKUP_DIR/data-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD).tar.gz" \
+              data secrets
+            ls -1t "$BACKUP_DIR"/data-*.tar.gz | tail -n +21 | xargs -r rm --
+
+            # 2) Güncelle ve yeniden başlat
+            git pull --ff-only origin main
+            "$UV" sync
             pm2 restart ninova-bot
+
+            # 3) Sağlık kontrolü: bot 20 sn sonra hâlâ online ve yeniden başlamamışsa
+            #    deploy başarılı. Değilse önceki sürüme dön ve job'ı başarısız say.
+            pm2_state() {
+              pm2 jlist | python3 -c 'import json, sys
+            procs = [p for p in json.load(sys.stdin) if p["name"] == "ninova-bot"]
+            env = procs[0]["pm2_env"] if procs else {}
+            print(env.get("status", "missing"), env.get("restart_time", -1))'
+            }
+            BEFORE=$(pm2_state || echo "unknown -1")
+            sleep 20
+            AFTER=$(pm2_state || echo "unknown -1")
+            echo "pm2 state before=[$BEFORE] after=[$AFTER]"
+            set -- $BEFORE
+            RESTARTS_BEFORE=$2
+            set -- $AFTER
+            STATUS_AFTER=$1
+            RESTARTS_AFTER=$2
+
+            rollback() {
+              echo "$1; $PREV sürümüne dönülüyor."
+              git reset --hard "$PREV"
+              "$UV" sync
+              pm2 restart ninova-bot
+              exit 1
+            }
+
+            if [ "$STATUS_AFTER" = "unknown" ]; then
+              echo "WARNING: pm2 durumu okunamadı; sağlık kontrolü atlandı."
+            elif [ "$STATUS_AFTER" != "online" ]; then
+              rollback "Bot online değil (status=$STATUS_AFTER)"
+            elif [ "$RESTARTS_BEFORE" != "-1" ] && [ "$RESTARTS_AFTER" != "$RESTARTS_BEFORE" ]; then
+              rollback "Bot kendiliğinden yeniden başladı (crash loop)"
+            else
+              echo "Deploy OK."
+            fi

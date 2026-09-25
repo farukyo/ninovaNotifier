@@ -4,7 +4,14 @@ import math
 
 from telebot import types
 
-from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
+from bot.callback_parsing import (
+    callback_parse_fail,
+    find_assignment_source_file,
+    find_course_file,
+    parse_int_part,
+    split_callback_data,
+)
+from bot.check_service import check_user_updates
 from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_grades, load_user_profile, load_user_snapshot
 from bot.inline_keyboards import build_manual_menu
@@ -12,9 +19,10 @@ from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text, resolve_path_token, show_file_browser, validate_ninova_url
 from core.cache import get_cache_manager
-from core.config import close_user_session, load_all_users, save_all_users
+from core.config import close_user_session, load_all_users
 from core.logger import clear_log_context, set_log_context
 from core.scheduler import submit_background_task
+from core.storage import delete_user, delete_user_grades, modify_user
 from core.utils import (
     decrypt_password,
     delete_course_data,
@@ -22,7 +30,6 @@ from core.utils import (
     get_file_icon,
     load_saved_grades,
     sanitize_html_for_telegram,
-    save_grades,
     send_telegram_document,
     update_user_data,
 )
@@ -401,33 +408,21 @@ def handle_file_download(call):
 
         _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
-        if url_idx >= len(urls):
+        # dl_{ders}_{dosya}[_{url_token}] — token eski bildirimlerde yok olabilir.
+        token = parts[3] if len(parts) > 3 else None
+        file_data = find_course_file(user_grades, urls, url_idx, file_idx, token)
+        if file_data is None:
             log_user_action(
                 chat_id,
                 "file_download",
-                status="invalid_course_index",
+                status="file_not_found",
                 request_id=request_id,
-                details=f"url_idx={url_idx};urls={len(urls)}",
+                details=f"url_idx={url_idx};file_idx={file_idx};token={token}",
                 level="warning",
             )
-            bot.answer_callback_query(call.id, "Kurs bulunamadı.")
+            bot.answer_callback_query(call.id, "Dosya bulunamadı (ders listesi değişmiş olabilir).")
             return
 
-        course_url = urls[url_idx]
-        files = user_grades[course_url].get("files", [])
-        if file_idx >= len(files):
-            log_user_action(
-                chat_id,
-                "file_download",
-                status="invalid_file_index",
-                request_id=request_id,
-                details=f"file_idx={file_idx};files={len(files)}",
-                level="warning",
-            )
-            bot.answer_callback_query(call.id, "Dosya bulunamadı.")
-            return
-
-        file_data = files[file_idx]
         file_url = file_data["url"]
         file_name = (
             file_data["name"] if "/" not in file_data["name"] else file_data["name"].split("/")[-1]
@@ -565,22 +560,15 @@ def handle_assignment_source_file_download(call):
 
         _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
-        if url_idx >= len(urls):
-            bot.answer_callback_query(call.id, "Kurs bulunamadı.")
+        # asf_{ders}_{ödev}_{dosya}[_{url_token}]
+        token = parts[4] if len(parts) > 4 else None
+        file_data = find_assignment_source_file(
+            user_grades, urls, url_idx, assign_idx, file_idx, token
+        )
+        if file_data is None:
+            bot.answer_callback_query(call.id, "Dosya bulunamadı (ödev listesi değişmiş olabilir).")
             return
 
-        course_url = urls[url_idx]
-        assignments = user_grades[course_url].get("assignments", [])
-        if assign_idx >= len(assignments):
-            bot.answer_callback_query(call.id, "Ödev bulunamadı.")
-            return
-
-        source_files = assignments[assign_idx].get("source_files", [])
-        if file_idx >= len(source_files):
-            bot.answer_callback_query(call.id, "Dosya bulunamadı.")
-            return
-
-        file_data = source_files[file_idx]
         file_url = file_data["url"]
         file_name = file_data["name"].split("/")[-1]
 
@@ -703,14 +691,8 @@ def handle_folder_navigation(call):
 def handle_leave_confirm(call):
     """Confirm leaving: delete user data, cached grades, and close session."""
     chat_id = str(call.message.chat.id)
-    users = load_all_users()
-    if chat_id in users:
-        del users[chat_id]
-    save_all_users(users)
-    all_grades = load_saved_grades()
-    if chat_id in all_grades:
-        del all_grades[chat_id]
-    save_grades(all_grades)
+    delete_user(chat_id)
+    delete_user_grades(chat_id)
     close_user_session(chat_id)
     bot.edit_message_text(
         chat_id=chat_id,
@@ -764,14 +746,17 @@ def handle_course_delete_any(call):
         users = load_all_users()
         user_data = users.get(chat_id, {})
         urls = user_data.get("urls", [])
-        if idx < len(urls):
-            # Önce veriyi sil (Deep Clean)
+        if 0 <= idx < len(urls):
             course_url = urls[idx]
-            delete_course_data(chat_id, course_url)
 
-            # Sonra listeyi kullanıcıdan sil
-            del users[chat_id]["urls"][idx]
-            save_all_users(users)
+            # Önce takip listesinden çıkar (URL ile, atomik), sonra veriyi sil. Bu sırayla
+            # süren bir kontrol dersi geri yazamaz (update_user_grades takip edilmeyen
+            # dersleri yazmaz).
+            def _remove_course(data):
+                data["urls"] = [u for u in data.get("urls", []) if u != course_url]
+
+            modify_user(chat_id, _remove_course)
+            delete_course_data(chat_id, course_url)
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=call.message.message_id,
@@ -1019,8 +1004,6 @@ def handle_kontrol(call):
 
     def run_check():
         try:
-            from main import check_user_updates
-
             result = check_user_updates(chat_id, course_idx=course_idx, request_id=request_id)
 
             if result.get("success"):
@@ -1191,20 +1174,18 @@ def handle_add_expired_yes(call):
         bot.send_message(chat_id, "⚠️ Eklenecek eski ders bulunamadı (liste boş).")
         return
 
-    # Ekle
-    current_urls = user_data.get("urls", [])
-    updated_urls = list(set(current_urls + expired_urls))
-    update_user_data(chat_id, "urls", updated_urls)
+    # Ekle ve temp listeyi tek atomik işlemde sil. Eskiden update_user_data ile URL'ler
+    # yazıldıktan sonra eski `users` kopyası save_all_users ile kaydediliyor ve eklenen
+    # dersler geri siliniyordu.
+    def _add_expired(data):
+        current_urls = data.get("urls", [])
+        data["urls"] = current_urls + [u for u in expired_urls if u not in current_urls]
+        data.pop("temp_expired_courses", None)
 
-    # Temp'i sil
-    if "temp_expired_courses" in users[chat_id]:
-        del users[chat_id]["temp_expired_courses"]
-        save_all_users(users)
+    modify_user(chat_id, _add_expired)
 
     # Senkronizasyon başlat
     def run_sync():
-        from main import check_user_updates
-
         result = check_user_updates(chat_id, silent=True)
 
         if result.get("success"):
@@ -1233,10 +1214,7 @@ def handle_add_expired_no(call):
     """
     chat_id = str(call.message.chat.id)
     # Temp'i sil
-    users = load_all_users()
-    if chat_id in users and "temp_expired_courses" in users[chat_id]:
-        del users[chat_id]["temp_expired_courses"]
-        save_all_users(users)
+    modify_user(chat_id, lambda data: data.pop("temp_expired_courses", None))
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,

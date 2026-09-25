@@ -92,11 +92,14 @@ def is_admin(message_or_call) -> bool:
     :param message_or_call: telebot.types.Message veya CallbackQuery nesnesi
     :return: Admin ise True, değilse False
     """
-    if hasattr(message_or_call, "chat"):
-        return message_or_call.chat.id in ADMIN_TELEGRAM_IDS
-    if hasattr(message_or_call, "message"):
-        return message_or_call.message.chat.id in ADMIN_TELEGRAM_IDS
-    return False
+    # Kullanıcının kendisini (from_user) kontrol et ve sadece özel sohbete izin ver.
+    # Eskiden chat.id kontrol ediliyordu; admin ID'si bir grup olsaydı grubun tüm
+    # üyeleri admin yetkisi kazanıyordu.
+    user = getattr(message_or_call, "from_user", None)
+    if user is None or user.id not in ADMIN_TELEGRAM_IDS:
+        return False
+    message = message_or_call if hasattr(message_or_call, "chat") else message_or_call.message
+    return message is not None and message.chat.type == "private"
 
 
 def get_uptime():

@@ -5,9 +5,9 @@ import logging
 from bot.instance import bot_instance as bot
 from bot.keyboards import build_cancel_keyboard, build_main_keyboard
 from bot.utils import is_cancel_text
-from core.config import get_user_session
+from core.config import close_user_session, get_user_session
 from core.utils import update_user_data
-from services.ninova import get_user_courses, login_to_ninova
+from services.ninova import LoginFailedError, get_user_courses, login_to_ninova
 
 from .audit import log_user_action
 from .course_commands import trigger_auto_add_courses
@@ -35,7 +35,7 @@ def process_login_username(message):
         bot.send_message(chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard())
         return
 
-    username = message.text.strip()
+    username = (message.text or "").strip()
     if not username:
         bot.send_message(chat_id, "❌ Geçerli bir kullanıcı adı girmediniz.")
         return
@@ -54,7 +54,7 @@ def process_login_password(message, username):
         bot.send_message(chat_id, "❌ İşlem iptal edildi.", reply_markup=build_main_keyboard())
         return
 
-    password = message.text.strip()
+    password = (message.text or "").strip()
     if not password:
         bot.send_message(chat_id, "❌ Geçerli bir şifre girmediniz.")
         return
@@ -68,10 +68,20 @@ def process_login_password(message, username):
     username = (username or "").strip()
 
     checking_msg = bot.send_message(chat_id, "⏳ Giriş bilgileri doğrulanıyor...")
+    # Eski (başka hesapla açılmış olabilecek) oturumu kapat; aksi halde login_to_ninova
+    # "oturum zaten aktif" deyip yeni bilgileri hiç doğrulamadan kabul ediyordu.
+    close_user_session(chat_id_str)
     user_session = get_user_session(chat_id_str)
 
-    login_ok = login_to_ninova(user_session, chat_id_str, username, password, quiet=True)
-    courses = get_user_courses(user_session) if login_ok else []
+    login_error_type = None
+    try:
+        login_ok = login_to_ninova(user_session, chat_id_str, username, password, quiet=True)
+        courses = get_user_courses(user_session) if login_ok else []
+    except LoginFailedError as e:
+        # Hatalı şifrede login_to_ninova False dönmek yerine exception fırlatıyor;
+        # yakalanmadığında kullanıcı hiçbir yanıt alamıyordu.
+        logger.info(f"[{chat_id_str}] Login failed: {e.error_type}")
+        login_ok, courses, login_error_type = False, [], e.error_type
 
     try:
         bot.delete_message(chat_id, checking_msg.message_id)
@@ -80,11 +90,14 @@ def process_login_password(message, username):
 
     if not login_ok or not courses:
         log_user_action(chat_id_str, "login", status="failed", level="warning")
-        bot.send_message(
-            chat_id,
-            "❌ Kullanıcı adı veya şifre hatalı. Lütfen bilgilerinizi kontrol edip tekrar deneyin.",
-            reply_markup=build_main_keyboard(),
-        )
+        if login_error_type in (None, "INVALID_CREDENTIALS"):
+            fail_text = (
+                "❌ Kullanıcı adı veya şifre hatalı. "
+                "Lütfen bilgilerinizi kontrol edip tekrar deneyin."
+            )
+        else:
+            fail_text = "⚠️ Ninova'ya şu anda ulaşılamıyor. Lütfen biraz sonra tekrar deneyin."
+        bot.send_message(chat_id, fail_text, reply_markup=build_main_keyboard())
         return
 
     update_user_data(chat_id, "username", username)

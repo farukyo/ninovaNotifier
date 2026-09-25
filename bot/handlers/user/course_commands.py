@@ -3,10 +3,11 @@ Ders yönetimi komutları.
 """
 
 import logging
-import sys
 
 from telebot import types
 
+import core.error_tracker as error_tracker
+from bot.check_service import check_user_updates
 from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_profile, load_user_snapshot
 from bot.instance import bot_instance as bot
@@ -22,24 +23,6 @@ from core.utils import (
 from services.ninova import get_user_courses, login_to_ninova
 
 logger = logging.getLogger("ninova")
-
-
-def _resolve_main_callable(name: str):
-    """Get callable from active runtime module first, then fallback import.
-
-    This avoids re-import side effects when app is started as `python main.py`.
-    """
-    runtime_main = sys.modules.get("__main__")
-    candidate = getattr(runtime_main, name, None) if runtime_main else None
-    if callable(candidate):
-        return candidate
-
-    imported_main = sys.modules.get("main")
-    if imported_main is None:
-        import main as imported_main
-
-    fallback = getattr(imported_main, name, None)
-    return fallback if callable(fallback) else None
 
 
 @bot.message_handler(commands=["otoders"])
@@ -114,8 +97,10 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
 
             from services.ninova import get_class_info
 
-            record_user_error = _resolve_main_callable("_record_user_error")
-            check_user_updates_fn = _resolve_main_callable("check_user_updates")
+            # Eskiden main.py'deki (hiç var olmayan) _record_user_error aranıyordu; oto ders
+            # hataları bu yüzden hata sayacına hiç yazılmıyordu.
+            record_user_error = error_tracker.record_error
+            check_user_updates_fn = check_user_updates
 
             session = get_user_session(chat_id)
             if login_to_ninova(session, chat_id, username, password):
@@ -307,9 +292,7 @@ def trigger_auto_add_courses(chat_id: str, request_id: str | None = None, start_
                 details=str(e),
                 level="error",
             )
-            record_user_error = _resolve_main_callable("_record_user_error")
-            if record_user_error:
-                record_user_error(chat_id, "OTODERS_EXCEPTION", str(e), username)
+            error_tracker.record_error(chat_id, "OTODERS_EXCEPTION", str(e), username)
             bot.send_message(
                 chat_id,
                 "⚠️ Oto Ders sırasında bir hata oluştu. Lütfen /otoders ile tekrar deneyin.",

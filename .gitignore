@@ -54,4 +54,7 @@ Thumbs.db
 TODO.md
 CLAUDE.md
 task.md
-.claude
+.claude/*
+# Shared project commands and review agents are versioned; local settings stay ignored.
+!.claude/commands/
+!.claude/agents/

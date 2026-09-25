@@ -89,24 +89,21 @@ def update_user_data(chat_id, key: str, value) -> dict:
     :param value: Yeni değer
     :return: Güncellenmiş kullanıcı verisi
     """
-    from core.crypto import encrypt_password  # deferred to avoid circular import
+    from core.config import cipher_suite  # deferred to avoid circular import
+    from core.crypto import encrypt_password
 
     with _users_lock:
-        if Path(USERS_FILE).exists():
-            try:
-                with Path(USERS_FILE).open(encoding="utf-8") as f:
-                    users = json.load(f)
-            except json.JSONDecodeError:
-                users = {}
-        else:
-            users = {}
+        users = _read_json(USERS_FILE)
+        if users is None:
+            # Bozuk dosyayı {} ile ezip tüm kullanıcıları silmek yerine işlemi iptal et.
+            raise RuntimeError(f"{USERS_FILE} bozuk; kullanıcı verisi güncellenemedi")
 
         chat_id = str(chat_id)
         if chat_id not in users:
             users[chat_id] = {"username": "", "password": "", "urls": []}
 
         if key == "password":
-            value = encrypt_password(value)
+            value = encrypt_password(cipher_suite, value)
         users[chat_id][key] = value
         atomic_json_write(USERS_FILE, users)
         return users[chat_id]
@@ -115,6 +112,51 @@ def update_user_data(chat_id, key: str, value) -> dict:
 # ---------------------------------------------------------------------------
 # Grade / course data
 # ---------------------------------------------------------------------------
+
+
+def modify_user(chat_id, mutator) -> dict | None:
+    """
+    Tek bir kullanıcının kaydını kilit altında oku-değiştir-yaz yapar.
+
+    load_all_users() + save_all_users() ikilisi arada başka bir thread yazarsa onun
+    değişikliğini ezer; bu fonksiyon tüm işlemi tek kilit altında yapar.
+
+    :param chat_id: Kullanıcının Telegram chat ID'si
+    :param mutator: Kullanıcı dict'ini yerinde değiştiren fonksiyon
+    :return: Güncellenmiş kullanıcı verisi, kullanıcı yoksa None
+    """
+    chat_id = str(chat_id)
+    with _users_lock:
+        users = _read_json(USERS_FILE)
+        if users is None or chat_id not in users:
+            return None
+        mutator(users[chat_id])
+        atomic_json_write(USERS_FILE, users)
+        return users[chat_id]
+
+
+def delete_user(chat_id) -> bool:
+    """Kullanıcı kaydını kilit altında siler."""
+    chat_id = str(chat_id)
+    with _users_lock:
+        users = _read_json(USERS_FILE)
+        if not users or chat_id not in users:
+            return False
+        del users[chat_id]
+        atomic_json_write(USERS_FILE, users)
+        return True
+
+
+def _read_json(path: str) -> dict | None:
+    """JSON dosyasını okur; dosya yoksa {}, bozuksa None döner (üzerine yazılmasın diye)."""
+    if not Path(path).exists():
+        return {}
+    try:
+        with Path(path).open(encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        logger.critical(f"{path} dosyası bozuk! Yazma işlemi iptal edildi.")
+        return None
 
 
 def load_saved_grades() -> dict:
@@ -142,22 +184,66 @@ def save_grades(grades: dict) -> None:
         atomic_json_write(DATA_FILE, grades)
 
 
+def update_user_grades(chat_id, course_data: dict) -> int:
+    """
+    Bir kullanıcının ders verilerini kilit altında günceller.
+
+    Tüm dosyanın eski bir kopyasını kaydetmek, arada başka kullanıcılar için yazılan
+    verileri ezer (ve sonraki kontrolde aynı bildirimlerin tekrar gitmesine yol açar).
+    Bu fonksiyon dosyayı kilit altında yeniden okuyup sadece bu kullanıcının
+    derslerini günceller.
+
+    Tarama sürerken kullanıcı silinmiş veya ders takipten çıkarılmışsa o veriler
+    yazılmaz; aksi halde silinen ders/kullanıcı kaydı geri gelirdi. (Kilit sırası her
+    zaman _data_lock → _users_lock; tersini alan fonksiyon yok, deadlock olmaz.)
+
+    :param chat_id: Kullanıcının Telegram chat ID'si
+    :param course_data: {course_url: ders_verisi} — mevcut kayıtların üzerine yazılır
+    :return: Gerçekten yazılan ders sayısı
+    """
+    chat_id = str(chat_id)
+    with _data_lock:
+        with _users_lock:
+            users = _read_json(USERS_FILE)
+        if not users or chat_id not in users:
+            return 0
+        tracked = set(users[chat_id].get("urls", []))
+        course_data = {url: data for url, data in course_data.items() if url in tracked}
+        if not course_data:
+            return 0
+
+        all_grades = _read_json(DATA_FILE)
+        if all_grades is None:
+            raise RuntimeError(f"{DATA_FILE} bozuk; ders verisi kaydedilemedi")
+        all_grades.setdefault(chat_id, {}).update(course_data)
+        atomic_json_write(DATA_FILE, all_grades)
+        return len(course_data)
+
+
+def delete_user_grades(chat_id) -> bool:
+    """Bir kullanıcının tüm ders verilerini kilit altında siler."""
+    chat_id = str(chat_id)
+    with _data_lock:
+        all_grades = _read_json(DATA_FILE)
+        if not all_grades or chat_id not in all_grades:
+            return False
+        del all_grades[chat_id]
+        atomic_json_write(DATA_FILE, all_grades)
+        return True
+
+
 def delete_course_data(chat_id, course_url: str) -> bool:
     """
     Belirli bir dersin verilerini ninova_data.json dosyasından siler.
     migrated from: common/utils.py
     """
     chat_id = str(chat_id)
-    all_grades = load_saved_grades()
-
-    if chat_id in all_grades:
-        user_grades = all_grades[chat_id]
-        if course_url in user_grades:
-            del user_grades[course_url]
-            if not user_grades:
-                del all_grades[chat_id]
-            else:
-                all_grades[chat_id] = user_grades
-            save_grades(all_grades)
-            return True
-    return False
+    with _data_lock:
+        all_grades = _read_json(DATA_FILE)
+        if not all_grades or course_url not in all_grades.get(chat_id, {}):
+            return False
+        del all_grades[chat_id][course_url]
+        if not all_grades[chat_id]:
+            del all_grades[chat_id]
+        atomic_json_write(DATA_FILE, all_grades)
+        return True

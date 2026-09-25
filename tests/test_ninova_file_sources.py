@@ -48,3 +48,17 @@ def test_get_all_files_returns_none_if_both_fail(monkeypatch):
     files = scraper.get_all_files(session=object(), base_url="https://ninova.itu.edu.tr/Sinif/1")
 
     assert files is None
+
+
+def test_get_all_files_with_status_reports_failed_source(monkeypatch):
+    def fake_get_class_files(_session, _base_url, file_type="SinifDosyalari", **_kwargs):
+        if file_type == "SinifDosyalari":
+            return [{"name": "a.pdf", "url": "u1", "date": "d1", "size": "1 MB"}]
+        return None
+
+    monkeypatch.setattr(scraper, "get_class_files", fake_get_class_files)
+
+    files, failed = scraper.get_all_files_with_status(object(), "https://ninova.itu.edu.tr/Sinif/1")
+
+    assert [f["name"] for f in files] == ["a.pdf"]
+    assert failed == ["Ders"]

@@ -7,6 +7,8 @@ import requests
 from bs4 import BeautifulSoup
 
 from core.config import HEADERS
+from core.ttl_cache import ttl_cache
+from core.utils import escape_html
 
 logger = logging.getLogger("ninova.sks")
 
@@ -24,10 +26,15 @@ def get_meal_menu(meal_type: str = "lunch") -> str | None:
     :param meal_type: "lunch" or "dinner"
     :return: Formatted HTML string or None if failed.
     """
+    # Tarih önbellek anahtarında: gün değişince eski menü dönmez.
+    return _fetch_meal_menu(meal_type, datetime.now().strftime("%d.%m.%Y"))
+
+
+@ttl_cache(15 * 60)
+def _fetch_meal_menu(meal_type: str, today_str: str) -> str | None:
     try:
         # Construct params
         tip = "itu-ogle-yemegi-genel" if meal_type == "lunch" else "itu-aksam-yemegi-genel"
-        today_str = datetime.now().strftime("%d.%m.%Y")
 
         params = {"tip": tip, "value": today_str}
 
@@ -69,7 +76,7 @@ def get_meal_menu(meal_type: str = "lunch") -> str | None:
                     meal = meal_cell.get_text(strip=True)
 
                 if category and meal and "Kalori" not in category:
-                    menu_items.append(f"• <b>{category}:</b> {meal}")
+                    menu_items.append(f"• <b>{escape_html(category)}:</b> {escape_html(meal)}")
 
         if not menu_items:
             return None

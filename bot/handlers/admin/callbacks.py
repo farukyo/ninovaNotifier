@@ -16,12 +16,11 @@ from core.config import (
     cleanup_inactive_sessions,
     close_user_session,
     get_user_session,
-    save_all_users,
 )
 from core.scheduler import submit_background_task
+from core.storage import delete_user, delete_user_grades
 from core.utils import (
     decrypt_password,
-    save_grades,
     update_user_data,
 )
 from services.ninova import get_user_courses, login_to_ninova
@@ -120,9 +119,20 @@ def handle_admin_callbacks(call):
         if cb:
             log_admin_action(chat_id, "force_check", status="started", request_id=request_id)
             bot.send_message(chat_id, "🔄 Kontrol başlatılıyor...")
-            cb()
-            bot.send_message(chat_id, "✅ Kontrol tamamlandı.")
-            log_admin_action(chat_id, "force_check", status="completed", request_id=request_id)
+
+            def _run_force_check():
+                # Tam tarama dakikalar sürebilir; eskiden polling thread'inde senkron
+                # çalışıyor ve bot bu sürede kimseye yanıt veremiyordu.
+                if cb() is False:
+                    bot.send_message(chat_id, "⏳ Zaten çalışan bir kontrol var; bu istek atlandı.")
+                    status = "skipped"
+                else:
+                    bot.send_message(chat_id, "✅ Kontrol tamamlandı.")
+                    status = "completed"
+                log_admin_action(chat_id, "force_check", status=status, request_id=request_id)
+
+            if not submit_background_task("admin_force_check", _run_force_check):
+                bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
         else:
             bot.send_message(chat_id, "❌ Kontrol sistemi hazır değil.")
             log_admin_action(
@@ -132,27 +142,6 @@ def handle_admin_callbacks(call):
                 request_id=request_id,
                 level="warning",
             )
-
-    elif action == "manage_courses":
-        from .course_management import select_user_for_course_management
-
-        select_user_for_course_management(chat_id)
-
-    elif action == "manage_users":
-        bot.send_message(
-            chat_id,
-            "👥 <b>Kullanıcı Yönetimi</b>\n\nBu özellik henüz geliştirilmiyor.",
-            parse_mode="HTML",
-        )
-
-    elif action == "system_status":
-        users = load_admin_users()
-        user_count = len(users)
-        bot.send_message(
-            chat_id,
-            f"📊 <b>Sistem Durumu</b>\n\n👥 Kayıtlı Kullanıcı: {user_count}",
-            parse_mode="HTML",
-        )
 
     elif action == "forceoto":
         users = load_admin_users()
@@ -389,6 +378,7 @@ def handle_msg_user_select(call):
     :param call: CallbackQuery nesnesi (msg_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     parts = split_callback_data(call.data)
@@ -424,6 +414,7 @@ def handle_optout_user(call):
     :param call: CallbackQuery nesnesi (opt_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     parts = split_callback_data(call.data)
@@ -469,6 +460,7 @@ def handle_optout_confirm(call):
     :param call: CallbackQuery nesnesi (optconf_<chat_id> formatında)
     """
     if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
         return
 
     parts = split_callback_data(call.data)
@@ -480,17 +472,12 @@ def handle_optout_confirm(call):
     target_id = parts[1]
     request_id = new_admin_request_id("cb")
 
-    # Kullanıcıyı sil
-    users = load_admin_users()
-    if target_id in users:
-        del users[target_id]
-        save_all_users(users)
-
-    # Notları sil
-    grades = load_admin_grades()
-    if target_id in grades:
-        del grades[target_id]
-        save_grades(grades)
+    # Kullanıcıyı ve notlarını kilit altında sil (eski kopyayı geri yazmak, arada
+    # başka kullanıcılar için yapılan değişiklikleri eziyordu).
+    if not delete_user(target_id):
+        bot.answer_callback_query(call.id, "❌ Kullanıcı bulunamadı.", show_alert=True)
+        return
+    delete_user_grades(target_id)
 
     # Close user session
     close_user_session(target_id)
@@ -518,6 +505,10 @@ def handle_optout_cancel(call):
 
     :param call: CallbackQuery nesnesi
     """
+    if not is_admin(call):
+        bot.answer_callback_query(call.id, "⛔ Yetkiniz yok!")
+        return
+
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,

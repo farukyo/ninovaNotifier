@@ -1,21 +1,11 @@
-"""Tests for common/utils.py — encryption, date parsing, HTML sanitization, escape_html."""
+"""Tests for core/utils.py — date parsing, HTML sanitization, escape_html, file icons."""
 
-import unittest.mock as mock
-
-from cryptography.fernet import Fernet
-
-# Patch cipher_suite before importing utils so we use a test key
-_TEST_KEY = Fernet.generate_key()
-_TEST_CIPHER = Fernet(_TEST_KEY)
-
-with mock.patch("common.config.cipher_suite", _TEST_CIPHER):
-    from core.utils import (
-        escape_html,
-        get_file_icon,
-        parse_turkish_date,
-        sanitize_html_for_telegram,
-    )
-
+from core.utils import (
+    escape_html,
+    get_file_icon,
+    parse_turkish_date,
+    sanitize_html_for_telegram,
+)
 
 # ---------------------------------------------------------------------------
 # parse_turkish_date
@@ -66,6 +56,28 @@ class TestParseTurkishDate:
 
     def test_partial_data_returns_none(self):
         assert parse_turkish_date("10 ekim") is None
+
+    def test_uppercase_turkish_months(self):
+        # Regresyon: str.lower() "EKİM"i "eki̇m", "ARALIK"ı "aralik" yapıyor ve ay
+        # tanınmadığında Ocak varsayılıyordu.
+        assert parse_turkish_date("10 EKİM 2025 10:00").month == 10
+        assert parse_turkish_date("10 ARALIK 2025 10:00").month == 12
+        assert parse_turkish_date("10 KASIM 2025 10:00").month == 11
+        assert parse_turkish_date("10 Ağustos 2025 10:00").month == 8
+
+    def test_unknown_month_returns_none(self):
+        assert parse_turkish_date("10 Foo 2025 10:00") is None
+
+    def test_date_without_time(self):
+        dt = parse_turkish_date("15 Eylül 2025")
+        assert (dt.year, dt.month, dt.day, dt.hour, dt.minute) == (2025, 9, 15, 0, 0)
+
+    def test_non_time_fourth_token_defaults_to_midnight(self):
+        dt = parse_turkish_date("15 Eylül 2025 Pazartesi")
+        assert (dt.month, dt.day, dt.hour) == (9, 15, 0)
+
+    def test_invalid_day_returns_none(self):
+        assert parse_turkish_date("32 Ocak 2025 10:00") is None
 
 
 # ---------------------------------------------------------------------------

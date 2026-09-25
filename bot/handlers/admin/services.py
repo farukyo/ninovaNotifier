@@ -4,6 +4,7 @@ Admin yardımcı fonksiyonları.
 
 import logging
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from core.config import (
     get_active_user_sessions,
     has_user_session,
 )
+from core.scheduler import submit_background_task
+from core.utils import escape_html, split_long_message
 
 from .data_helpers import load_admin_users
 from .helpers import (
@@ -261,6 +264,8 @@ def send_broadcast(admin_chat_id, message_text, request_id: str | None = None):
         try:
             bot.send_message(uid, broadcast_msg, parse_mode="HTML")
             success_count += 1
+            # Telegram toplu gönderimde saniyede ~30 mesaj sınırı uyguluyor.
+            time.sleep(0.05)
         except Exception as e:
             fail_count += 1
             # Store user ID and error message
@@ -283,9 +288,11 @@ def send_broadcast(admin_chat_id, message_text, request_id: str | None = None):
     if failed_users:
         response += "\n\n📋 <b>Başarısız Gönderimler:</b>\n"
         for uid, error in failed_users:
-            response += f"• <code>{uid}</code> - {error}\n"
+            response += f"• <code>{uid}</code> - {escape_html(error)}\n"
 
-    bot.send_message(admin_chat_id, response, parse_mode="HTML")
+    # Çok sayıda hata varsa mesaj 4096 karakter sınırını aşabiliyordu.
+    for chunk in split_long_message(response):
+        bot.send_message(admin_chat_id, chunk, parse_mode="HTML")
     log_admin_action(
         str(admin_chat_id),
         "broadcast",
@@ -373,7 +380,11 @@ def handle_admin_text(message):
 
     if state == "waiting_broadcast":
         request_id = f"state-{message.message_id}"
-        send_broadcast(chat_id, message.text, request_id=request_id)
+        # Tüm kullanıcılara gönderim uzun sürer; polling thread'ini bloklamasın.
+        if not submit_background_task(
+            "admin_broadcast", send_broadcast, chat_id, message.text, request_id=request_id
+        ):
+            bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
     elif state.startswith("waiting_msg_"):
         target_id = state.replace("waiting_msg_", "")
         request_id = f"state-{message.message_id}"

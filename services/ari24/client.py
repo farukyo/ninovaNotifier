@@ -11,6 +11,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from core.config import HEADERS
+from core.ttl_cache import ttl_cache
+from core.utils import _turkish_lower
+
 logger = logging.getLogger("ninova")
 
 _CLUBS_FILE = Path("data") / "ari24_clubs.json"
@@ -55,6 +59,9 @@ MONTH_MAP = {
 }
 
 
+_MONTH_MAP_LOWER = {_turkish_lower(name): month for name, month in MONTH_MAP.items()}
+
+
 class Ari24Client:
     BASE_URL = "https://ari24.com"
     EVENTS_URL = "https://ari24.com/etkinlikler"
@@ -62,12 +69,11 @@ class Ari24Client:
     CLUBS_URL = "https://ari24.com/kulupler"
 
     def __init__(self):
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        self.headers = dict(HEADERS)
 
     def _parse_month(self, month_str: str) -> int | None:
-        return MONTH_MAP.get(month_str.strip())
+        # Büyük/küçük harf duyarsız (Türkçe kurallarıyla): "EKİM", "ekim", "Eki" → 10
+        return _MONTH_MAP_LOWER.get(_turkish_lower(month_str.strip()))
 
     def _parse_date_from_text(self, text: str) -> tuple[str, datetime | None]:
         match = re.search(r"\b(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü]+)\b", text)
@@ -125,6 +131,7 @@ class Ari24Client:
 
         return url
 
+    @ttl_cache(10 * 60, ignore_self=True)
     def get_events(self) -> list[dict]:
         """
         Fetches events from ari24.com/etkinlikler.
@@ -264,6 +271,7 @@ class Ari24Client:
 
         return clubs
 
+    @ttl_cache(6 * 3600, ignore_self=True)
     def get_clubs(self, max_pages: int = 20) -> list[str]:
         """Fetches club names from ari24.com/kulupler across multiple pages."""
         try:
@@ -283,6 +291,7 @@ class Ari24Client:
             logger.error(f"Error fetching Arı24 clubs: {e}")  # fix: BUG-E2
             return []
 
+    @ttl_cache(10 * 60, ignore_self=True)
     def get_news(self, limit: int = 5) -> list[dict]:
         """
         Fetches news articles from ari24.com/haberler.

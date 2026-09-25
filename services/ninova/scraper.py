@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup
@@ -12,24 +14,38 @@ if TYPE_CHECKING:
 from core.config import console
 from core.http_logging import http_request
 from core.logger import log_with_context
-from core.utils import sanitize_html_for_telegram
+from core.utils import parse_turkish_date, sanitize_html_for_telegram
 
-from .auth import LoginFailedError, login_to_ninova
+from .auth import LoginFailedError, _looks_like_login_page, login_to_ninova
 
 logger = logging.getLogger("ninova")
 
+# Ödev detay sayfaları her 5 dakikalık döngüde her ödev için yeniden çekiliyordu (N+1).
+# Artık liste satırı değişmediyse kayıtlı detay kullanılır; açıklama/kaynak dosya
+# değişikliklerini yakalamak için detay bu sürelerden eskiyse yine de yenilenir.
+ASSIGNMENT_DETAIL_REFRESH_ACTIVE = 30 * 60  # teslim süresi devam eden ödevler
+ASSIGNMENT_DETAIL_REFRESH_PAST = 24 * 3600  # teslim süresi geçmiş ödevler
+_DETAIL_FIELDS = (
+    "start_date",
+    "end_date",
+    "is_submitted",
+    "description",
+    "source_files",
+    "required_files",
+    "detail_fetched_at",
+)
 
-def _looks_like_login_page(html: str, url: str = "") -> bool:
-    """Detect when Ninova returned the login form instead of course content."""
-    html_lower = html.lower()
-    url_lower = url.lower()
-    return (
-        "login.aspx" in url_lower
-        or "ctl00_contentplaceholder1_tbusername" in html_lower
-        or "ctl00$contentplaceholder1$tbusername" in html_lower
-        or "ctl00_contentplaceholder1_btnlogin" in html_lower
-        or "ctl00$contentplaceholder1$btnlogin" in html_lower
-    )
+
+def _needs_detail_refresh(assign: dict, saved: dict | None, now: float) -> bool:
+    """Ödev detay sayfasının yeniden çekilmesi gerekip gerekmediğine karar verir."""
+    if not saved or "source_files" not in saved or "detail_fetched_at" not in saved:
+        return True
+    if saved.get("list_signature") != assign["list_signature"]:
+        return True
+    due = parse_turkish_date(saved.get("end_date", ""))
+    is_past = due is not None and due < datetime.now()
+    max_age = ASSIGNMENT_DETAIL_REFRESH_PAST if is_past else ASSIGNMENT_DETAIL_REFRESH_ACTIVE
+    return now - saved["detail_fetched_at"] >= max_age
 
 
 def get_announcements(session: requests.Session, base_url: str) -> list[dict] | None:
@@ -217,6 +233,10 @@ def get_assignment_detail(session: requests.Session, url: str) -> dict | None:
         )
         if response.status_code != 200:
             return None
+        if _looks_like_login_page(response.text, response.url):
+            # Oturum düştüyse login sayfası "teslim edilmemiş, açıklamasız" bir ödev gibi
+            # parse ediliyor ve sahte değişiklik bildirimlerine yol açıyordu.
+            return None
 
         soup = BeautifulSoup(response.text, "html.parser")
         result = {
@@ -323,8 +343,15 @@ def get_assignment_detail(session: requests.Session, url: str) -> dict | None:
         return None
 
 
-def get_assignments(session: requests.Session, base_url: str) -> list[dict] | None:
+def get_assignments(
+    session: requests.Session,
+    base_url: str,
+    previous_assignments: list[dict] | None = None,
+) -> list[dict] | None:
     """Ödevleri çeker.
+
+    previous_assignments verilirse, liste satırı değişmemiş ve detayı taze olan
+    ödevlerin detay sayfası tekrar çekilmez (kayıtlı detay kullanılır).
 
     Ninova ödev listesi HTML yapısı:
     <td>
@@ -480,16 +507,29 @@ def get_assignments(session: requests.Session, base_url: str) -> list[dict] | No
                         "start_date": start_date or "-",
                         "end_date": end_date or "-",
                         "is_submitted": is_submitted,
+                        # Liste sayfasındaki ham değerler; değişirse detay yeniden çekilir.
+                        "list_signature": "|".join(
+                            [name, start_date, end_date, str(is_submitted), assign_url]
+                        ),
                     }
                 )
             except Exception as e:
                 logger.debug(f"Ödev parse hatası: {e}")
                 continue
 
-        # Her ödev için detay sayfasını çek (açıklama, kaynak/istenen dosyalar için)
+        # Detay sayfasını (açıklama, kaynak/istenen dosyalar) sadece gerektiğinde çek
+        saved_by_id = {a.get("id"): a for a in previous_assignments or []}
+        now = time.time()
         for assign in assignments:
+            saved = saved_by_id.get(assign["id"])
+            if not _needs_detail_refresh(assign, saved, now):
+                for key in _DETAIL_FIELDS:
+                    if key in saved:
+                        assign[key] = saved[key]
+                continue
             detail = get_assignment_detail(session, assign["url"])
             if detail:
+                assign["detail_fetched_at"] = now
                 if detail.get("start_date"):
                     assign["start_date"] = detail["start_date"]
                 if detail.get("end_date"):
@@ -634,7 +674,23 @@ def get_class_files(
 
 def get_all_files(session: requests.Session, base_url: str) -> list[dict] | None:
     """Hem sınıf dosyalarını hem ders dosyalarını çeker."""
+    files, _failed_sources = get_all_files_with_status(session, base_url)
+    return files
+
+
+def get_all_files_with_status(
+    session: requests.Session, base_url: str
+) -> tuple[list[dict] | None, list[str]]:
+    """
+    Sınıf ve ders dosyalarını çeker; hangi kaynağın çekilemediğini de döndürür.
+
+    Kaynaklardan biri başarısız olduğunda eksik liste başarılı sayılırsa o kaynağın
+    tüm dosyaları "silindi" diye bildiriliyor ve kayıttan düşüyordu.
+
+    :return: (dosyalar veya ikisi de başarısızsa None, başarısız kaynaklar ["Sınıf", "Ders"])
+    """
     all_files = []
+    failed_sources = []
 
     # Sınıf dosyaları
     sinif_files = get_class_files(session, base_url, file_type="SinifDosyalari")
@@ -642,6 +698,8 @@ def get_all_files(session: requests.Session, base_url: str) -> list[dict] | None
         for file_ in sinif_files:
             file_["source"] = "Sınıf"
         all_files.extend(sinif_files)
+    else:
+        failed_sources.append("Sınıf")
 
     # Ders dosyaları
     ders_files = get_class_files(session, base_url, file_type="DersDosyalari")
@@ -649,12 +707,14 @@ def get_all_files(session: requests.Session, base_url: str) -> list[dict] | None
         for file_ in ders_files:
             file_["source"] = "Ders"
         all_files.extend(ders_files)
+    else:
+        failed_sources.append("Ders")
 
     # Her iki uç nokta da başarısızsa üst akış fetch_success=False olarak işaretlesin.
     if sinif_files is None and ders_files is None:
-        return None
+        return None, failed_sources
 
-    return all_files
+    return all_files, failed_sources
 
 
 def get_user_courses(session: requests.Session) -> list[dict]:
@@ -780,8 +840,11 @@ def get_grades(
     chat_id: str,
     username: str,
     password: str,
+    previous: dict | None = None,
 ) -> dict | None:
     """Notları çeker. base_url artık /Notlar olmadan gelir.
+
+    previous: bu ders için kayıtlı veri (varsa); gereksiz ödev detayı isteklerini önler.
 
     HTML yapısı (table.data):
     <table class="data">
@@ -802,8 +865,9 @@ def get_grades(
     </table>
     """
     url = f"{base_url}/Notlar"
-    try:
-        response = http_request(
+
+    def _fetch():
+        return http_request(
             logger,
             session,
             "GET",
@@ -813,41 +877,31 @@ def get_grades(
             timeout=20,
             allow_redirects=False,
         )
-        if response.status_code == 302:
+
+    def _needs_login(resp) -> bool:
+        # Oturum düşünce Ninova ya 302 ile Login'e yönlendiriyor ya da 200 ile login
+        # formunu döndürüyor. Eskiden ikinci durumda yeniden giriş yapılmıyor ve ders
+        # oturum kendiliğinden düzelene kadar sessizce atlanıyordu.
+        return resp.status_code == 302 or (
+            resp.status_code == 200 and _looks_like_login_page(resp.text, resp.url)
+        )
+
+    try:
+        response = _fetch()
+        if _needs_login(response):
             console.print(f"[cyan]Oturum yenileniyor... ({chat_id})")
-            try:
-                if login_to_ninova(session, chat_id, username, password, quiet=True):
-                    response = http_request(
-                        logger,
-                        session,
-                        "GET",
-                        url,
-                        action="ninova_fetch_grades",
-                        chat_id=str(chat_id),
-                        timeout=20,
-                        allow_redirects=False,
+            # LoginFailedError doğru tipiyle auth modülünden yükselir.
+            if login_to_ninova(session, chat_id, username, password, quiet=True):
+                response = _fetch()
+                if _needs_login(response):
+                    raise LoginFailedError(
+                        "SESSION_ERROR",
+                        "Oturum yenilendikten sonra hala giriş yapılamadı",
+                        username=username,
+                        chat_id=chat_id,
                     )
-                    if response.status_code == 302:
-                        raise LoginFailedError(
-                            "SESSION_ERROR",
-                            "Oturum yenilendikten sonra hala giriş yapılamadı",
-                            username=username,
-                            chat_id=chat_id,
-                        )
-            except LoginFailedError:
-                # Already raised with proper type from auth module
-                raise
 
         if response.status_code != 200:
-            return None
-        if _looks_like_login_page(response.text, response.url):
-            log_with_context(
-                logger,
-                "warning",
-                "Not listesi için login sayfası döndü; oturum muhtemelen düşmüş.",
-                chat_id=str(chat_id),
-                action="ninova_fetch_grades",
-            )
             return None
         soup = BeautifulSoup(response.text, "html.parser")
         course_name = "Bilinmeyen Ders"
@@ -874,6 +928,10 @@ def get_grades(
             "files": [],
             "announcements": [],
             "fetch_success": True,  # Network hatalarında False yapılacak
+            # Çekilemeyen bölümler: karşılaştırmada kayıtlı veri korunur. Aksi halde
+            # geçici bir hata kayıtlı listeyi boşaltıyor, sonraki başarılı çekimde tüm
+            # ödev/dosya/duyurular "YENİ" diye tekrar bildiriliyordu.
+            "failed_sections": [],
         }
 
         # Not tablosunu bul (table.data veya id'si rpGalileoNot olan spanların bulunduğu tablo)
@@ -976,19 +1034,25 @@ def get_grades(
                     }
 
         # Base URL ile diğer verileri çek
-        assignments = get_assignments(session, base_url)
+        assignments = get_assignments(session, base_url, (previous or {}).get("assignments"))
         if assignments is None:
             grades_data["fetch_success"] = False
+            grades_data["failed_sections"].append("assignments")
             assignments = []
 
-        files = get_all_files(session, base_url)
+        files, failed_file_sources = get_all_files_with_status(session, base_url)
         if files is None:
             grades_data["fetch_success"] = False
+            grades_data["failed_sections"].append("files")
             files = []
+        elif failed_file_sources:
+            # Tek kaynak çekilemedi: karşılaştırmada o kaynağın kayıtlı dosyaları korunur.
+            grades_data["failed_file_sources"] = failed_file_sources
 
         announcements = get_announcements(session, base_url)
         if announcements is None:
             grades_data["fetch_success"] = False
+            grades_data["failed_sections"].append("announcements")
             announcements = []
 
         grades_data["assignments"] = assignments
