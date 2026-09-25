@@ -11,6 +11,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from core.ttl_cache import ttl_cache
+
 logger = logging.getLogger("ninova")
 
 _CLUBS_FILE = Path("data") / "ari24_clubs.json"
@@ -125,6 +127,7 @@ class Ari24Client:
 
         return url
 
+    @ttl_cache(10 * 60, ignore_self=True)
     def get_events(self) -> list[dict]:
         """
         Fetches events from ari24.com/etkinlikler.
@@ -264,6 +267,7 @@ class Ari24Client:
 
         return clubs
 
+    @ttl_cache(6 * 3600, ignore_self=True)
     def get_clubs(self, max_pages: int = 20) -> list[str]:
         """Fetches club names from ari24.com/kulupler across multiple pages."""
         try:
@@ -283,6 +287,7 @@ class Ari24Client:
             logger.error(f"Error fetching Arı24 clubs: {e}")  # fix: BUG-E2
             return []
 
+    @ttl_cache(10 * 60, ignore_self=True)
     def get_news(self, limit: int = 5) -> list[dict]:
         """
         Fetches news articles from ari24.com/haberler.

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup
@@ -12,11 +14,38 @@ if TYPE_CHECKING:
 from core.config import console
 from core.http_logging import http_request
 from core.logger import log_with_context
-from core.utils import sanitize_html_for_telegram
+from core.utils import parse_turkish_date, sanitize_html_for_telegram
 
 from .auth import LoginFailedError, login_to_ninova
 
 logger = logging.getLogger("ninova")
+
+# Ödev detay sayfaları her 5 dakikalık döngüde her ödev için yeniden çekiliyordu (N+1).
+# Artık liste satırı değişmediyse kayıtlı detay kullanılır; açıklama/kaynak dosya
+# değişikliklerini yakalamak için detay bu sürelerden eskiyse yine de yenilenir.
+ASSIGNMENT_DETAIL_REFRESH_ACTIVE = 30 * 60  # teslim süresi devam eden ödevler
+ASSIGNMENT_DETAIL_REFRESH_PAST = 24 * 3600  # teslim süresi geçmiş ödevler
+_DETAIL_FIELDS = (
+    "start_date",
+    "end_date",
+    "is_submitted",
+    "description",
+    "source_files",
+    "required_files",
+    "detail_fetched_at",
+)
+
+
+def _needs_detail_refresh(assign: dict, saved: dict | None, now: float) -> bool:
+    """Ödev detay sayfasının yeniden çekilmesi gerekip gerekmediğine karar verir."""
+    if not saved or "source_files" not in saved or "detail_fetched_at" not in saved:
+        return True
+    if saved.get("list_signature") != assign["list_signature"]:
+        return True
+    due = parse_turkish_date(saved.get("end_date", ""))
+    is_past = due is not None and due < datetime.now()
+    max_age = ASSIGNMENT_DETAIL_REFRESH_PAST if is_past else ASSIGNMENT_DETAIL_REFRESH_ACTIVE
+    return now - saved["detail_fetched_at"] >= max_age
 
 
 def _looks_like_login_page(html: str, url: str = "") -> bool:
@@ -327,8 +356,15 @@ def get_assignment_detail(session: requests.Session, url: str) -> dict | None:
         return None
 
 
-def get_assignments(session: requests.Session, base_url: str) -> list[dict] | None:
+def get_assignments(
+    session: requests.Session,
+    base_url: str,
+    previous_assignments: list[dict] | None = None,
+) -> list[dict] | None:
     """Ödevleri çeker.
+
+    previous_assignments verilirse, liste satırı değişmemiş ve detayı taze olan
+    ödevlerin detay sayfası tekrar çekilmez (kayıtlı detay kullanılır).
 
     Ninova ödev listesi HTML yapısı:
     <td>
@@ -484,16 +520,29 @@ def get_assignments(session: requests.Session, base_url: str) -> list[dict] | No
                         "start_date": start_date or "-",
                         "end_date": end_date or "-",
                         "is_submitted": is_submitted,
+                        # Liste sayfasındaki ham değerler; değişirse detay yeniden çekilir.
+                        "list_signature": "|".join(
+                            [name, start_date, end_date, str(is_submitted), assign_url]
+                        ),
                     }
                 )
             except Exception as e:
                 logger.debug(f"Ödev parse hatası: {e}")
                 continue
 
-        # Her ödev için detay sayfasını çek (açıklama, kaynak/istenen dosyalar için)
+        # Detay sayfasını (açıklama, kaynak/istenen dosyalar) sadece gerektiğinde çek
+        saved_by_id = {a.get("id"): a for a in previous_assignments or []}
+        now = time.time()
         for assign in assignments:
+            saved = saved_by_id.get(assign["id"])
+            if not _needs_detail_refresh(assign, saved, now):
+                for key in _DETAIL_FIELDS:
+                    if key in saved:
+                        assign[key] = saved[key]
+                continue
             detail = get_assignment_detail(session, assign["url"])
             if detail:
+                assign["detail_fetched_at"] = now
                 if detail.get("start_date"):
                     assign["start_date"] = detail["start_date"]
                 if detail.get("end_date"):
@@ -784,8 +833,11 @@ def get_grades(
     chat_id: str,
     username: str,
     password: str,
+    previous: dict | None = None,
 ) -> dict | None:
     """Notları çeker. base_url artık /Notlar olmadan gelir.
+
+    previous: bu ders için kayıtlı veri (varsa); gereksiz ödev detayı isteklerini önler.
 
     HTML yapısı (table.data):
     <table class="data">
@@ -975,7 +1027,7 @@ def get_grades(
                     }
 
         # Base URL ile diğer verileri çek
-        assignments = get_assignments(session, base_url)
+        assignments = get_assignments(session, base_url, (previous or {}).get("assignments"))
         if assignments is None:
             grades_data["fetch_success"] = False
             grades_data["failed_sections"].append("assignments")

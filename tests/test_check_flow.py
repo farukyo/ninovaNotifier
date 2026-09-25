@@ -3,6 +3,7 @@
 import pytest
 
 import main
+from bot.callback_parsing import url_token
 from core import storage
 
 
@@ -19,7 +20,7 @@ def _course(**overrides):
                 "end_date": "10 Ocak 2025 23:59",
                 "is_submitted": False,
                 "description": "desc",
-                "source_files": [{"name": "hw1.pdf", "size": "1 MB"}],
+                "source_files": [{"name": "hw1.pdf", "size": "1 MB", "url": "https://s/1"}],
                 "required_files": [],
             }
         ],
@@ -119,8 +120,8 @@ def test_process_user_results_saves_and_notifies(isolated_storage):
     assert "YENİ NOT: Vize -> 80" in changes
     assert "YENİ DOSYA: a.pdf" in changes
     assert len(sent_messages) == 1
-    assert "dl_0_0" in sent_buttons
-    assert "asf_0_0_0" in sent_buttons
+    assert f"dl_0_0_{url_token('https://f/1')}" in sent_buttons
+    assert f"asf_0_0_0_{url_token('https://s/1')}" in sent_buttons
 
     grades = storage.load_saved_grades()
     assert grades["other"] == {"x": {"course_name": "keep me"}}
@@ -139,3 +140,25 @@ def test_process_user_results_silent_sends_nothing(isolated_storage):
     assert sent_messages == []
     assert sent_buttons == []
     assert url in storage.load_saved_grades()["1"]
+
+
+def test_detail_cache_metadata_is_saved_without_notifications(isolated_storage):
+    # Değişiklik olmasa da detail_fetched_at kaydedilmeli; yoksa 30 dk sonra her
+    # döngüde tüm ödev detayları yeniden çekilir.
+    sent_messages, sent_buttons = isolated_storage
+    url = "https://ninova.itu.edu.tr/Sinif/1"
+    main._process_user_results(
+        "1", "user", None, {url: _course(announcements=[])}, silent=True, include_reminders=False
+    )
+
+    refreshed = _course(announcements=[])
+    refreshed["assignments"][0]["detail_fetched_at"] = 12345.0
+    changes = main._process_user_results(
+        "1", "user", None, {url: refreshed}, silent=False, include_reminders=False
+    )
+
+    assert changes == []
+    assert sent_messages == []
+    assert sent_buttons == []
+    saved = storage.load_saved_grades()["1"][url]["assignments"][0]
+    assert saved["detail_fetched_at"] == 12345.0

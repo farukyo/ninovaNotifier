@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import requests
 from bs4 import BeautifulSoup
 
+from core.ttl_cache import ttl_cache
+
 logger = logging.getLogger("ninova")
 
 
@@ -25,6 +27,7 @@ class ITUCalendarService:
     url = "https://www.takvim.sis.itu.edu.tr/AkademikTakvim/TR/akademik-takvim/AkademikTakvimTablo.php"
 
     @staticmethod
+    @ttl_cache(3600)
     def fetch_calendar() -> list[CalendarSection]:
         try:
             response = requests.get(ITUCalendarService.url, timeout=10)

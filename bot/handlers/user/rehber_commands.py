@@ -14,6 +14,7 @@ from bot.keyboards import (
 from bot.utils import is_cancel_text
 from core.config import HEADERS, load_all_users
 from core.http_client import SessionManager
+from core.scheduler import submit_background_task
 from core.utils import decrypt_password, escape_html
 from services.rehber.scraper import RehberScraper
 
@@ -88,7 +89,7 @@ def process_rehber_ad(message):
         return
 
     chat_id = str(message.chat.id)
-    ad = message.text.strip()
+    ad = (message.text or "").strip()
 
     if ad == "Bilinmiyor":
         ad = "   "  # 3 boşluk gönderilecek
@@ -117,7 +118,7 @@ def process_rehber_soyad(message):
         return
 
     chat_id = str(message.chat.id)
-    soyad = message.text.strip()
+    soyad = (message.text or "").strip()
 
     if soyad == "Bilinmiyor":
         soyad = "  "  # 2 boşluk gönderilecek
@@ -144,6 +145,14 @@ def process_rehber_soyad(message):
         reply_markup=build_main_keyboard(),
     )
 
+    # SSO girişi ve arama saniyeler (Retry ile daha da uzun) sürebildiği için polling
+    # thread'ini bloklamamak adına arka planda çalıştırılır.
+    if not submit_background_task("rehber_search", _run_rehber_search, chat_id, ad, soyad):
+        bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
+
+
+def _run_rehber_search(chat_id: str, ad: str, soyad: str) -> None:
+    """Rehber'e giriş yapıp aramayı yürütür ve sonuçları gönderir (arka plan görevi)."""
     # Rehber'e özel oturum (Ninova oturumundan bağımsız)
     _REHBER_SESSIONS.cleanup_inactive_sessions()
     session = _REHBER_SESSIONS.get_session(chat_id, headers=HEADERS)
@@ -168,7 +177,7 @@ def process_rehber_soyad(message):
 
     if not results:
         bot.send_message(
-            message.chat.id,
+            chat_id,
             "❌ Eşleşen kişi bulunamadı. Lütfen bilgileri kontrol edip tekrar deneyin.",
         )
         return
@@ -179,7 +188,7 @@ def process_rehber_soyad(message):
         has_contact_data = any(r.get("email") or r.get("phone") for r in results)
         if not has_contact_data:
             bot.send_message(
-                message.chat.id,
+                chat_id,
                 "⚠️ Rehber'e giriş yapılamadı. Sonuçlar sınırlı olabilir (e-posta/telefon görünmeyebilir).",
             )
 
@@ -201,11 +210,11 @@ def process_rehber_soyad(message):
             markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"rehdept_{idx}"))
         markup.add(types.InlineKeyboardButton("📋 Tümünü Göster", callback_data="rehdept_all"))
 
-        bot.send_message(message.chat.id, msg_text, parse_mode="HTML", reply_markup=markup)
+        bot.send_message(chat_id, msg_text, parse_mode="HTML", reply_markup=markup)
     else:
         # Sadece 1 departman varsa veya çok az kişi varsa direkt sonuçları bas.
         msg_text = format_rehber_results(results, list(range(len(results))))
-        bot.send_message(message.chat.id, msg_text, parse_mode="HTML")
+        bot.send_message(chat_id, msg_text, parse_mode="HTML")
 
 
 def format_rehber_results(results, indices):

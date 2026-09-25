@@ -24,6 +24,7 @@ from telebot import types as tg_types
 
 import core.error_tracker as error_tracker
 from bot import bot, set_check_callback, update_last_check_time
+from bot.callback_parsing import url_token
 from core.config import (
     CHECK_INTERVAL,
     DATA_DIR,
@@ -827,8 +828,23 @@ def _send_file_notifications(
         return
 
     # Buton indeksleri callback handler'larında kayıtlı ders sırasına göre çözülüyor;
-    # kayıt yapıldıktan sonra diskteki sırayı kullan.
-    urls_list = list(load_saved_grades().get(chat_id, {}).keys())
+    # kayıt yapıldıktan sonra diskteki sırayı kullan. Ek olarak dosya URL token'ı
+    # eklenir; sıra sonradan değişse de buton doğru dosyayı bulur.
+    user_grades = load_saved_grades().get(chat_id, {})
+    urls_list = list(user_grades.keys())
+
+    def _file_token(course_url: str, file_idx: int) -> str:
+        files = user_grades.get(course_url, {}).get("files", [])
+        return url_token(files[file_idx].get("url", "")) if file_idx < len(files) else ""
+
+    def _source_token(course_url: str, assign_idx: int, sf_idx: int) -> str:
+        assignments = user_grades.get(course_url, {}).get("assignments", [])
+        if assign_idx >= len(assignments):
+            return ""
+        source_files = assignments[assign_idx].get("source_files", [])
+        if sf_idx >= len(source_files):
+            return ""
+        return url_token(source_files[sf_idx].get("url", ""))
 
     def _send(text: str, callback_data: str, what: str) -> None:
         markup = tg_types.InlineKeyboardMarkup()
@@ -852,7 +868,7 @@ def _send_file_notifications(
         _send(
             f"📚 <b>{escape_html(file_course_name)}</b>\n"
             f"{get_file_icon(basename)} <b>YENİ DOSYA:</b> {escape_html(basename)}",
-            f"dl_{urls_list.index(course_url)}_{file_idx}",
+            f"dl_{urls_list.index(course_url)}_{file_idx}_{_file_token(course_url, file_idx)}",
             "File",
         )
 
@@ -869,7 +885,7 @@ def _send_file_notifications(
         _send(
             f"📚 <b>{escape_html(file_course_name)}</b>\n"
             f"{get_file_icon(basename)} <b>DOSYA {change_type}:</b> {escape_html(basename)}",
-            f"dl_{urls_list.index(course_url)}_{file_idx}",
+            f"dl_{urls_list.index(course_url)}_{file_idx}_{_file_token(course_url, file_idx)}",
             "File update",
         )
 
@@ -891,9 +907,25 @@ def _send_file_notifications(
             f"📅 {escape_html(assign_name)}\n"
             f"{get_file_icon(file_name)} <b>{label}:</b> {escape_html(file_name)} "
             f"({escape_html(file_size)})",
-            f"asf_{urls_list.index(course_url)}_{assign_idx}_{sf_idx}",
+            f"asf_{urls_list.index(course_url)}_{assign_idx}_{sf_idx}_"
+            f"{_source_token(course_url, assign_idx, sf_idx)}",
             "Assignment source file",
         )
+
+
+def _assignment_cache_advanced(updated_courses: dict, saved_courses: dict) -> bool:
+    """Ödevlerin detay önbelleği meta verisi kayıttakinden farklı mı?"""
+
+    def _meta(assignments):
+        return {
+            a.get("id"): (a.get("detail_fetched_at"), a.get("list_signature")) for a in assignments
+        }
+
+    return any(
+        _meta(course.get("assignments", []))
+        != _meta(saved_courses.get(url, {}).get("assignments", []))
+        for url, course in updated_courses.items()
+    )
 
 
 def _process_user_results(
@@ -976,6 +1008,10 @@ def _process_user_results(
         }
 
     if not all_changes:
+        # Değişiklik yoksa bile ödev detay önbelleği (detail_fetched_at/list_signature)
+        # ilerlediyse sessizce kaydet; aksi halde detaylar her döngüde yeniden çekilir.
+        if _assignment_cache_advanced(updated_courses, user_saved_grades):
+            update_user_grades(chat_id, updated_courses)
         return all_changes
 
     # Önce kaydet, sonra bildir: gönderim sırasında hata olursa bir sonraki kontrolde
@@ -1105,6 +1141,7 @@ def _check_user_updates_locked(
     # Get user session (managed by SessionManager)
     user_session = get_user_session(chat_id)
     all_current_grades = {}
+    saved = load_saved_grades().get(chat_id, {})
 
     with Progress(
         SpinnerColumn(),
@@ -1123,7 +1160,9 @@ def _check_user_updates_locked(
         task = progress.add_task(scan_msg, total=len(urls_to_scan))
         for url in urls_to_scan:
             try:
-                grades = get_grades(user_session, url, chat_id, username, password)
+                grades = get_grades(
+                    user_session, url, chat_id, username, password, previous=saved.get(url)
+                )
                 if grades:
                     all_current_grades[url] = grades
             except LoginFailedError as e:
@@ -1198,12 +1237,15 @@ def check_for_updates():
 
     Yeni veya güncellenmiş içerik varsa Telegram bildirim gönderir.
     Başka bir genel kontrol sürüyorsa (ör. admin force + ana döngü) hemen döner.
+
+    :return: Kontrol çalıştıysa True, başka kontrol sürdüğü için atlandıysa False
     """
     if not _GLOBAL_CHECK_LOCK.acquire(blocking=False):
         logger.warning("Genel kontrol zaten çalışıyor, bu istek atlandı.")
-        return
+        return False
     try:
         _check_for_updates_locked()
+        return True
     finally:
         _GLOBAL_CHECK_LOCK.release()
 
@@ -1295,6 +1337,7 @@ def _check_single_user(chat_id: str, user_data: dict, changes_table: Table) -> l
 
     # Get user session (managed by SessionManager)
     user_session = get_user_session(chat_id)
+    saved = load_saved_grades().get(chat_id, {})
 
     all_current_grades = {}
     with Progress(
@@ -1314,7 +1357,15 @@ def _check_single_user(chat_id: str, user_data: dict, changes_table: Table) -> l
         # Paralel tarama için ThreadPoolExecutor kullan
         with ThreadPoolExecutor(max_workers=5) as executor:
             future_to_url = {
-                executor.submit(get_grades, user_session, url, chat_id, username, password): url
+                executor.submit(
+                    get_grades,
+                    user_session,
+                    url,
+                    chat_id,
+                    username,
+                    password,
+                    previous=saved.get(url),
+                ): url
                 for url in urls
             }
 

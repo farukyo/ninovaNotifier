@@ -4,7 +4,13 @@ import math
 
 from telebot import types
 
-from bot.callback_parsing import callback_parse_fail, parse_int_part, split_callback_data
+from bot.callback_parsing import (
+    callback_parse_fail,
+    find_assignment_source_file,
+    find_course_file,
+    parse_int_part,
+    split_callback_data,
+)
 from bot.handlers.user.audit import log_user_action, new_user_request_id
 from bot.handlers.user.data_helpers import load_user_grades, load_user_profile, load_user_snapshot
 from bot.inline_keyboards import build_manual_menu
@@ -403,33 +409,21 @@ def handle_file_download(call):
 
         _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
-        if url_idx >= len(urls):
+        # dl_{ders}_{dosya}[_{url_token}] — token eski bildirimlerde yok olabilir.
+        token = parts[3] if len(parts) > 3 else None
+        file_data = find_course_file(user_grades, urls, url_idx, file_idx, token)
+        if file_data is None:
             log_user_action(
                 chat_id,
                 "file_download",
-                status="invalid_course_index",
+                status="file_not_found",
                 request_id=request_id,
-                details=f"url_idx={url_idx};urls={len(urls)}",
+                details=f"url_idx={url_idx};file_idx={file_idx};token={token}",
                 level="warning",
             )
-            bot.answer_callback_query(call.id, "Kurs bulunamadı.")
+            bot.answer_callback_query(call.id, "Dosya bulunamadı (ders listesi değişmiş olabilir).")
             return
 
-        course_url = urls[url_idx]
-        files = user_grades[course_url].get("files", [])
-        if file_idx >= len(files):
-            log_user_action(
-                chat_id,
-                "file_download",
-                status="invalid_file_index",
-                request_id=request_id,
-                details=f"file_idx={file_idx};files={len(files)}",
-                level="warning",
-            )
-            bot.answer_callback_query(call.id, "Dosya bulunamadı.")
-            return
-
-        file_data = files[file_idx]
         file_url = file_data["url"]
         file_name = (
             file_data["name"] if "/" not in file_data["name"] else file_data["name"].split("/")[-1]
@@ -567,22 +561,15 @@ def handle_assignment_source_file_download(call):
 
         _user_data, user_grades, urls = load_user_snapshot(chat_id, urls_source="grades")
 
-        if url_idx >= len(urls):
-            bot.answer_callback_query(call.id, "Kurs bulunamadı.")
+        # asf_{ders}_{ödev}_{dosya}[_{url_token}]
+        token = parts[4] if len(parts) > 4 else None
+        file_data = find_assignment_source_file(
+            user_grades, urls, url_idx, assign_idx, file_idx, token
+        )
+        if file_data is None:
+            bot.answer_callback_query(call.id, "Dosya bulunamadı (ödev listesi değişmiş olabilir).")
             return
 
-        course_url = urls[url_idx]
-        assignments = user_grades[course_url].get("assignments", [])
-        if assign_idx >= len(assignments):
-            bot.answer_callback_query(call.id, "Ödev bulunamadı.")
-            return
-
-        source_files = assignments[assign_idx].get("source_files", [])
-        if file_idx >= len(source_files):
-            bot.answer_callback_query(call.id, "Dosya bulunamadı.")
-            return
-
-        file_data = source_files[file_idx]
         file_url = file_data["url"]
         file_name = file_data["name"].split("/")[-1]
 

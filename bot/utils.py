@@ -9,6 +9,7 @@ from collections import OrderedDict
 
 from telebot import types
 
+from bot.callback_parsing import url_token
 from bot.instance import bot_instance as bot
 from core.logger import log_with_context
 from core.utils import escape_html, get_file_icon, load_saved_grades
@@ -215,7 +216,7 @@ def show_file_browser(
     for real_idx, file in file_entries:
         basename = file["name"].split("/")[-1]
         icon = get_file_icon(basename)
-        callback_data = f"dl_{course_idx}_{real_idx}"
+        callback_data = f"dl_{course_idx}_{real_idx}_{url_token(file['url'])}"
         _log_callback_size(callback_data, str(chat_id), "file_browser_download")
         markup.add(types.InlineKeyboardButton(f"{icon} {basename}", callback_data=callback_data))
 

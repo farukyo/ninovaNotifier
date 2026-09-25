@@ -119,9 +119,20 @@ def handle_admin_callbacks(call):
         if cb:
             log_admin_action(chat_id, "force_check", status="started", request_id=request_id)
             bot.send_message(chat_id, "🔄 Kontrol başlatılıyor...")
-            cb()
-            bot.send_message(chat_id, "✅ Kontrol tamamlandı.")
-            log_admin_action(chat_id, "force_check", status="completed", request_id=request_id)
+
+            def _run_force_check():
+                # Tam tarama dakikalar sürebilir; eskiden polling thread'inde senkron
+                # çalışıyor ve bot bu sürede kimseye yanıt veremiyordu.
+                if cb() is False:
+                    bot.send_message(chat_id, "⏳ Zaten çalışan bir kontrol var; bu istek atlandı.")
+                    status = "skipped"
+                else:
+                    bot.send_message(chat_id, "✅ Kontrol tamamlandı.")
+                    status = "completed"
+                log_admin_action(chat_id, "force_check", status=status, request_id=request_id)
+
+            if not submit_background_task("admin_force_check", _run_force_check):
+                bot.send_message(chat_id, "⏳ Sistem yoğun, lütfen biraz sonra tekrar deneyin.")
         else:
             bot.send_message(chat_id, "❌ Kontrol sistemi hazır değil.")
             log_admin_action(
