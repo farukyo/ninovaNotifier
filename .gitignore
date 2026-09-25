@@ -58,3 +58,4 @@ task.md
 # Shared project commands and review agents are versioned; local settings stay ignored.
 !.claude/commands/
 !.claude/agents/
+!.claude/CLAUDE.md
